@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use host_rt::passthrough_queue::{McuHandle, PassthroughRouter};
 use runtime::piece_ring::{MAX_PIECE_COEFFS, PieceEntry};
 
-use crate::kinematics::{KinematicsKind, KinematicsModule};
+use crate::kinematics::KinematicsModule;
 use crate::types::AxisKey;
 
 pub const HISTORY_CAPACITY: usize = 4096;
@@ -114,6 +114,16 @@ pub struct AxisState {
     pub acceleration: f64,
 }
 
+impl AxisState {
+    /// Stand-in for a lane an axis does not read. Its kinematics weight is
+    /// zero, so these values cannot reach the reconstructed axis.
+    const AT_REST: Self = Self {
+        position: 0.0,
+        velocity: 0.0,
+        acceleration: 0.0,
+    };
+}
+
 /// `motor_state[i]` is the retained-history answer for motor axis `i`
 /// (0=first CoreXY/Cartesian motor, 1=second, 2=Z, 3=extruder) — the
 /// lowerer's output frame, e.g. CoreXY A/B, not cartesian X/Y. Inverts
@@ -140,26 +150,25 @@ pub fn assemble_cartesian_state(
             (z.position, z.velocity, z.acceleration),
         );
     }
-    match kin.kind() {
-        KinematicsKind::Cartesian => {
-            for (axis, name) in AXIS_NAMES.iter().enumerate().take(2) {
-                if let Some(st) = motor_state[axis] {
-                    out.insert(
-                        (*name).to_string(),
-                        (st.position, st.velocity, st.acceleration),
-                    );
-                }
+    for axis in 0..2 {
+        let feeding = kin.lanes_feeding_axis(axis);
+        let lane_state = |lane: usize| {
+            if feeding[lane] {
+                motor_state[lane]
+            } else {
+                Some(AxisState::AT_REST)
             }
-        }
-        KinematicsKind::CoreXy => {
-            if let (Some(m0), Some(m1)) = (motor_state[0], motor_state[1]) {
-                let pos = kin.inverse([m0.position, m1.position, 0.0]);
-                let vel = kin.inverse([m0.velocity, m1.velocity, 0.0]);
-                let accel = kin.inverse([m0.acceleration, m1.acceleration, 0.0]);
-                out.insert(AXIS_NAMES[0].to_string(), (pos[0], vel[0], accel[0]));
-                out.insert(AXIS_NAMES[1].to_string(), (pos[1], vel[1], accel[1]));
-            }
-        }
+        };
+        let (Some(m0), Some(m1)) = (lane_state(0), lane_state(1)) else {
+            continue;
+        };
+        let pos = kin.inverse([m0.position, m1.position, 0.0]);
+        let vel = kin.inverse([m0.velocity, m1.velocity, 0.0]);
+        let accel = kin.inverse([m0.acceleration, m1.acceleration, 0.0]);
+        out.insert(
+            AXIS_NAMES[axis].to_string(),
+            (pos[axis], vel[axis], accel[axis]),
+        );
     }
     out
 }

@@ -2,48 +2,76 @@ use super::{
     homing_api::{history_state_at_query, required_motor_axes},
     planner_api::motion_history_host_now,
 };
-use crate::kinematics::KinematicsKind;
+use crate::kinematics::KinematicsModule;
 use crate::{motion_history::HistoryStore, types::AxisKey};
 use runtime::piece_ring::{MAX_PIECE_COEFFS, PieceEntry};
 
+fn kin(kind: &str) -> KinematicsModule {
+    let tag = match kind {
+        "corexy" => runtime::segment::KinematicTag::CoreXy,
+        "cartesian" => runtime::segment::KinematicTag::Cartesian,
+        "markforged" => runtime::segment::KinematicTag::Markforged,
+        other => panic!("unknown kinematics {other}"),
+    };
+    KinematicsModule::from_tag(tag as u8).expect("known tag")
+}
+
 #[test]
 fn unfiltered_query_requires_every_motor_axis() {
-    assert_eq!(
-        required_motor_axes(KinematicsKind::Cartesian, None),
-        Ok([true; 4])
-    );
+    assert_eq!(required_motor_axes(&kin("cartesian"), None), Ok([true; 4]));
 }
 
 #[test]
 fn corexy_position_query_requires_both_coupled_motors() {
     assert_eq!(
-        required_motor_axes(KinematicsKind::CoreXy, Some(0)),
+        required_motor_axes(&kin("corexy"), Some(0)),
         Ok([true, true, false, false])
     );
     assert_eq!(
-        required_motor_axes(KinematicsKind::CoreXy, Some(1)),
+        required_motor_axes(&kin("corexy"), Some(1)),
         Ok([true, true, false, false])
+    );
+}
+
+#[test]
+fn markforged_x_needs_one_lane_and_y_needs_both() {
+    assert_eq!(
+        required_motor_axes(&kin("markforged"), Some(0)),
+        Ok([true, false, false, false])
+    );
+    assert_eq!(
+        required_motor_axes(&kin("markforged"), Some(1)),
+        Ok([true, true, false, false])
+    );
+}
+
+#[test]
+fn cartesian_query_requires_only_its_own_motor() {
+    assert_eq!(
+        required_motor_axes(&kin("cartesian"), Some(0)),
+        Ok([true, false, false, false])
+    );
+    assert_eq!(
+        required_motor_axes(&kin("cartesian"), Some(1)),
+        Ok([false, true, false, false])
     );
 }
 
 #[test]
 fn extrusion_query_ignores_unrelated_spatial_motors() {
     assert_eq!(
-        required_motor_axes(KinematicsKind::CoreXy, Some(3)),
+        required_motor_axes(&kin("corexy"), Some(3)),
         Ok([false, false, false, true])
     );
     assert_eq!(
-        required_motor_axes(KinematicsKind::Cartesian, Some(3)),
+        required_motor_axes(&kin("cartesian"), Some(3)),
         Ok([false, false, false, true])
     );
 }
 
 #[test]
 fn unknown_axis_fails_loudly() {
-    assert_eq!(
-        required_motor_axes(KinematicsKind::Cartesian, Some(4)),
-        Err(4)
-    );
+    assert_eq!(required_motor_axes(&kin("cartesian"), Some(4)), Err(4));
 }
 
 #[test]

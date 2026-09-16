@@ -120,6 +120,27 @@ def cartesian_sections():
     }
 
 
+def markforged_sections():
+    return {
+        "printer": {"max_velocity": 300, "max_accel": 3000},
+        "kinematics": {
+            "type": "markforged",
+            "axis_x": "x",
+            "axis_y": "y",
+            "axis_z": "z",
+            "x_motors": "x",
+            "y_motors": "y",
+            "z_motors": "z",
+        },
+        "axis x": axis_section(),
+        "axis y": axis_section(),
+        "axis z": axis_section(position_max=200.0),
+        "motor x": motor_section(),
+        "motor y": motor_section(),
+        "motor z": motor_section(),
+    }
+
+
 def sections_to_text(sections):
     lines = []
     for name, options in sections.items():
@@ -543,3 +564,62 @@ def test_clear_parked_dirty_subset():
     kin._parked_dirty = [True, False, True]
     kin.clear_parked_dirty([0])
     assert kin.parked_dirty_axes() == [2]
+
+
+def test_markforged_section_parses_roles_and_motors():
+    kin = make_kin(markforged_sections())
+    assert kin.kind == "markforged"
+    assert kin.claimed_axes() == ["x", "y", "z"]
+    assert kin.lanes()[0] == (0, "x", ["x"])
+    assert kin.lanes()[1] == (1, "y", ["y"])
+
+
+def test_markforged_couples_xy_like_corexy_does():
+    kin = make_kin(markforged_sections())
+    assert kin.coupled_xy() is True
+    assert kin.kin_tag() == motion_kinematics._KIN_MARKFORGED
+
+
+def test_markforged_x_reaches_one_lane_and_y_reaches_both():
+    kin = make_kin(markforged_sections())
+    assert kin.axis_drives_one_lane(0) is True
+    assert kin.axis_drives_one_lane(1) is False
+    assert kin.lanes_driven_by_axis(0) == [True, False, False]
+    assert kin.lanes_driven_by_axis(1) == [True, True, False]
+
+
+def test_markforged_x_move_leaves_the_y_lane_parked():
+    kin = make_kin(markforged_sections())
+    assert kin.active_rails(1.0, 0.0, 0.0) == [kin.rails[0]]
+    assert kin.active_rails(0.0, 1.0, 0.0) == [kin.rails[0], kin.rails[1]]
+    assert kin.active_rails(0.0, 0.0, 1.0) == [kin.rails[2]]
+
+
+def test_markforged_calc_position_unwinds_the_t_belt():
+    kin = make_kin(markforged_sections())
+    coupling = motion_kinematics.MARKFORGED_Y_COUPLING
+    positions = {"x": 10.0 + coupling * 4.0, "y": 4.0, "z": 7.0}
+    assert kin.calc_position(positions) == [10.0, 4.0, 7.0]
+
+
+def test_markforged_mcu_tag_is_cartesian_when_the_lanes_are_split():
+    kin = make_kin(markforged_sections())
+    assert kin.mcu_tag([0, 1, 2]) == motion_kinematics._KIN_MARKFORGED
+    assert kin.mcu_tag([0]) == motion_kinematics._KIN_CARTESIAN
+
+
+def test_corexy_and_cartesian_calc_position_are_unchanged():
+    corexy = make_kin(corexy_sections())
+    assert corexy.calc_position(
+        {"a": 14.0, "b": 6.0, "z0": 3.0, "z1": 3.0}
+    ) == [
+        10.0,
+        4.0,
+        3.0,
+    ]
+    cartesian = make_kin(cartesian_sections())
+    assert cartesian.calc_position({"x": 1.0, "y": 2.0, "z": 3.0}) == [
+        1.0,
+        2.0,
+        3.0,
+    ]

@@ -2,6 +2,51 @@ from . import stepper
 
 _KIN_COREXY = 0
 _KIN_CARTESIAN = 1
+_KIN_MARKFORGED = 2
+
+# Mirrors MARKFORGED_Y_COUPLING in rust/motion-core/src/kinematics.rs; the
+# two must agree or the host and the planner disagree about the machine.
+MARKFORGED_Y_COUPLING = 1.0
+
+# Row L of AXIS_TO_MOTOR gives motor lane L's position as a weighted sum of
+# (x, y, z); row A of MOTOR_TO_AXIS recovers axis A from the lanes. Mirrors
+# KinematicsModule in rust/motion-core/src/kinematics.rs.
+_AXIS_TO_MOTOR = {
+    "cartesian": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+    "corexy": ((1.0, 1.0, 0.0), (1.0, -1.0, 0.0), (0.0, 0.0, 1.0)),
+    "markforged": (
+        (1.0, MARKFORGED_Y_COUPLING, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0),
+    ),
+}
+_MOTOR_TO_AXIS = {
+    "cartesian": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+    "corexy": ((0.5, 0.5, 0.0), (0.5, -0.5, 0.0), (0.0, 0.0, 1.0)),
+    "markforged": (
+        (1.0, -MARKFORGED_Y_COUPLING, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0),
+    ),
+}
+_KIN_TAGS = {
+    "corexy": _KIN_COREXY,
+    "cartesian": _KIN_CARTESIAN,
+    "markforged": _KIN_MARKFORGED,
+}
+
+
+def axis_to_motor_weights(kind):
+    return _AXIS_TO_MOTOR[kind]
+
+
+def kin_tag_for(kind):
+    return _KIN_TAGS[kind]
+
+
+def lanes_driven_by_axis(kind, axis):
+    """Motor lanes whose position changes when `axis` alone moves."""
+    return [row[axis] != 0.0 for row in _AXIS_TO_MOTOR[kind]]
 
 
 def load_kinematics(config, motion):
@@ -52,6 +97,10 @@ class _LinearKinematics:
             rail.setup_itersolve(
                 "corexy_stepper_alloc", b"+" if lane_idx == 0 else b"-"
             )
+        elif self.kind == "markforged" and lane_idx < 2:
+            rail.setup_itersolve(
+                "markforged_stepper_alloc", b"x" if lane_idx == 0 else b"y"
+            )
         else:
             rail.setup_itersolve(
                 "cartesian_stepper_alloc", "xyz"[lane_idx].encode()
@@ -99,22 +148,39 @@ class _LinearKinematics:
     def lanes(self):
         return self._lanes
 
+    def lanes_driven_by_axis(self, axis):
+        return lanes_driven_by_axis(self.kind, axis)
+
+    def axis_drives_one_lane(self, axis):
+        return sum(self.lanes_driven_by_axis(axis)) == 1
+
     def coupled_xy(self):
-        return self.kind == "corexy"
+        return not (
+            self.axis_drives_one_lane(0) and self.axis_drives_one_lane(1)
+        )
+
+    def kin_tag(self):
+        return kin_tag_for(self.kind)
 
     def mcu_tag(self, lanes_on_mcu):
         on_mcu = set(lanes_on_mcu)
         if self.coupled_xy() and 0 in on_mcu and 1 in on_mcu:
-            return _KIN_COREXY
+            return self.kin_tag()
         return _KIN_CARTESIAN
 
     def get_steppers(self):
         return [s for rail in self.rails for s in rail.get_steppers()]
 
     def active_rails(self, dx, dy, dz):
-        moved = [abs(dx) > 1e-9, abs(dy) > 1e-9, abs(dz) > 1e-9]
-        if self.coupled_xy():
-            moved[0] = moved[1] = moved[0] or moved[1]
+        axis_moved = [abs(dx) > 1e-9, abs(dy) > 1e-9, abs(dz) > 1e-9]
+        weights = axis_to_motor_weights(self.kind)
+        moved = [
+            any(
+                weight != 0.0 and axis_moved[axis]
+                for axis, weight in enumerate(lane_weights)
+            )
+            for lane_weights in weights
+        ]
         return [
             self.rails[lane_idx]
             for lane_idx, _, _ in self._lanes
@@ -131,15 +197,11 @@ class _LinearKinematics:
                 return 0.0
             return sum(vals) / len(vals)
 
-        if self.coupled_xy():
-            a = rail_pos(self.rails[0])
-            b = rail_pos(self.rails[1])
-            return [
-                (a + b) * 0.5,
-                (a - b) * 0.5,
-                rail_pos(self.rails[2]),
-            ]
-        return [rail_pos(rail) for rail in self.rails]
+        lanes = [rail_pos(rail) for rail in self.rails]
+        return [
+            sum(weight * lanes[lane] for lane, weight in enumerate(row))
+            for row in _MOTOR_TO_AXIS[self.kind]
+        ]
 
     def _check_endstops(self, move):
         end_pos = move.end_pos

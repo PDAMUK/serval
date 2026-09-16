@@ -112,9 +112,7 @@ def make_diff_trim(config_values=None, rails=None):
             node_slots.setdefault(m.node_name, {})[m.motor_name] = m.chain_index
     objs = {
         "gcode": FakeGcode(),
-        "toolhead": FakeToolhead(
-            FakeKin(rails or awd_rails(), coupled_xy=True)
-        ),
+        "toolhead": FakeToolhead(FakeKin(rails or awd_rails(), kind="corexy")),
         "motion_engine": engine,
         "configfile": FakeConfigfile(),
     }

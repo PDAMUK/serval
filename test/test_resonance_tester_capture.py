@@ -219,7 +219,7 @@ def test_run_test_brackets_servo_capture_around_buzz():
     toolhead.kin = FakeKin(
         rails=rails,
         lanes=[(i, rail.axis, rail.motors) for i, rail in enumerate(rails)],
-        coupled_xy=True,
+        kind="corexy",
     )
     scap = printer.objects["servo_capture"]
     gcmd = FakeGcmd(error=RuntimeError)

@@ -206,6 +206,55 @@ fn corexy(extra: &str) -> String {
     format!("{MINIMAL}{COREXY_TOPOLOGY}{extra}")
 }
 
+const MARKFORGED_TOPOLOGY: &str = "\
+[kinematics]
+type: markforged
+axis_x: x
+axis_y: y
+axis_z: z
+x_motors: a
+y_motors: b
+z_motors: z0, z1
+
+[axis x]
+[axis y]
+[axis z]
+
+[motor a]
+drive: stepper
+[motor b]
+drive: stepper
+[motor z0]
+drive: stepper
+[motor z1]
+drive: stepper
+";
+
+#[test]
+fn markforged_topology_parses_lanes_and_claimed_axes() {
+    use crate::from_doc::Drive;
+    let kin = settings(&format!("{MINIMAL}{MARKFORGED_TOPOLOGY}"))
+        .kinematics
+        .expect("declared");
+    assert_eq!(kin.kind, "markforged");
+    assert_eq!(kin.claimed_axes(), ["x", "y", "z"]);
+    assert_eq!(kin.lanes.len(), 3);
+    assert_eq!(kin.lanes[0].axis, "x");
+    assert_eq!(kin.lanes[0].motors, ["a"]);
+    assert_eq!(kin.lanes[0].drive, Drive::Stepper);
+    assert_eq!(kin.lanes[1].axis, "y");
+    assert_eq!(kin.lanes[1].motors, ["b"]);
+    assert_eq!(kin.lanes[2].motors, ["z0", "z1"]);
+    assert!(kin.followers.is_empty());
+}
+
+#[test]
+fn markforged_rejects_the_corexy_role_names() {
+    let err =
+        read_err(&format!("{MINIMAL}{MARKFORGED_TOPOLOGY}").replace("x_motors: a", "a_motors: a"));
+    assert!(err.contains("x_motors"), "{err}");
+}
+
 #[test]
 fn kinematics_absent_reads_as_none() {
     assert!(settings(MINIMAL).kinematics.is_none());
@@ -239,7 +288,8 @@ fn unknown_kinematics_type_lists_supported() {
     let err = read_err(&corexy("").replace("type: corexy", "type: hybrid_corexy"));
     assert_eq!(
         err,
-        "[kinematics] type 'hybrid_corexy' is not supported (supported: cartesian, corexy)"
+        "[kinematics] type 'hybrid_corexy' is not supported \
+(supported: cartesian, corexy, markforged)"
     );
 }
 

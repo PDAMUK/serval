@@ -419,10 +419,10 @@ def rail_motors_in_slot_order(rail):
 
 
 def corexy_fit_layout(gcmd, kin):
-    if not kin.coupled_xy():
+    if kin.kind != "corexy":
         raise gcmd.error(
-            "corexy fit layout requires coupled_xy kinematics; the active "
-            "kinematics is cartesian"
+            "corexy fit layout requires corexy kinematics; the active "
+            "kinematics is %s" % (kin.kind,)
         )
     rails = list(kin.rails[:2])
     if not all(isinstance(rail, ServoRail) for rail in rails):

@@ -1,29 +1,38 @@
 import math
 
+from .. import motion_kinematics
+
 MOTOR_A = 0b001
 MOTOR_B = 0b010
 MOTOR_Z = 0b100
 
 
-def buzz_axis_to_motor_mask(axis, coupled):
+def buzz_axis_to_motor_mask(axis, kind):
+    """Motor lanes a single-axis buzz drives, and which of them run anti-phase.
+
+    Read straight off the kinematics matrix: a lane weighted zero for this
+    axis stays still, and a negative weight means it travels against the
+    lanes carrying a positive one."""
     axis = axis.lower()
-    if coupled:
-        corexy_in_phase = (MOTOR_A | MOTOR_B, 0)
-        corexy_anti_phase = (MOTOR_A | MOTOR_B, MOTOR_B)
-        mapping = {
-            "x": corexy_in_phase,
-            "y": corexy_anti_phase,
-            "z": (MOTOR_Z, 0),
-        }
-    else:
-        mapping = {
-            "x": (MOTOR_A, 0),
-            "y": (MOTOR_B, 0),
-            "z": (MOTOR_Z, 0),
-        }
-    if axis not in mapping:
+    if axis not in ("x", "y", "z"):
         raise ValueError("unsupported buzz axis %r" % (axis,))
-    return mapping[axis]
+    axis_index = "xyz".index(axis)
+    axis_mask = 0
+    sign_mask = 0
+    for lane, weights in enumerate(
+        motion_kinematics.axis_to_motor_weights(kind)
+    ):
+        weight = weights[axis_index]
+        if weight == 0.0:
+            continue
+        axis_mask |= 1 << lane
+        if weight < 0.0:
+            sign_mask |= 1 << lane
+    return axis_mask, sign_mask
+
+
+def _buzz_kind(kin):
+    return getattr(kin, "kind", None) or "cartesian"
 
 
 def _servo_buzz_targets(motion, axis_mask, sign_mask):
@@ -36,7 +45,7 @@ def _servo_buzz_targets(motion, axis_mask, sign_mask):
             rail = motion.kin.rails[lane_idx]
             if not isinstance(rail, servo_axis.ServoRail):
                 continue
-            rail_mask, _ = buzz_axis_to_motor_mask(rail.axis, False)
+            rail_mask, _ = buzz_axis_to_motor_mask(rail.axis, "cartesian")
             if not (axis_mask & rail_mask):
                 continue
             stepper_mask &= ~rail_mask
@@ -141,14 +150,13 @@ def servo_buzz_motor_names(printer, axis_name):
     lanes = getattr(kin, "lanes", None)
     if lanes is None:
         return []
-    coupled = bool(getattr(kin, "coupled_xy", lambda: False)())
-    axis_mask, _ = buzz_axis_to_motor_mask(axis_name, coupled)
+    axis_mask, _ = buzz_axis_to_motor_mask(axis_name, _buzz_kind(kin))
     names = []
     for lane_idx, _axis_name, _motors in lanes():
         rail = kin.rails[lane_idx]
         if not isinstance(rail, servo_axis.ServoRail):
             continue
-        rail_mask, _ = buzz_axis_to_motor_mask(rail.axis, False)
+        rail_mask, _ = buzz_axis_to_motor_mask(rail.axis, "cartesian")
         if axis_mask & rail_mask:
             names.extend(m.get_motor_name() for m in rail.get_motors())
     return names
@@ -203,9 +211,9 @@ class ResonanceBuzz:
         toolhead = self.printer.lookup_object("toolhead")
         motion = self.printer.lookup_object("motion")
         kin = toolhead.get_kinematics()
-        coupled = bool(getattr(kin, "coupled_xy", lambda: False)())
+        kin_kind = _buzz_kind(kin)
         try:
-            axis_mask, sign_mask = buzz_axis_to_motor_mask(axis_name, coupled)
+            axis_mask, sign_mask = buzz_axis_to_motor_mask(axis_name, kin_kind)
         except ValueError as e:
             raise gcmd.error(str(e))
 
@@ -245,9 +253,10 @@ class ResonanceBuzz:
             int(round(ramp * 1000.0)),
         )
         phasing = ""
-        if coupled and axis_name in ("x", "y"):
-            phasing = " (corexy A/B %s)" % (
-                "in-phase" if axis_name == "x" else "anti-phase"
+        if bin(axis_mask).count("1") > 1:
+            phasing = " (%s lanes %s)" % (
+                kin_kind,
+                "anti-phase" if sign_mask else "in-phase",
             )
         if abs(freq_end - freq_start) < 1e-6:
             freq_desc = "freq=%.1fHz" % (freq_start,)

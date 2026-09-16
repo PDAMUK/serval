@@ -16,7 +16,7 @@ const UNSUPPORTED_PRINTER_KEYS: [&str; 2] = ["max_accel_to_decel", "minimum_crui
 const LEGACY_STEPPER_AXES: [char; 5] = ['x', 'y', 'z', 'a', 'b'];
 const LEGACY_SERVO_SECTIONS: [&str; 3] = ["servo_x", "servo_y", "servo_z"];
 const MOTION_SLOT_COUNT: usize = 4;
-const KINEMATICS_ROLES: [(&str, [(&str, &str); 3]); 2] = [
+const KINEMATICS_ROLES: [(&str, [(&str, &str); 3]); 3] = [
     (
         "cartesian",
         [
@@ -30,6 +30,14 @@ const KINEMATICS_ROLES: [(&str, [(&str, &str); 3]); 2] = [
         [
             ("a_motors", "axis_x"),
             ("b_motors", "axis_y"),
+            ("z_motors", "axis_z"),
+        ],
+    ),
+    (
+        "markforged",
+        [
+            ("x_motors", "axis_x"),
+            ("y_motors", "axis_y"),
             ("z_motors", "axis_z"),
         ],
     ),

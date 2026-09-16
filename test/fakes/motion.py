@@ -1,3 +1,6 @@
+from klippy import motion_kinematics
+
+
 class FakeKin:
     def __init__(
         self,
@@ -37,6 +40,18 @@ class FakeKin:
         self.parked = []
         self.checked = []
 
+    def _kind(self):
+        return self.kind or "cartesian"
+
+    def lanes_driven_by_axis(self, axis):
+        return motion_kinematics.lanes_driven_by_axis(self._kind(), axis)
+
+    def axis_drives_one_lane(self, axis):
+        return sum(self.lanes_driven_by_axis(axis)) == 1
+
+    def kin_tag(self):
+        return motion_kinematics.kin_tag_for(self._kind())
+
     def coupled_xy(self):
         return self._coupled_xy
 
@@ -49,8 +64,8 @@ class FakeKin:
     def mcu_tag(self, lanes_on_mcu):
         on_mcu = set(lanes_on_mcu)
         if self.coupled_xy() and 0 in on_mcu and 1 in on_mcu:
-            return 0
-        return 1
+            return self.kin_tag()
+        return motion_kinematics.kin_tag_for("cartesian")
 
     def get_steppers(self):
         if self._get_steppers_result is not None:

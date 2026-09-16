@@ -71,16 +71,17 @@ def _kin(mcu, motor_names, axis="x", kind="cartesian", second_mcu=None):
     return FakeKin(rails=rails, kind=kind, lanes=lanes)
 
 
-def _resolve(endstop_pin, kin, pins, printer=None):
+def _resolve(endstop_pin, kin, pins, printer=None, axis="x"):
     printer = printer if printer is not None else FakePrinter()
     query_endstops = RecordingQueryEndstops()
     printer.add_object("pins", pins)
     printer.add_object("query_endstops", query_endstops)
+    section = "axis " + axis
     axis_config = FakeConfig(
-        printer=printer, name="axis x", values={"endstop_pin": endstop_pin}
+        printer=printer, name=section, values={"endstop_pin": endstop_pin}
     )
     config = FakeConfig(
-        printer=printer, name="printer", sections={"axis x": axis_config}
+        printer=printer, name="printer", sections={section: axis_config}
     )
     homing = Homing.__new__(Homing)
     homing.printer = printer
@@ -96,11 +97,12 @@ def _keyed_setup(
     kind="cartesian",
     pin_chips=None,
     lane_second_mcu=False,
+    axis="x",
 ):
     printer = FakePrinter()
     mcu = _mcu(printer, stepping_mode=stepping_mode)
     second = _mcu(printer, name="mcu2") if lane_second_mcu else None
-    kin = _kin(mcu, list(motor_names), kind=kind, second_mcu=second)
+    kin = _kin(mcu, list(motor_names), axis=axis, kind=kind, second_mcu=second)
     chips = pin_chips if pin_chips is not None else {}
     chips.setdefault("PA0", (mcu, "mcu"))
     chips.setdefault("PA1", (mcu, "mcu"))
@@ -157,8 +159,30 @@ def test_keyed_endstop_duplicate_motor_key_is_rejected():
 
 def test_keyed_endstop_on_corexy_shared_lane_is_rejected():
     printer, mcu, kin, pins, pin_text = _keyed_setup(KEYED_PINS, kind="corexy")
-    with pytest.raises(FakeConfigError, match="shared lane"):
+    with pytest.raises(FakeConfigError, match="several motor lanes"):
         _resolve(pin_text, kin, pins, printer)
+
+
+def test_keyed_endstop_on_markforged_x_lane_is_allowed():
+    printer, mcu, kin, pins, pin_text = _keyed_setup(
+        KEYED_PINS, kind="markforged"
+    )
+    homing, _ = _resolve(pin_text, kin, pins, printer)
+    assert [e.motor_name for e in entry_endstops(homing._axes[0])] == [
+        "stepper_x",
+        "stepper_x1",
+    ]
+
+
+def test_keyed_endstop_on_markforged_y_lane_is_rejected():
+    printer, mcu, kin, pins, pin_text = _keyed_setup(
+        "\nstepper_y: PA0\nstepper_y1: PA1\n",
+        motor_names=("stepper_y", "stepper_y1"),
+        kind="markforged",
+        axis="y",
+    )
+    with pytest.raises(FakeConfigError, match="several motor lanes"):
+        _resolve(pin_text, kin, pins, printer, axis="y")
 
 
 def test_keyed_endstop_pin_on_a_foreign_mcu_freezes_the_motor_mcu():

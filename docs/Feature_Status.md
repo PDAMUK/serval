@@ -25,7 +25,8 @@ Three tiers, honestly applied:
 | Step/dir motor path | **solid** |
 | Phase stepping | **verified in sim (2026-07)**; not recently exercised on real hardware |
 | Explicit `max_jerk` as a first-class limit | **exploratory** — enforced, but whether it earns its keep next to smoothing kernels is open |
-| Kinematics beyond cartesian / corexy | **exploratory** |
+| Markforged kinematics | **untested on hardware** — transform, config, homing and buzz paths are unit-tested; the belt coupling sign needs a bench check (see Config_Reference_Motion.md) |
+| Kinematics beyond cartesian / corexy / markforged | **exploratory** — the model is a constant 3x3 lane mix, so any linear belt arrangement is a tag plus two matrices; delta/SCARA/polar need a position-dependent Jacobian and do not fit |
 | Per-axis-group limit model | **exploratory** |
 | CAN bus micro-controllers | **verified on the test bench (2026-07)**; never driven a real print |
 | CAN-FD data path | **verified on the test bench (2026-07)**; never driven a real print |

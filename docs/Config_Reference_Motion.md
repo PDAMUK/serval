@@ -84,7 +84,47 @@ z_motors: z_motor
 #   Required, non-empty comma-separated [motor] names for Z.
 ```
 
-Only `cartesian` and `corexy` are accepted. `[printer] kinematics` is not accepted. Each referenced motor section must exist, use a valid `drive`, and all motors in one lane must use the same drive type.
+### Markforged
+
+```
+[kinematics]
+type: markforged
+axis_x: x
+#   Required. Name of the [axis] declaration used for X.
+x_motors: x_motor
+#   Required, non-empty comma-separated [motor] names for the X lane — the
+#   motor on the T-shaped belt loop.
+axis_y: y
+#   Required. Name of the [axis] declaration used for Y.
+y_motors: y_motor
+#   Required, non-empty comma-separated [motor] names for the Y lane — the
+#   motor on the straight loop.
+axis_z: z
+#   Required. Name of the [axis] declaration used for Z.
+z_motors: z_motor
+#   Required, non-empty comma-separated [motor] names for Z.
+```
+
+Markforged runs Y on a straight loop anchored to the frame and X on a T-shaped
+loop, so the Y lane is pure Y while the X lane carries both its own travel and
+the drag the gantry imposes as it moves in Y: `x_lane = x + y`, `y_lane = y`.
+
+That asymmetry is visible in configuration. A Y move drives *both* motors, so Y
+cannot take a per-motor `endstop_pin`; an X move drives only the X motor, so X
+can. The `SERVO_FIT_DYNAMICS` CoreXY belt-pair fit and the servo strain-compensation
+map are CoreXY-specific and reject a Markforged machine rather than mapping it
+wrongly.
+
+**The coupling sign is the one thing to verify on your machine.** The default
+assumes that holding the X motor still and pushing the gantry to +Y slides the
+carriage toward -X. If your belt routing is mirrored, the carriage slides +X
+instead: flip `MARKFORGED_Y_COUPLING` from `1.0` to `-1.0` in
+`rust/motion-core/src/kinematics.rs` and the matching constant in
+`klippy/motion_kinematics.py`. Both matrices and every lane/axis coupling answer
+derive from that one constant. Verify before the first unsupervised move — a
+wrong sign turns a commanded X move into a diagonal.
+
+Only `cartesian`, `corexy` and `markforged` are accepted. `[printer] kinematics` is not accepted. Each referenced motor section must exist, use a valid `drive`, and all motors in one lane must use the same drive type.
 
 ## `[motor <name>]`
 

@@ -3,9 +3,6 @@ import os
 
 from . import servo_axis
 
-KIN_COREXY = 0
-KIN_CARTESIAN = 1
-
 
 class BeltPair:
     def __init__(self, rail, node, kin_tag, lane_a, lane_b):
@@ -69,7 +66,7 @@ class ServoStrainComp:
                 "strain compensation needs exactly two dual-drive belt axes, "
                 "found %d" % len(lanes)
             )
-        kin_tag = KIN_COREXY if kin.coupled_xy() else KIN_CARTESIAN
+        kin_tag = kin.kin_tag()
         lane_a, lane_b = lanes[0][0], lanes[1][0]
         pairs = []
         for lane_idx, rail in lanes:

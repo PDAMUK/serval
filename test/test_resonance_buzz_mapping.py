@@ -7,36 +7,36 @@ from klippy.extras.resonance_buzz import (
 
 
 def test_corexy_x_drives_both_motors_in_phase():
-    axis_mask, sign_mask = buzz_axis_to_motor_mask("x", coupled=True)
+    axis_mask, sign_mask = buzz_axis_to_motor_mask("x", kind="corexy")
     assert axis_mask == 0b011
     assert sign_mask == 0b000
 
 
 def test_corexy_y_drives_both_motors_anti_phase():
-    axis_mask, sign_mask = buzz_axis_to_motor_mask("y", coupled=True)
+    axis_mask, sign_mask = buzz_axis_to_motor_mask("y", kind="corexy")
     assert axis_mask == 0b011
     assert sign_mask == 0b010
 
 
 def test_corexy_z_is_single_slot():
-    assert buzz_axis_to_motor_mask("z", coupled=True) == (0b100, 0b000)
+    assert buzz_axis_to_motor_mask("z", kind="corexy") == (0b100, 0b000)
 
 
 def test_cartesian_axes_map_one_to_one():
-    assert buzz_axis_to_motor_mask("x", coupled=False) == (0b001, 0b000)
-    assert buzz_axis_to_motor_mask("y", coupled=False) == (0b010, 0b000)
-    assert buzz_axis_to_motor_mask("z", coupled=False) == (0b100, 0b000)
+    assert buzz_axis_to_motor_mask("x", kind="cartesian") == (0b001, 0b000)
+    assert buzz_axis_to_motor_mask("y", kind="cartesian") == (0b010, 0b000)
+    assert buzz_axis_to_motor_mask("z", kind="cartesian") == (0b100, 0b000)
 
 
 def test_case_insensitive():
     assert buzz_axis_to_motor_mask(
-        "X", coupled=True
-    ) == buzz_axis_to_motor_mask("x", coupled=True)
+        "X", kind="corexy"
+    ) == buzz_axis_to_motor_mask("x", kind="corexy")
 
 
 def test_unsupported_axis_raises():
     with pytest.raises(ValueError, match="unsupported buzz axis"):
-        buzz_axis_to_motor_mask("e", coupled=False)
+        buzz_axis_to_motor_mask("e", kind="cartesian")
 
 
 class FakeBuzzToolhead:
@@ -123,3 +123,9 @@ def test_configured_max_amplitude_bounds_explicit_amplitude():
     with pytest.raises(RuntimeError, match="max_amplitude"):
         buzz.run_sweep(FakeBuzzGcmd(), "x", 100.0, 400.0, 300.0, 0.1, 50.0, 1.0)
     assert buzz.printer.motion.calls == []
+
+
+def test_markforged_x_buzzes_one_lane_and_y_buzzes_both_in_phase():
+    assert buzz_axis_to_motor_mask("x", kind="markforged") == (0b001, 0b000)
+    assert buzz_axis_to_motor_mask("y", kind="markforged") == (0b011, 0b000)
+    assert buzz_axis_to_motor_mask("z", kind="markforged") == (0b100, 0b000)

@@ -156,6 +156,8 @@ def test_setup_itersolve_rejects_unknown_axis():
         rail.setup_itersolve("cartesian_stepper_alloc", b"w")
     with pytest.raises(stepper.error):
         rail.setup_itersolve("corexy_stepper_alloc", b"q")
+    with pytest.raises(stepper.error):
+        rail.setup_itersolve("markforged_stepper_alloc", b"z")
 
 
 def test_calc_position_from_coord_before_setup_fails_loud():
@@ -191,3 +193,25 @@ def test_corexy_projector_accepts_sequence_coords():
     rail.setup_itersolve("corexy_stepper_alloc", b"-")
     assert rail.calc_position_from_coord([4.0, 5.0]) == -1.0
     assert rail.calc_position_from_coord((4.0, 5.0, 6.0)) == -1.0
+
+
+def test_markforged_x_projector_carries_the_y_drag():
+    from klippy.motion_kinematics import MARKFORGED_Y_COUPLING
+
+    rail = _x_rail()
+    rail.setup_itersolve("markforged_stepper_alloc", b"x")
+    assert rail.calc_position_from_coord(Coord(4.0, 5.0, 6.0, 0.0)) == (
+        4.0 + MARKFORGED_Y_COUPLING * 5.0
+    )
+    motor = rail.get_steppers()[0]
+    assert motor.is_active_axis("x") is True
+    assert motor.is_active_axis("y") is True
+
+
+def test_markforged_y_projector_is_the_straight_loop():
+    rail = _x_rail()
+    rail.setup_itersolve("markforged_stepper_alloc", b"y")
+    assert rail.calc_position_from_coord(Coord(4.0, 5.0, 6.0, 0.0)) == 5.0
+    motor = rail.get_steppers()[0]
+    assert motor.is_active_axis("x") is False
+    assert motor.is_active_axis("y") is True

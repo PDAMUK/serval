@@ -17,7 +17,7 @@ struct AbortContext {
     pending_suppresses: Arc<(std::sync::Mutex<usize>, std::sync::Condvar)>,
 }
 pub(super) fn required_motor_axes(
-    kind: crate::kinematics::KinematicsKind,
+    kin: &crate::kinematics::KinematicsModule,
     requested_axis: Option<u8>,
 ) -> Result<[bool; 4], u8> {
     let Some(axis) = requested_axis else {
@@ -27,12 +27,12 @@ pub(super) fn required_motor_axes(
         return Err(axis);
     }
     let mut required = [false; 4];
-    match (kind, axis) {
-        (crate::kinematics::KinematicsKind::CoreXy, 0 | 1) => {
-            required[0] = true;
-            required[1] = true;
-        }
-        (_, axis) => required[axis as usize] = true,
+    let axis = usize::from(axis);
+    if axis < crate::kinematics::SPATIAL_AXES {
+        required[..crate::kinematics::SPATIAL_AXES]
+            .copy_from_slice(&kin.lanes_driven_by_axis(axis));
+    } else {
+        required[axis] = true;
     }
     Ok(required)
 }
@@ -379,7 +379,7 @@ impl PyMotionEngine {
             .unwrap_or(runtime::segment::KinematicTag::Cartesian as u8);
         let kin = crate::kinematics::KinematicsModule::from_tag(kin_tag)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        let required = required_motor_axes(kin.kind(), axis).map_err(|axis| {
+        let required = required_motor_axes(&kin, axis).map_err(|axis| {
             PyRuntimeError::new_err(format!("motion_state_at: unnamed axis {axis}"))
         })?;
         let resolved: Vec<crate::types::AxisKey> = configs

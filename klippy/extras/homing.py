@@ -57,11 +57,11 @@ def _parse_keyed_endstop_pins(axis_config, section, endstop_pin):
 
 def _lane_motors(axis_config, kin, axis_index, section):
     axis_name = "xyz"[axis_index]
-    if kin.coupled_xy() and axis_index in (0, 1):
+    if not kin.axis_drives_one_lane(axis_index):
         raise axis_config.error(
             "[%s] per-motor endstop_pin needs an axis that maps to exactly one"
-            " motor lane; %s kinematics drives x and y through a shared lane"
-            % (section, kin.kind)
+            " motor lane; %s kinematics drives %s through several motor lanes"
+            % (section, kin.kind, axis_name)
         )
     position, lane = next(
         (

@@ -91,7 +91,7 @@ def make_comp(tmp_path, engine=None):
     kin = FakeKin(
         rails=rails,
         lanes=[(i, r.get_name(short=True), []) for i, r in enumerate(rails)],
-        coupled_xy=True,
+        kind="corexy",
     )
     printer = FakePrinter(
         {

@@ -7,4 +7,5 @@
 pub enum KinematicTag {
     CoreXy = 0,
     Cartesian = 1,
+    Markforged = 2,
 }

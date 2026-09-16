@@ -96,6 +96,14 @@ class MCU_stepper:
                 )
             self._projector = ("cartesian", axis)
             self._engine_active_axes = axis
+        elif alloc_func == "markforged_stepper_alloc":
+            if axis not in (b"x", b"y"):
+                raise error(
+                    "Stepper '%s' has unknown markforged axis '%s'"
+                    % (self._name, axis.decode())
+                )
+            self._projector = ("markforged", axis)
+            self._engine_active_axes = b"xy" if axis == b"x" else b"y"
         elif alloc_func == "corexy_stepper_alloc":
             if axis not in (b"+", b"-"):
                 raise error(
@@ -172,6 +180,12 @@ class MCU_stepper:
         kind, axis = projector
         if kind == "cartesian":
             return coord[b"xyz".index(axis)]
+        if kind == "markforged":
+            from .motion_kinematics import MARKFORGED_Y_COUPLING
+
+            if axis == b"x":
+                return coord[0] + MARKFORGED_Y_COUPLING * coord[1]
+            return coord[1]
         if axis == b"+":
             return coord[0] + coord[1]
         return coord[0] - coord[1]
