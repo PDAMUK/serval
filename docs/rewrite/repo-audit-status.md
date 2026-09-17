@@ -30,6 +30,9 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 13 | `RT_PHASE_*`, `DIAG_EV_*` and the transport `RUNTIME_ERR_*` codes all claimed "must match" with nothing checking | `33c3658` |
 | 14 | The log-level scale was half-named, its comment pointed at the wrong crate, and `mcu_level_str` had no test | `84b385f` |
 | 15 | The step-queue depth target was written down twice and rounded by two different expressions | `84b385f` |
+| 16 | The motion config reference cited line ranges; two of seven were already wrong, `[kinematics]` parsing having moved into a gap between two of them | `c0f6c15` |
+| 17 | Three more line citations in the same document's body, one of them shifted by this branch's own edits | `b53b013` |
+| 18 | `fuzz-piece-sink.sh` — ASan/UBSan over the MCU piece parser — was invoked by no job, workflow or document | `1dbab70` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -60,13 +63,25 @@ Not defects. Recorded so the next pass does not spend the time again.
   `run_all` does not include.
 - **18 "broken" relative doc links** — mkdocs rewrites them to upstream GitHub
   URLs, so they are not user-facing 404s. Inherited, low value to churn.
+- **Every option the motion reference documents is live.** Diffed both
+  directions against what the code reads. Fourteen looked dead and none are:
+  post-processor parameters arrive through the `algos` REGISTRY, kinematics
+  roles through computed `{axis}_motors` lookups, `drive` through
+  `get_str_required`, `dynamics_profile` through a named helper — all invisible
+  to a plain grep.
+- **`piece-sink-harness`** depends on nothing and nothing depends on it, which
+  reads as an orphan crate. It is a test harness; its 15 tests run in the
+  workspace suite, and a leaf is what it should look like.
+- **`klippy/parsedump.py`** is referenced nowhere but still imports and runs. A
+  standalone serial-dump utility, not dead code.
+- **Line citations in `beacon-fork-survey.md` and `external-probe-homing.md`**
+  (48 of the 55 in `docs/`) are historical analyses pointing at upstream files,
+  not references anyone configures from. Left alone deliberately.
 
 ## Not yet audited
 
-- Dead and orphaned code: modules nothing imports, Rust items nothing calls.
-- `Config_Reference*.md` against what the config reader actually accepts. A
-  documented option the reader ignores is the same silent-wrongness as a
-  mirrored constant that drifted.
+- `Config_Reference.md` — the non-motion half. Only
+  `Config_Reference_Motion.md` has been checked.
 - The planner itself — `motion-core`, the pipeline stages, snapshot coverage.
 - `klippy/extras/` beyond the servo path.
 - `tools/sim` beyond confirming its unit subset now runs in CI.
