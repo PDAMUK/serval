@@ -55,6 +55,24 @@ COUPLED_UNIFORM_OPTIONS = (
 )
 
 
+def missing_identity_options(drive_profile, vendor_id, product_code):
+    """Identity halves the profile needs and the config did not supply.
+
+    Both must be non-zero. A zero product code is not a wildcard: the master
+    accepts the slave configuration, never attaches it, and the run then dies
+    at the OP walk with nothing pointing back at the unset option."""
+    if drive_profile not in PROFILES_NEEDING_IDENTITY:
+        return []
+    return [
+        option
+        for option, value in (
+            ("vendor_id", vendor_id),
+            ("product_code", product_code),
+        )
+        if not value
+    ]
+
+
 class EtherCatNode:
     def __init__(self, config):
         self.printer = config.get_printer()
@@ -91,14 +109,18 @@ class EtherCatNode:
             )
         self.vendor_id = self._parse_identity(config, "vendor_id")
         self.product_code = self._parse_identity(config, "product_code")
-        if (
-            self.drive_profile in PROFILES_NEEDING_IDENTITY
-            and not self.vendor_id
-        ):
+        missing = missing_identity_options(
+            self.drive_profile, self.vendor_id, self.product_code
+        )
+        if missing:
             raise config.error(
                 "ethercat_node %s: drive_profile=%s ships no built-in identity "
-                "— set vendor_id (and product_code) from the drive's ESI or "
-                "from `ethercat slaves -v`" % (self.name, self.drive_profile)
+                "and %s is unset or zero — read the pair off the bus with "
+                "`ethercat slaves -v`, or take it from the drive's ESI. A zero "
+                "product code is not a wildcard: the master would accept the "
+                "slave configuration, never attach it, and the bus would fail "
+                "at the OP walk instead of here"
+                % (self.name, self.drive_profile, " and ".join(missing))
             )
         self.dynamics_profile = servo_axis.read_dynamics_profile_option(config)
         self.live_dynamics_profile = None

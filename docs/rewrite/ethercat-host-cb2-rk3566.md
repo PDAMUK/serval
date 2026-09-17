@@ -243,13 +243,46 @@ With drives wired and powered:
 ethercat slaves
 ```
 
-Every drive must appear, in wired order, reaching `PREOP`. Then return to
-[`estun-pronet-markforged-setup.md`](estun-pronet-markforged-setup.md) Part 10.
+Every drive must appear, in wired order, reaching `PREOP`.
 
 **The test that matters is a cold boot.** `ec_generic` — and a
 not-quite-real-time kernel — will both survive a warm restart on an idle bench
 and fail under boot load. Power the machine down fully, boot it, and watch for
 `A.70` on the drives. A warm restart proves nothing.
+
+## Step 8 — Build the kalico endpoint
+
+klippy spawns the endpoint itself at claim time and never launches it by hand,
+so the binary has to exist before the first claim. `[ethercat_node].endpoint`
+defaults to `rust/target/release/ethercat-rt`.
+
+Build it on the CB2 — the `hw` build compiles the IgH C shim and links
+`libethercat` from `/opt/etherlab`, so it cannot be cross-compiled:
+
+```sh
+make -f Makefile.rust ethercat-endpoint-hw     # -> rust/target/release/ethercat-rt
+```
+
+The staged bring-up starts with a **drive-off dry run** against the stub, which
+is a separate binary and a separate build:
+
+```sh
+make -f Makefile.rust ethercat-stub            # -> rust/target/release/ethercat-rt-stub
+```
+
+`scripts/build-native.sh` builds both klippy extension modules and, with
+`--bench`, an endpoint — but its auto-detection picks *one*: with `/opt/etherlab`
+installed it builds `ethercat-rt` and skips the stub. Since this page installs
+`/opt/etherlab`, ask for each one explicitly rather than relying on the
+detection:
+
+```sh
+scripts/build-native.sh --bench --ethercat stub   # Part 12 step 1
+scripts/build-native.sh --bench --ethercat hw     # Part 12 step 2 onwards
+```
+
+Then return to
+[`estun-pronet-markforged-setup.md`](estun-pronet-markforged-setup.md) Part 10.
 
 ## If the module will not load
 

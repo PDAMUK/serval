@@ -372,7 +372,7 @@ ProNet's RS-485/CAN roles:
 Daisy chain IN to OUT. No switch, no ring:
 
 ```
-Pi 5 eth0 ──> CN3 [Drive X] CN4 ──> CN3 [Drive Y] CN4  (leave empty)
+host eth0 ──> CN3 [Drive X] CN4 ──> CN3 [Drive Y] CN4  (leave empty)
 ```
 
 EtherCAT is direction-sensitive. An OUT-to-OUT link or a switch in the path
@@ -400,16 +400,25 @@ and Y endstops serve servo axes.
 | Z stepper | step `PB8`, dir `!PB7`, enable `!PE0`, uart `PB9` | Motor3 |
 | Extruder A | step `PG13`, dir `PG12`, enable `!PG15`, uart `PG14` | Motor5 |
 | Extruder B | step `PG9`, dir `PD7`, enable `!PG11`, uart `PG10` | Motor6 |
-| X endstop | `PF4` (E-Stop1) | serves the X **servo** axis |
-| Y endstop | `PF3` (E-Stop2) | serves the Y **servo** axis |
-| Z endstop | `PF2` (E-Stop3) | |
+| X endstop | `PF4` | serves the X **servo** axis |
+| Y endstop | `PF3` | serves the Y **servo** axis |
+| Z endstop | `PF2` | |
 | Hotend heater / thermistor | `PA0` (HE0) / `PB0` (T0) | |
 | Bed heater / thermistor | `PF5` / `PB1` (TB) | |
 | Part cooling fan | `PF7` (Fan0) | |
 
 Note `PG9`: it is the **step** pin of Motor6 on this board, unrelated to the
 similarly-named pin on other boards. Pin names do not transfer between
-mainboards — these come from the Manta M8P V2.0's own published Klipper config.
+mainboards.
+
+Every row above is taken from BigTreeTech's own published configuration,
+`V2.0/Firmware/generic-bigtreetech-manta-m8p-V2_0.cfg` in
+[`bigtreetech/Manta-M8P`](https://github.com/bigtreetech/Manta-M8P) — including
+the slot numbers, which **start at Motor1, not Motor0**. `PB8` is Motor3 there,
+not Motor2; counting from zero puts every stepper in the wrong socket. The
+three endstop pins are the ones that file uses for `stepper_x`, `stepper_y` and
+`stepper_z` respectively. Check the row against that file rather than against
+another board's config before plugging anything in.
 
 Wire the motor coils in pairs by phase, not by wire colour. Route endstop and
 thermistor wiring away from the servo motor cables — those carry PWM switching
@@ -450,10 +459,17 @@ request it with the order, or read the live values off the bus:
 ethercat slaves -v | grep -iE 'vendor|product'
 ```
 
+Both halves are required and both are checked at config time. A zero product
+code is **not** a wildcard: the master would accept the slave configuration,
+never attach it, and the run would die at the OP walk with nothing pointing
+back here. So klippy refuses to start until both carry the values read off the
+bus, naming whichever is still unset. Treat that refusal as the checkpoint for
+this part.
+
 **Verify.** `ethercat slaves` lists **two** slaves, in the wired order, both
 reaching `PREOP`. One slave means the second drive's IN/OUT is reversed or its
-cable is faulty. Zero means `Pn006.0` is not `4`, or `eth0` never reached
-`ec_macb`.
+cable is faulty. Zero means `Pn006.0` is not `4`, or `eth0` never reached the
+host's native driver — `ec_macb` on a Pi 5, `ec_dwmac-rk` on the CB2.
 
 ---
 
@@ -480,8 +496,8 @@ z_motors: motor_z
 socket: /tmp/kalico-ethercat.sock
 interface: eth0
 drive_profile: estun-pronet
-vendor_id: 0x00000000       # <- from Part 10
-product_code: 0x00000000    # <- from Part 10
+vendor_id: 0x00000000       # <- replace, from Part 10
+product_code: 0x00000000    # <- replace, from Part 10
 cycle_us: 250
 
 [motor motor_x]
@@ -491,7 +507,8 @@ node: node_xy
 ethercat_chain_index: 0     # first drive from the host
 rotation_distance: 40       # set to the actual pulley
 encoder_counts_per_rev: 1048576
-max_torque: 300
+max_torque: 100             # % of rated; see the note below before raising
+following_error: 2.0        # mm; drive faults past this
 
 [motor motor_y]
 drive: servo
@@ -500,7 +517,8 @@ node: node_xy
 ethercat_chain_index: 1     # second drive
 rotation_distance: 40
 encoder_counts_per_rev: 1048576
-max_torque: 300
+max_torque: 100
+following_error: 2.0
 
 [motor motor_z]                 # Motor3
 drive: stepper
@@ -577,6 +595,27 @@ sensor_type: ATC Semitec 104GT-2
 pin: PF7
 ```
 
+**The two drive limits are the only thing standing between a wrong number and
+a bent frame.** `max_torque` is a percentage of *rated* torque, not a raw
+value, and it goes up to 400. The EMJ-04AFD22 is a 400 W motor rated about
+1.27 N·m, so at `max_torque: 300` — the motor's own peak — a 40 mm pulley pulls
+on the order of 600 N. The value here is `100` instead: full continuous torque,
+enough to move the gantry and short of anything that bends a part. Raise it
+only once the machine homes and prints, and raise it because a move stalled,
+not pre-emptively.
+
+`following_error` is in millimetres and is written to the drive's `6065h`, so
+the **drive** faults on a stall or a crash rather than continuing to push. It
+has no default: leave it out and no session limit is written at all, and the
+drive keeps whatever the last session left in `6065h`. Homing is separately
+governed by `homing_following_error` (default 2.5 mm) and `homing_max_torque`
+(default 50%), which apply only around `G28`.
+
+On `estun-pronet` this is also a checkpoint. `6065h` belongs to the same CiA
+group as the `60F4h` this drive family does not have, and ESTUN's dictionary
+was never obtained — so if `6065h` is absent too, the endpoint now says exactly
+that, naming the object, instead of failing somewhere downstream.
+
 The tandem extruder is a **follower axis with two motors**, not two axes.
 `build_follower_steppers` walks every motor of the axis, so both step from one
 trajectory — there is no synchronisation to maintain and no way for them to
@@ -601,12 +640,15 @@ configuration.
 
 Belts stay uncoupled until the final step.
 
-1. **Stub endpoint, drives off.** Point `endpoint:` at
+1. **Stub endpoint, drives off.** Build the stub if the host page has not
+   already (`make -f Makefile.rust ethercat-stub`), point `endpoint:` at
    `rust/target/release/ethercat-rt-stub` and start klippy. It must reach
    `ready`. This proves planner -> bridge -> transport with zero hardware risk.
-2. **Real endpoint, motors uncoupled.** Switch `endpoint:` back. klippy spawns
-   the endpoint itself at claim time; it is never launched by hand. Expect
-   `ready` and a log line naming the profile and matched identity.
+2. **Real endpoint, motors uncoupled.** Switch `endpoint:` back to
+   `rust/target/release/ethercat-rt`, built by the host page's endpoint step
+   (`make -f Makefile.rust ethercat-endpoint-hw`). klippy spawns it itself at
+   claim time; it is never launched by hand. Expect `ready` and a log line
+   naming the profile and matched identity.
 3. **Torque on, no motion.** Both drives reach Operation Enabled and hold
    position. `engine_state` stays running and never reaches `Fault (3)`.
 4. **Small supervised jog.** `SET_KINEMATIC_POSITION`, then short `G1 X…` and
@@ -618,6 +660,19 @@ Belts stay uncoupled until the final step.
    constant to `-1.0` in `rust/motion-core/src/kinematics.rs` and the mirror in
    `klippy/motion_kinematics.py`. A wrong sign turns a commanded X move into a
    diagonal.
+
+   Both copies must change, and the Rust one compiles into
+   `klippy/_motion_engine.so` — so the edit does nothing until the module is
+   rebuilt:
+
+   ```sh
+   sudo service klipper stop
+   scripts/build-native.sh
+   ```
+
+   Changing only the Python side, or changing both and skipping the rebuild,
+   leaves the host and the planner disagreeing about the machine, which is
+   worse than the wrong sign: the two halves then fight each other.
 6. **Home Z and the extruder** as on any stepper machine.
 7. **Couple the belts and home slowly.** Low `homing_speed`, hand on the power.
 

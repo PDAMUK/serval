@@ -163,6 +163,23 @@ ns with `n = 2..16`, which stops at 2 ms. The lower bound matches, so the
 default 250 us (4 kHz) `cycle_us` is in spec under either reading; a cycle
 slower than 2 ms is the part to check against the drive in hand.
 
+**What `estun-pronet` assumes.** The profile captures three differences from the
+A6-EC (no `60F4h`, split torque limit, no feedforward routing). Everything else
+is the A6-EC's, carried over unconfirmed: the touch-probe objects
+`60B8h`/`60B9h`/`60BAh`/`60BCh`, the digital I/O `60FEh:01`/`60FDh`, variable
+remapping of RxPDO `1600h` and TxPDO `1A00h`, and the following-error window
+`6065h` and timeout `6066h` — the last two from the same CiA group as the
+`60F4h` this family does not have. ESTUN's dictionary was never obtained, so
+none of it is verified.
+
+The endpoint no longer lets those assumptions fail silently. A refused PDO map
+names `1600h`/`1A00h` and the `1C12h`/`1C13h` assignment; a rejected config SDO
+names the object; a slave that never reaches OP prints its AL state and status
+code per slot, with a reminder that the master applies config SDOs in PRE-OP so
+a refusal can only surface there. Each of those prints the profile's assumption
+list, so the first bring-up says which assumption broke instead of leaving a
+bare `rc=-6` or an OP timeout.
+
 **ESTUN identity.** ESTUN ships it only in `ESTUN_ProNet_CoE.xml`, which is not
 published — request it with the order, or read the live values off the bus:
 

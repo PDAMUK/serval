@@ -92,3 +92,61 @@ def test_guide_config_carries_the_manta_pins(pin):
     """Pin names do not transfer between mainboards; a stale Octopus pin here
     would still look like a valid STM32 pin."""
     assert pin in guide_config()
+
+
+def test_guide_supplies_both_identity_halves_to_replace():
+    """Both identity options must stay in the worked config.
+
+    klippy rejects an identityless profile that is missing either half, so a
+    guide that dropped one would hand the reader a config that cannot start.
+    """
+    block = guide_config()
+    assert "vendor_id:" in block
+    assert "product_code:" in block
+
+
+HOST_DOCS = (
+    GUIDE.parent / "ethercat-igh-macb-install.md",
+    GUIDE.parent / "ethercat-host-cb2-rk3566.md",
+)
+
+
+@pytest.mark.parametrize("doc", HOST_DOCS, ids=lambda p: p.name)
+def test_every_host_path_builds_the_endpoint(doc):
+    """klippy spawns the endpoint binary; a host doc that never builds it
+    strands the reader at the first claim with a missing file. The CB2 page
+    shipped without this step while the Pi 5 page had it."""
+    text = doc.read_text(encoding="utf-8")
+    assert "ethercat-endpoint-hw" in text
+    assert "ethercat-stub" in text
+
+
+SERVO_BENCH_TORQUE_CEILING_PCT = 150.0
+
+
+def servo_motor_blocks():
+    block = guide_config()
+    sections = re.split(r"\n(?=\[)", block)
+    return [s for s in sections if "drive: servo" in s]
+
+
+def test_the_guide_configures_two_servo_motors():
+    assert len(servo_motor_blocks()) == 2
+
+
+@pytest.mark.parametrize("field", ["max_torque", "following_error"])
+def test_every_servo_motor_sets_both_drive_limits(field):
+    """following_error has no default: omitting it writes no session limit and
+    leaves whatever the last session left in the drive's 6065h."""
+    for section in servo_motor_blocks():
+        assert re.search(r"^%s\s*:" % field, section, re.M), section
+
+
+def test_bring_up_torque_stays_below_the_bench_ceiling():
+    """max_torque is a percentage of rated torque and accepts up to 400. A
+    worked example for a first power-on must not hand over the motor's peak."""
+    for section in servo_motor_blocks():
+        value = float(
+            re.search(r"^max_torque\s*:\s*([\d.]+)", section, re.M)[1]
+        )
+        assert value <= SERVO_BENCH_TORQUE_CEILING_PCT

@@ -41,6 +41,16 @@ _native = _load_native()
 NATIVE_BUILD_HINT = "make -f Makefile.rust motion-engine"
 
 
+def native_attr(name, default=None):
+    """Value exported by the native module, or `default` when there is no
+    native build or it predates the attribute. Unlike native_class this does
+    not raise: callers that can say something more useful than "missing"
+    handle the default themselves."""
+    if _native is None:
+        return default
+    return getattr(_native, name, default)
+
+
 def native_class(name):
     """Return a class exported by the native _motion_engine module, failing
     loudly when the native build is absent so construction (not import) is the

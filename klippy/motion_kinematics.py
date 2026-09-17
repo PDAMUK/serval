@@ -1,11 +1,13 @@
-from . import stepper
+from . import motion_engine, stepper
 
 _KIN_COREXY = 0
 _KIN_CARTESIAN = 1
 _KIN_MARKFORGED = 2
 
-# Mirrors MARKFORGED_Y_COUPLING in rust/motion-core/src/kinematics.rs; the
-# two must agree or the host and the planner disagree about the machine.
+# Mirrors MARKFORGED_Y_COUPLING in rust/motion-core/src/kinematics.rs. The two
+# must agree or the host and the planner disagree about the machine, so
+# check_markforged_coupling_agrees compares them rather than trusting the
+# mirror to have been kept up to date.
 MARKFORGED_Y_COUPLING = 1.0
 
 # Row L of AXIS_TO_MOTOR gives motor lane L's position as a weighted sum of
@@ -49,6 +51,41 @@ def lanes_driven_by_axis(kind, axis):
     return [row[axis] != 0.0 for row in _AXIS_TO_MOTOR[kind]]
 
 
+_REBUILD_HINT = (
+    "Change MARKFORGED_Y_COUPLING in both klippy/motion_kinematics.py and "
+    "rust/motion-core/src/kinematics.rs, then rebuild the module with "
+    "scripts/build-native.sh — the Rust edit does nothing until it is "
+    "recompiled."
+)
+
+
+def check_markforged_coupling_agrees(planner_coupling):
+    """Fail on a coupling constant that was changed on one side only.
+
+    The Rust constant compiles into klippy/_motion_engine.so, so editing it
+    without rebuilding leaves this module's mirror as the only value that
+    moved. Both halves then steer the machine to different geometry, which is
+    worse than the wrong sign both would otherwise share. A module too old to
+    carry the constant is the same failure one step earlier, so it lands here
+    rather than as an AttributeError."""
+    if planner_coupling is None:
+        raise stepper.error(
+            "the native motion engine is missing or predates the markforged "
+            "coupling check, so it cannot report its constant and the "
+            "planner's geometry cannot be confirmed to match this host's %r. "
+            % (MARKFORGED_Y_COUPLING,)
+            + _REBUILD_HINT
+        )
+    if planner_coupling == MARKFORGED_Y_COUPLING:
+        return
+    raise stepper.error(
+        "markforged coupling mismatch: klippy/motion_kinematics.py says %r but "
+        "the planner in klippy/_motion_engine.so says %r. "
+        % (MARKFORGED_Y_COUPLING, planner_coupling)
+        + _REBUILD_HINT
+    )
+
+
 def load_kinematics(config, motion):
     """Build the kinematics from the topology the native reader parsed and
     validated ([kinematics] type/roles, [motor] drives, follower slotting,
@@ -56,6 +93,10 @@ def load_kinematics(config, motion):
     if motion.kinematics_decl is None:
         raise config.error("[kinematics] section is required")
     kind, lanes, _followers = motion.kinematics_decl
+    if kind == "markforged":
+        check_markforged_coupling_agrees(
+            motion_engine.native_attr("MARKFORGED_Y_COUPLING")
+        )
     frontend_visible_kinematics = kind
     config.getsection("printer").get("kinematics", frontend_visible_kinematics)
     return _LinearKinematics(config, motion, kind, lanes)

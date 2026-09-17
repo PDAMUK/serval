@@ -27,6 +27,10 @@ fn _motion_engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMotionEngine>()?;
     m.add_class::<PyClockSyncEstimator>()?;
     m.add_class::<PyDecayRegression>()?;
+    m.add(
+        "MARKFORGED_Y_COUPLING",
+        motion_core::kinematics::MARKFORGED_Y_COUPLING,
+    )?;
     #[cfg(feature = "snapshot")]
     m.add_function(wrap_pyfunction!(viz::pipeline_snapshot, m)?)?;
     Ok(())

@@ -623,3 +623,25 @@ def test_corexy_and_cartesian_calc_position_are_unchanged():
         2.0,
         3.0,
     ]
+
+
+def test_matching_coupling_constants_pass():
+    motion_kinematics.check_markforged_coupling_agrees(
+        motion_kinematics.MARKFORGED_Y_COUPLING
+    )
+
+
+def test_a_coupling_changed_on_one_side_only_fails_loudly():
+    with pytest.raises(stepper.error) as e:
+        motion_kinematics.check_markforged_coupling_agrees(
+            -motion_kinematics.MARKFORGED_Y_COUPLING
+        )
+    message = str(e.value)
+    assert "build-native.sh" in message
+    assert "kinematics.rs" in message
+
+
+def test_a_module_too_old_to_report_its_constant_fails_loudly():
+    with pytest.raises(stepper.error) as e:
+        motion_kinematics.check_markforged_coupling_agrees(None)
+    assert "build-native.sh" in str(e.value)

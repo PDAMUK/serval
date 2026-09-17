@@ -68,6 +68,12 @@ typedef struct {
     int                split_torque_limit;  /* 60E0h/60E1h pair, not 6072h */
     const cfg_sdo16_t *cfg_sdos;
     int                num_cfg_sdos;
+    /* Objects this profile maps or writes without the family's dictionary
+     * having been confirmed. Printed on the failures those assumptions cause
+     * (a refused PDO map, a config SDO the drive rejects on its way to OP), so
+     * the first bring-up says which assumption broke. NULL once a family has
+     * been proven on hardware. */
+    const char        *assumed_objects;
 } drive_profile_t;
 
 /* A vendor id of 0 means the profile carries no built-in identity and the
@@ -75,7 +81,7 @@ typedef struct {
 static const drive_profile_t g_profiles[] = {
     /* Panasonic-protocol A6-EC (ethercat slaves -v: AS715N_sAxis). */
     {"a6ec", 0x00400000u, 0x00000715u, 0x0300, 1, 0, a6ec_cfg_sdos,
-     (int)(sizeof(a6ec_cfg_sdos) / sizeof(a6ec_cfg_sdos[0]))},
+     (int)(sizeof(a6ec_cfg_sdos) / sizeof(a6ec_cfg_sdos[0])), NULL},
     /* ESTUN ProNet with the EC100 EtherCAT module (ProNet-xxxxx-EC). Identity
      * lives only in ESTUN's ESI (ESTUN_ProNet_CoE.xml), which is not public, so
      * it has no default and must be passed in. The DC word is not a guess
@@ -86,7 +92,12 @@ static const drive_profile_t g_profiles[] = {
      * 60E0h/60E1h pair, whose 0.1%-of-rated unit already matches what the host
      * sends. CSP applies 60B1h/60B2h directly (EtherCAT manual section 5.10),
      * so there is no vendor feedforward routing to write. */
-    {"estun-pronet", 0, 0, 0x0300, 0, 1, NULL, 0},
+    {"estun-pronet", 0, 0, 0x0300, 0, 1, NULL, 0,
+     "the PDO map is the A6-EC's minus 60F4h - touch probe 60B8h/60B9h/60BAh/"
+     "60BCh, digital I/O 60FEh:01/60FDh, and variable RxPDO 1600h / TxPDO 1A00h "
+     "remapping - and the following-error window 6065h and timeout 6066h are "
+     "written although the same CiA group's 60F4h is absent on this family. "
+     "None of that is confirmed against ESTUN's dictionary"},
 };
 
 static const drive_profile_t *g_profile = &g_profiles[0];
@@ -368,6 +379,16 @@ static int rt_exchange(int64_t *toff) {
     return (int)ds.working_counter;
 }
 
+static uint16_t read_al_status_code(slave_t *sl);
+
+/* Failures caused by an unconfirmed dictionary all surface far from the object
+ * that caused them, so every one of them says what this profile assumed. */
+static void note_profile_assumptions(void) {
+    if (!g_profile->assumed_objects) return;
+    fprintf(stderr, "ec_rt: profile '%s' assumes %s.\n",
+            g_profile->name, g_profile->assumed_objects);
+}
+
 static int reg_entry(slave_t *sl, uint16_t index, uint8_t sub, unsigned *off) {
     unsigned bit = 0;
     int byte = ecrt_slave_config_reg_pdo_entry(sl->sc, index, sub, g_domain, &bit);
@@ -400,12 +421,15 @@ static int select_profile(const char *name, uint32_t vendor_id, uint32_t product
     }
     g_vendor_id = vendor_id ? vendor_id : g_profile->vendor_id;
     g_product_code = product_code ? product_code : g_profile->product_code;
-    if (g_vendor_id == 0) {
+    if (g_vendor_id == 0 || g_product_code == 0) {
         fprintf(stderr,
-                "ec_rt: drive profile '%s' ships no built-in identity — pass the "
-                "vendor id and product code from the drive's ESI or from "
-                "`ethercat slaves -v`\n",
-                g_profile->name);
+                "ec_rt: drive profile '%s' resolved to vendor 0x%08x product "
+                "0x%08x, and both halves must be non-zero — pass the pair from "
+                "the drive's ESI or from `ethercat slaves -v`. A zero product "
+                "code is not a wildcard: ecrt_master_slave_config accepts it, "
+                "the slave then never attaches, and the run dies at the OP walk "
+                "instead of here.\n",
+                g_profile->name, g_vendor_id, g_product_code);
         return EC_RT_ERR_PROFILE;
     }
     fprintf(stderr, "ec_rt: drive profile '%s' vendor 0x%08x product 0x%08x\n",
@@ -501,19 +525,42 @@ static int configure_slave(slave_t *sl) {
         return EC_RT_ERR_NO_SLAVES;
     }
 
-    if (ecrt_slave_config_pdos(sl->sc, EC_END, syncs) != 0)
+    if (ecrt_slave_config_pdos(sl->sc, EC_END, syncs) != 0) {
+        fprintf(stderr,
+                "ec_rt: slave %d refused the PDO map (RxPDO 1600h / TxPDO 1A00h "
+                "assignment via 1C12h/1C13h) — a drive with a fixed PDO map, or "
+                "one missing a mapped object, fails exactly here.\n",
+                (int)sl->pos);
+        note_profile_assumptions();
         return EC_RT_ERR_PDO_REMAP;
-    if (register_pdo_entries(sl) != 0)
+    }
+    if (register_pdo_entries(sl) != 0) {
+        note_profile_assumptions();
         return EC_RT_ERR_PDO_REMAP;
+    }
 
     /* CSP mode and a disabled following-error timeout, then whatever vendor
      * routing the profile calls for. The master applies them in PRE-OP; a
      * rejected config SDO leaves the slave short of OP -> OP_TIMEOUT. */
-    ecrt_slave_config_sdo8(sl->sc, 0x6060, 0x00, 8);
-    ecrt_slave_config_sdo16(sl->sc, 0x6066, 0x00, 0);
+    if (ecrt_slave_config_sdo8(sl->sc, 0x6060, 0x00, 8) != 0) {
+        fprintf(stderr, "ec_rt: slave %d rejected config SDO 6060h:00 (CSP mode)\n",
+                (int)sl->pos);
+        return EC_RT_ERR_PDO_REMAP;
+    }
+    if (ecrt_slave_config_sdo16(sl->sc, 0x6066, 0x00, 0) != 0) {
+        fprintf(stderr,
+                "ec_rt: slave %d rejected config SDO 6066h:00 (following-error "
+                "timeout)\n", (int)sl->pos);
+        note_profile_assumptions();
+        return EC_RT_ERR_PDO_REMAP;
+    }
     for (int i = 0; i < g_profile->num_cfg_sdos; i++) {
         const cfg_sdo16_t *w = &g_profile->cfg_sdos[i];
-        ecrt_slave_config_sdo16(sl->sc, w->index, w->sub, w->value);
+        if (ecrt_slave_config_sdo16(sl->sc, w->index, w->sub, w->value) != 0) {
+            fprintf(stderr, "ec_rt: slave %d rejected config SDO %04Xh:%02X\n",
+                    (int)sl->pos, w->index, w->sub);
+            return EC_RT_ERR_PDO_REMAP;
+        }
     }
 
     ecrt_slave_config_dc(sl->sc, g_profile->dc_assign_activate, (uint32_t)g_cycle_ns,
@@ -722,6 +769,19 @@ int ec_rt_bringup_finish(void) {
     }
     if (!all_op) {
         log_dc_diffs("op_timeout");
+        for (int s = 0; s < g_num_slaves; s++) {
+            ec_slave_config_state_t st;
+            ecrt_slave_config_state(g_slaves[s].sc, &st);
+            if (st.operational) continue;
+            fprintf(stderr,
+                    "ec_rt: slot %d never reached OP (al_state=%u online=%u "
+                    "al_status=0x%04x)\n",
+                    s, st.al_state, st.online, read_al_status_code(&g_slaves[s]));
+        }
+        fprintf(stderr,
+                "ec_rt: the master applies the config SDOs in PRE-OP, so a drive "
+                "that refuses one stalls here rather than at the write.\n");
+        note_profile_assumptions();
         return EC_RT_ERR_OP_TIMEOUT;
     }
 
@@ -991,19 +1051,33 @@ int ec_rt_write_limits(int slave, uint32_t ferr_counts, uint16_t torque_tenth_pc
     uint32_t abort = 0;
     uint8_t b4[4];
     memcpy(b4, &ferr_counts, 4);
-    if (ecrt_master_sdo_download(g_master, pos, 0x6065, 0x00, b4, 4, &abort) != 0)
+    if (ecrt_master_sdo_download(g_master, pos, 0x6065, 0x00, b4, 4, &abort) != 0) {
+        fprintf(stderr,
+                "ec_rt: slave %d rejected 6065h:00 (following-error window), "
+                "abort 0x%08x\n", (int)pos, abort);
+        note_profile_assumptions();
         return -1;
+    }
     uint8_t b2[2];
     memcpy(b2, &torque_tenth_pct, 2);
     if (g_profile->split_torque_limit) {
-        if (ecrt_master_sdo_download(g_master, pos, 0x60E0, 0x00, b2, 2, &abort) != 0)
+        if (ecrt_master_sdo_download(g_master, pos, 0x60E0, 0x00, b2, 2, &abort) != 0) {
+            fprintf(stderr, "ec_rt: slave %d rejected 60E0h:00 (positive torque "
+                    "limit), abort 0x%08x\n", (int)pos, abort);
             return -2;
-        if (ecrt_master_sdo_download(g_master, pos, 0x60E1, 0x00, b2, 2, &abort) != 0)
+        }
+        if (ecrt_master_sdo_download(g_master, pos, 0x60E1, 0x00, b2, 2, &abort) != 0) {
+            fprintf(stderr, "ec_rt: slave %d rejected 60E1h:00 (negative torque "
+                    "limit), abort 0x%08x\n", (int)pos, abort);
             return -2;
+        }
         return 0;
     }
-    if (ecrt_master_sdo_download(g_master, pos, 0x6072, 0x00, b2, 2, &abort) != 0)
+    if (ecrt_master_sdo_download(g_master, pos, 0x6072, 0x00, b2, 2, &abort) != 0) {
+        fprintf(stderr, "ec_rt: slave %d rejected 6072h:00 (max torque), "
+                "abort 0x%08x\n", (int)pos, abort);
         return -2;
+    }
     return 0;
 }
 

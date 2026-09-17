@@ -390,3 +390,29 @@ def test_known_drive_profiles_cover_a6ec_and_estun():
 def test_only_the_identityless_profile_demands_an_identity():
     assert "estun-pronet" in ethercat_node.PROFILES_NEEDING_IDENTITY
     assert "a6ec" not in ethercat_node.PROFILES_NEEDING_IDENTITY
+
+
+def _missing(profile, vendor_id, product_code):
+    return ethercat_node.missing_identity_options(
+        profile, vendor_id, product_code
+    )
+
+
+def test_identityless_profile_demands_both_halves():
+    assert _missing("estun-pronet", 0, 0) == ["vendor_id", "product_code"]
+
+
+def test_a_supplied_vendor_id_alone_is_not_enough():
+    assert _missing("estun-pronet", 0x060A, 0) == ["product_code"]
+
+
+def test_a_supplied_product_code_alone_is_not_enough():
+    assert _missing("estun-pronet", 0, 1546) == ["vendor_id"]
+
+
+def test_both_halves_supplied_is_accepted():
+    assert _missing("estun-pronet", 0x060A, 1546) == []
+
+
+def test_a_profile_with_a_built_in_identity_needs_nothing():
+    assert _missing("a6ec", 0, 0) == []
