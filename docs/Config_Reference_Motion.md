@@ -392,9 +392,22 @@ When using the pressure-advance compatibility command, `axis` identifies the `[a
 
 ## Source locations
 
-* `[printer]`, `[kinematics]`, `[axis]`, post-processor declarations, and extruder caps: `rust/planner-config/src/from_doc.rs:333-400, 408-424, 570-642`.
-* Stepper motor options and step-distance/gear-ratio parsing: `klippy/stepper.py:188-256`; enable pin registration: `klippy/extras/stepper_enable.py:117-119`.
-* Axis travel and homing options: `klippy/stepper.py:307-317` and `klippy/rail.py:26-70`.
-* Servo motor options: `klippy/extras/servo_axis.py:87-143`.
-* Pressure-advance compatibility axis association: `klippy/extras/pressure_advance_compat.py:106-139`.
-* Post-processor registry and parameter bounds: `rust/trajectory/src/algos/*.rs` and `rust/trajectory/src/algos/mod.rs:19-78`.
+Cited by symbol rather than line number: a range goes stale on the next edit
+above it, silently, and these had. `test_config_reference_sources.py` checks
+every name below still exists where it says.
+
+| What | Where |
+| --- | --- |
+| `[printer]` caps | `printer_section` in `rust/planner-config/src/from_doc.rs` |
+| `[kinematics]` type and roles | `kinematics_section`, same file |
+| `[axis <name>]` declarations | `axis_sections`, same file |
+| `[post_processor <name>]` declarations | `post_processor_sections`, same file |
+| `[extruder]` extrude-only caps | `extruder_caps`, same file |
+| Stepper step distance | `parse_step_distance` in `klippy/stepper.py` |
+| Stepper gear ratio | `parse_gear_ratio`, same file |
+| Enable pin registration | `register_stepper` in `klippy/extras/stepper_enable.py` |
+| Axis travel and homing option names | `AXIS_HOMING_KEYS` in `klippy/stepper.py` |
+| Axis travel bounds | `_parse_position_range` in `klippy/rail.py` |
+| Servo motor options | `ServoMotor` in `klippy/extras/servo_axis.py` |
+| Pressure-advance axis association | `PressureAdvanceCompat` in `klippy/extras/pressure_advance_compat.py` |
+| Post-processor registry and bounds | `REGISTRY` in `rust/trajectory/src/algos/mod.rs` |
