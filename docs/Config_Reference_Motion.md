@@ -115,9 +115,9 @@ can. The `SERVO_FIT_DYNAMICS` CoreXY belt-pair fit and the servo strain-compensa
 map are CoreXY-specific and reject a Markforged machine rather than mapping it
 wrongly.
 
-**The coupling sign is the one thing to verify on your machine.** The default
+**The coupling sign is the one thing to verify per machine.** The default
 assumes that holding the X motor still and pushing the gantry to +Y slides the
-carriage toward -X. If your belt routing is mirrored, the carriage slides +X
+carriage toward -X. Mirrored belt routing slides the carriage +X
 instead: flip `MARKFORGED_Y_COUPLING` from `1.0` to `-1.0` in
 `rust/motion-core/src/kinematics.rs` and the matching constant in
 `klippy/motion_kinematics.py`. Both matrices and every lane/axis coupling answer
