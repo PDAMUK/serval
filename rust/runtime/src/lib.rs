@@ -54,4 +54,7 @@ pub mod test_xdirect_capture;
 pub mod tick;
 
 #[cfg(test)]
+mod c_header_mirrors;
+
+#[cfg(test)]
 mod tests;
