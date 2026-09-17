@@ -1,6 +1,6 @@
 use super::{
-    EthercatDrive, endpoint_args, handshake_ethercat_endpoint, poll_socket_ready, slots_for_axis,
-    spawn_ethercat_endpoint,
+    DriveIdentity, EthercatDrive, endpoint_args, handshake_ethercat_endpoint, poll_socket_ready,
+    slots_for_axis, spawn_ethercat_endpoint,
 };
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
@@ -39,6 +39,14 @@ fn slots_for_axis_returns_every_awd_slot_in_order() {
     assert_eq!(slots_for_axis(&slot_axes, 1), vec![2, 3]);
 }
 
+fn a6ec() -> DriveIdentity {
+    DriveIdentity {
+        profile: "a6ec".into(),
+        vendor_id: 0,
+        product_code: 0,
+    }
+}
+
 #[test]
 fn endpoint_args_single_drive_uses_legacy_form() {
     let args = endpoint_args(
@@ -49,6 +57,7 @@ fn endpoint_args_single_drive_uses_legacy_form() {
         None,
         250.0,
         None,
+        &a6ec(),
         &[EthercatDrive {
             chain_index: 1,
             counts_per_mm: 3276.8,
@@ -83,6 +92,7 @@ fn endpoint_args_per_drive_ff_flags() {
         None,
         250.0,
         None,
+        &a6ec(),
         &[
             EthercatDrive {
                 rotation_distance: 50.0,
@@ -123,6 +133,7 @@ fn endpoint_args_multi_drive_emits_slave_and_axis_groups() {
         None,
         250.0,
         None,
+        &a6ec(),
         &[
             EthercatDrive {
                 rotation_distance: 50.0,
@@ -163,6 +174,7 @@ fn endpoint_args_emits_per_slave_dynamics_profile() {
         None,
         250.0,
         None,
+        &a6ec(),
         &[
             EthercatDrive {
                 rotation_distance: 50.0,
@@ -199,6 +211,7 @@ fn spawn_nonexistent_binary_errors_with_binary_path() {
         None,
         250.0,
         None,
+        &a6ec(),
         &[],
     );
     assert!(result.is_err(), "expected Err for nonexistent binary");
@@ -414,4 +427,64 @@ fn handshake_connect_refused_is_not_immediately_fatal() {
             "handshake must retry past ConnectionRefused, not fail immediately; got: {msg}"
         );
     }
+}
+
+#[test]
+fn endpoint_args_always_name_the_drive_profile() {
+    let args = endpoint_args(
+        "eth0",
+        "/tmp/x.sock",
+        250,
+        None,
+        None,
+        250.0,
+        None,
+        &a6ec(),
+        &[drive()],
+    );
+    let i = args.iter().position(|a| a == "--drive-profile").unwrap();
+    assert_eq!(args[i + 1], "a6ec");
+}
+
+#[test]
+fn endpoint_args_omit_an_identity_the_profile_supplies_itself() {
+    let args = endpoint_args(
+        "eth0",
+        "/tmp/x.sock",
+        250,
+        None,
+        None,
+        250.0,
+        None,
+        &a6ec(),
+        &[drive()],
+    );
+    assert!(!args.iter().any(|a| a == "--vendor-id"));
+    assert!(!args.iter().any(|a| a == "--product-code"));
+}
+
+#[test]
+fn endpoint_args_pass_an_explicit_identity_as_hex() {
+    let identity = DriveIdentity {
+        profile: "estun-pronet".into(),
+        vendor_id: 0x0000_060A,
+        product_code: 0x0000_0002,
+    };
+    let args = endpoint_args(
+        "eth0",
+        "/tmp/x.sock",
+        250,
+        None,
+        None,
+        250.0,
+        None,
+        &identity,
+        &[drive()],
+    );
+    let profile = args.iter().position(|a| a == "--drive-profile").unwrap();
+    assert_eq!(args[profile + 1], "estun-pronet");
+    let vendor = args.iter().position(|a| a == "--vendor-id").unwrap();
+    assert_eq!(args[vendor + 1], "0x0000060a");
+    let product = args.iter().position(|a| a == "--product-code").unwrap();
+    assert_eq!(args[product + 1], "0x00000002");
 }

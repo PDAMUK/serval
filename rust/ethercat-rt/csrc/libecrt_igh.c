@@ -30,18 +30,64 @@
 #include <sys/mman.h>
 #include <ecrt.h>
 
-/* Drive identity (ethercat slaves -v): AS715N_sAxis A6-EC servo. Every slave on
- * the chain must match. */
-#define VENDOR_ID    0x00400000u
-#define PRODUCT_CODE 0x00000715u
 #define SLAVE_ALIAS  0
 
-/* DC AssignActivate from the A6 ESI (Dc/OpMode "DC-Synchron"): SYNC0-only at
- * 1x the cycle period. The A6-EC requires SYNC0 active before SAFE-OP (else
- * AL 0x0030). The ESI ships ShiftTimeSync0=0; we shift SYNC0 half a cycle so
- * the process-data frame (sent at the cycle boundary) arrives mid-window,
- * maximizing margin to the drive's latch instant. */
-#define DC_ASSIGN_ACTIVATE 0x0300
+/* One SDO written at configuration time (applied by the master in PRE-OP). */
+typedef struct {
+    uint16_t index;
+    uint8_t  sub;
+    uint16_t value;
+} cfg_sdo16_t;
+
+/* A6-EC: route both feedforward sources to "communication" (C01.13/C01.16 -> 5)
+ * with 0% additional feedforward (C01.14/C01.17 -> 0), so 60B1h/60B2h reach the
+ * loops unscaled. These indices are vendor-specific and must not be written to
+ * another drive family. */
+static const cfg_sdo16_t a6ec_cfg_sdos[] = {
+    {0x2001, 0x14, 5}, {0x2001, 0x15, 0},
+    {0x2001, 0x17, 5}, {0x2001, 0x18, 0},
+};
+
+/* Everything on the wire is standard CiA 402; what differs per drive family is
+ * the identity, which optional objects exist, and the vendor SDOs bring-up must
+ * write. `dc_assign_activate` is the ESI's Dc/OpMode "DC-Synchron" word:
+ * SYNC0-only at 1x the cycle period. The A6-EC requires SYNC0 active before
+ * SAFE-OP (else AL 0x0030); the ESI ships ShiftTimeSync0=0, so we shift SYNC0
+ * half a cycle and the process-data frame (sent at the cycle boundary) arrives
+ * mid-window, maximizing margin to the drive's latch instant. */
+typedef struct {
+    const char        *name;
+    uint32_t           vendor_id;
+    uint32_t           product_code;
+    uint16_t           dc_assign_activate;
+    int                map_following_error; /* 60F4h exists and is PDO-mappable */
+    int                split_torque_limit;  /* 60E0h/60E1h pair, not 6072h */
+    const cfg_sdo16_t *cfg_sdos;
+    int                num_cfg_sdos;
+} drive_profile_t;
+
+/* A vendor id of 0 means the profile carries no built-in identity and the
+ * caller must supply one. */
+static const drive_profile_t g_profiles[] = {
+    /* Panasonic-protocol A6-EC (ethercat slaves -v: AS715N_sAxis). */
+    {"a6ec", 0x00400000u, 0x00000715u, 0x0300, 1, 0, a6ec_cfg_sdos,
+     (int)(sizeof(a6ec_cfg_sdos) / sizeof(a6ec_cfg_sdos[0]))},
+    /* ESTUN ProNet with the EC100 EtherCAT module (ProNet-xxxxx-EC). Identity
+     * lives only in ESTUN's ESI (ESTUN_ProNet_CoE.xml), which is not public, so
+     * it has no default and must be passed in. The ProNet object dictionary has
+     * neither 60F4h (following error actual) nor 6072h (max torque): the
+     * following error is derived from 607Ah - 6064h and the torque limit is the
+     * 60E0h/60E1h pair, whose 0.1%-of-rated unit already matches what the host
+     * sends. CSP applies 60B1h/60B2h directly (EtherCAT manual section 5.10),
+     * so there is no vendor feedforward routing to write. */
+    {"estun-pronet", 0, 0, 0x0300, 0, 1, NULL, 0},
+};
+
+static const drive_profile_t *g_profile = &g_profiles[0];
+
+/* Resolved identity: the profile's, or the caller's override. */
+static uint32_t g_vendor_id;
+static uint32_t g_product_code;
 
 /* DC convergence gate: a non-reference slave counts as clock-locked once
  * DC_LOCK_SAMPLES consecutive reads of its ESC System Time Difference register
@@ -56,7 +102,9 @@
 #define OP_WALK_BUDGET_NS     20.0e9
 
 #define OUT_BYTES 18
-#define IN_BYTES  32
+/* Without 60F4h the TxPDO is one INT32 shorter. */
+#define IN_BYTES_BASE 28
+#define IN_BYTES (IN_BYTES_BASE + (g_profile->map_following_error ? 4 : 0))
 
 static ec_master_t *g_master;
 static ec_domain_t *g_domain;
@@ -118,14 +166,17 @@ static ec_pdo_entry_info_t rx_entries[] = {
     {0x6040, 0x00, 16}, {0x607A, 0x00, 32}, {0x60B8, 0x00, 16},
     {0x60FE, 0x01, 32}, {0x60B1, 0x00, 32}, {0x60B2, 0x00, 16},
 };
+/* 60F4h sits last so a profile without it maps the first TX_ENTRIES_BASE
+ * entries — the short map is a prefix of the long one. */
 static ec_pdo_entry_info_t tx_entries[] = {
     {0x603F, 0x00, 16}, {0x6041, 0x00, 16}, {0x6064, 0x00, 32},
-    {0x606C, 0x00, 32}, {0x6077, 0x00, 16}, {0x60F4, 0x00, 32},
-    {0x60B9, 0x00, 16}, {0x60BA, 0x00, 32}, {0x60BC, 0x00, 32},
-    {0x60FD, 0x00, 32},
+    {0x606C, 0x00, 32}, {0x6077, 0x00, 16}, {0x60B9, 0x00, 16},
+    {0x60BA, 0x00, 32}, {0x60BC, 0x00, 32}, {0x60FD, 0x00, 32},
+    {0x60F4, 0x00, 32},
 };
+#define TX_ENTRIES_BASE 9
 static ec_pdo_info_t rx_pdos[] = {{0x1600, 6, rx_entries}};
-static ec_pdo_info_t tx_pdos[] = {{0x1A00, 10, tx_entries}};
+static ec_pdo_info_t tx_pdos[] = {{0x1A00, TX_ENTRIES_BASE, tx_entries}};
 static ec_sync_info_t syncs[] = {
     {0, EC_DIR_OUTPUT, 0, NULL, EC_WD_DISABLE},
     {1, EC_DIR_INPUT, 0, NULL, EC_WD_DISABLE},
@@ -323,6 +374,39 @@ static int reg_entry(slave_t *sl, uint16_t index, uint8_t sub, unsigned *off) {
     return 0;
 }
 
+/* Bind the named profile and resolve the identity it will match on. An
+ * explicit vendor/product overrides the profile's; a profile that ships none
+ * requires one. */
+static int select_profile(const char *name, uint32_t vendor_id, uint32_t product_code) {
+    const int n = (int)(sizeof(g_profiles) / sizeof(g_profiles[0]));
+    g_profile = NULL;
+    for (int i = 0; i < n; i++) {
+        if (name && strcmp(name, g_profiles[i].name) == 0) {
+            g_profile = &g_profiles[i];
+            break;
+        }
+    }
+    if (!g_profile) {
+        fprintf(stderr, "ec_rt: unknown drive profile '%s' (known:", name ? name : "(null)");
+        for (int i = 0; i < n; i++) fprintf(stderr, " %s", g_profiles[i].name);
+        fprintf(stderr, ")\n");
+        return EC_RT_ERR_PROFILE;
+    }
+    g_vendor_id = vendor_id ? vendor_id : g_profile->vendor_id;
+    g_product_code = product_code ? product_code : g_profile->product_code;
+    if (g_vendor_id == 0) {
+        fprintf(stderr,
+                "ec_rt: drive profile '%s' ships no built-in identity — pass the "
+                "vendor id and product code from the drive's ESI or from "
+                "`ethercat slaves -v`\n",
+                g_profile->name);
+        return EC_RT_ERR_PROFILE;
+    }
+    fprintf(stderr, "ec_rt: drive profile '%s' vendor 0x%08x product 0x%08x\n",
+            g_profile->name, g_vendor_id, g_product_code);
+    return 0;
+}
+
 static int register_pdo_entries(slave_t *sl) {
     return reg_entry(sl, 0x6040, 0x00, &sl->o_controlword)
         || reg_entry(sl, 0x607A, 0x00, &sl->o_target)
@@ -335,11 +419,20 @@ static int register_pdo_entries(slave_t *sl) {
         || reg_entry(sl, 0x6064, 0x00, &sl->i_position_actual)
         || reg_entry(sl, 0x606C, 0x00, &sl->i_velocity_actual)
         || reg_entry(sl, 0x6077, 0x00, &sl->i_torque_actual)
-        || reg_entry(sl, 0x60F4, 0x00, &sl->i_following_error)
         || reg_entry(sl, 0x60B9, 0x00, &sl->i_tp_status)
         || reg_entry(sl, 0x60BA, 0x00, &sl->i_tp1_pos)
         || reg_entry(sl, 0x60BC, 0x00, &sl->i_tp2_pos)
-        || reg_entry(sl, 0x60FD, 0x00, &sl->i_digital_inputs);
+        || reg_entry(sl, 0x60FD, 0x00, &sl->i_digital_inputs)
+        || (g_profile->map_following_error
+            && reg_entry(sl, 0x60F4, 0x00, &sl->i_following_error));
+}
+
+/* The drive's own 60F4h where it exists; otherwise the CSP definition of
+ * following error, commanded minus measured. */
+static int32_t slave_following_error(const slave_t *sl) {
+    if (g_profile->map_following_error)
+        return EC_READ_S32(g_pd + sl->i_following_error);
+    return sl->tx.target_position - EC_READ_S32(g_pd + sl->i_position_actual);
 }
 
 /* Stage one slave at its current safe state (target tracks actual, no offsets):
@@ -391,10 +484,14 @@ static void clear_latched_alarm_in_preop(slave_t *sl) {
 
 static int configure_slave(slave_t *sl) {
     sl->sc = ecrt_master_slave_config(g_master, SLAVE_ALIAS, sl->pos,
-                                      VENDOR_ID, PRODUCT_CODE);
+                                      g_vendor_id, g_product_code);
     if (!sl->sc) {
-        fprintf(stderr, "ec_rt: no slave at position %d (vendor 0x%08x product 0x%08x)\n",
-                (int)sl->pos, VENDOR_ID, PRODUCT_CODE);
+        fprintf(stderr,
+                "ec_rt: no slave at position %d matching profile '%s' "
+                "(vendor 0x%08x product 0x%08x) — a drive that is present but of "
+                "another identity reads the same as an absent one; confirm with "
+                "`ethercat slaves -v`\n",
+                (int)sl->pos, g_profile->name, g_vendor_id, g_product_code);
         return EC_RT_ERR_NO_SLAVES;
     }
 
@@ -403,19 +500,17 @@ static int configure_slave(slave_t *sl) {
     if (register_pdo_entries(sl) != 0)
         return EC_RT_ERR_PDO_REMAP;
 
-    /* CSP mode and a disabled following-error timeout, then route both
-     * feedforward sources (speed 60B1h, torque 60B2h) to "communication"
-     * (C01.13/C01.16 -> 5) with 0% additional FF (C01.14/C01.17 -> 0). The
-     * master applies them in PRE-OP. A rejected config SDO leaves the slave
-     * short of OP -> OP_TIMEOUT. */
+    /* CSP mode and a disabled following-error timeout, then whatever vendor
+     * routing the profile calls for. The master applies them in PRE-OP; a
+     * rejected config SDO leaves the slave short of OP -> OP_TIMEOUT. */
     ecrt_slave_config_sdo8(sl->sc, 0x6060, 0x00, 8);
     ecrt_slave_config_sdo16(sl->sc, 0x6066, 0x00, 0);
-    ecrt_slave_config_sdo16(sl->sc, 0x2001, 0x14, 5);
-    ecrt_slave_config_sdo16(sl->sc, 0x2001, 0x15, 0);
-    ecrt_slave_config_sdo16(sl->sc, 0x2001, 0x17, 5);
-    ecrt_slave_config_sdo16(sl->sc, 0x2001, 0x18, 0);
+    for (int i = 0; i < g_profile->num_cfg_sdos; i++) {
+        const cfg_sdo16_t *w = &g_profile->cfg_sdos[i];
+        ecrt_slave_config_sdo16(sl->sc, w->index, w->sub, w->value);
+    }
 
-    ecrt_slave_config_dc(sl->sc, DC_ASSIGN_ACTIVATE, (uint32_t)g_cycle_ns,
+    ecrt_slave_config_dc(sl->sc, g_profile->dc_assign_activate, (uint32_t)g_cycle_ns,
                          (int32_t)(g_cycle_ns / 2), 0, 0);
 
     sl->al_req = ecrt_slave_config_create_reg_request(sl->sc, 2);
@@ -436,13 +531,18 @@ static int configure_slave(slave_t *sl) {
  * brings each slave to PRE-OP, where the caller does its session SDO work (drive
  * limits) via ecrt_master_sdo_* before phase 2. */
 int ec_rt_bringup_preop(const char *ifname, int64_t cycle_ns, int rt_cpu, int rt_prio,
-                        const int32_t *slave_positions, int num_slaves) {
+                        const int32_t *slave_positions, int num_slaves,
+                        const char *profile_name, uint32_t vendor_id,
+                        uint32_t product_code) {
     (void)ifname; /* the IgH master is bound to the NIC via /etc/ethercat.conf */
     if (num_slaves < 1 || num_slaves > EC_RT_MAX_SLAVES) {
         fprintf(stderr, "ec_rt: num_slaves %d outside [1,%d]\n",
                 num_slaves, EC_RT_MAX_SLAVES);
         return EC_RT_ERR_TOO_MANY_SLAVES;
     }
+    int rc_profile = select_profile(profile_name, vendor_id, product_code);
+    if (rc_profile != 0) return rc_profile;
+    tx_pdos[0].n_entries = TX_ENTRIES_BASE + (g_profile->map_following_error ? 1 : 0);
     g_cycle_ns = cycle_ns < 250000 ? 250000 : cycle_ns;
     g_activated = 0;
     g_num_slaves = num_slaves;
@@ -827,7 +927,7 @@ uint16_t ec_rt_get_error_code(int slave) {
 }
 int32_t ec_rt_get_following_error(int slave) {
     check_idx(slave);
-    return EC_READ_S32(g_pd + g_slaves[slave].i_following_error);
+    return slave_following_error(&g_slaves[slave]);
 }
 void ec_rt_set_velocity_offset(int slave, int32_t counts_per_s) {
     check_idx(slave);
@@ -850,7 +950,7 @@ void ec_rt_get_telemetry(int slave, ec_telemetry_t *out) {
     out->position_actual = EC_READ_S32(g_pd + sl->i_position_actual);
     out->velocity_actual = EC_READ_S32(g_pd + sl->i_velocity_actual);
     out->torque_actual   = EC_READ_S16(g_pd + sl->i_torque_actual);
-    out->following_error = EC_READ_S32(g_pd + sl->i_following_error);
+    out->following_error = slave_following_error(sl);
     out->target_position = sl->tx.target_position;
     out->velocity_offset = sl->tx.velocity_offset;
     out->torque_offset   = sl->tx.torque_offset;
@@ -869,7 +969,11 @@ int ec_rt_read_limits(int slave, uint32_t *ferr_counts, uint16_t *ferr_timeout_m
     if (ecrt_master_sdo_upload(g_master, pos, 0x6066, 0x00, buf, 2, &rs, &abort) != 0)
         return -2;
     memcpy(ferr_timeout_ms, buf, 2);
-    if (ecrt_master_sdo_upload(g_master, pos, 0x6072, 0x00, buf, 2, &rs, &abort) != 0)
+    /* 60E0h and 6072h carry the same 0.1%-of-rated unit, so the caller sees one
+     * number either way. On a split-limit drive the positive limit is
+     * authoritative; write_limits keeps the pair symmetric. */
+    uint16_t torque_index = g_profile->split_torque_limit ? 0x60E0 : 0x6072;
+    if (ecrt_master_sdo_upload(g_master, pos, torque_index, 0x00, buf, 2, &rs, &abort) != 0)
         return -3;
     memcpy(torque_tenth_pct, buf, 2);
     return 0;
@@ -885,6 +989,13 @@ int ec_rt_write_limits(int slave, uint32_t ferr_counts, uint16_t torque_tenth_pc
         return -1;
     uint8_t b2[2];
     memcpy(b2, &torque_tenth_pct, 2);
+    if (g_profile->split_torque_limit) {
+        if (ecrt_master_sdo_download(g_master, pos, 0x60E0, 0x00, b2, 2, &abort) != 0)
+            return -2;
+        if (ecrt_master_sdo_download(g_master, pos, 0x60E1, 0x00, b2, 2, &abort) != 0)
+            return -2;
+        return 0;
+    }
     if (ecrt_master_sdo_download(g_master, pos, 0x6072, 0x00, b2, 2, &abort) != 0)
         return -2;
     return 0;

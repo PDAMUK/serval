@@ -34,6 +34,9 @@ extern "C" {
         rt_prio: c_int,
         slave_positions: *const i32,
         num_slaves: c_int,
+        profile_name: *const c_char,
+        vendor_id: u32,
+        product_code: u32,
     ) -> c_int;
 
     pub fn ec_rt_bringup_finish() -> c_int;

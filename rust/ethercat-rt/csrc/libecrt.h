@@ -25,6 +25,7 @@
 #define EC_RT_ERR_BAD_SLAVE_IDX   (-18)
 #define EC_RT_ERR_DC_CONVERGE     (-19)
 #define EC_RT_ERR_RT_QOS          (-20)
+#define EC_RT_ERR_PROFILE         (-21)
 
 /* Two-phase bring-up for N slaves on one chain (one master, one domain, one DC
  * grid). `slave_positions[num_slaves]` are the topological ring positions
@@ -37,8 +38,14 @@
  * wait between exchanges must go through ec_rt_cycle — pausing process data in
  * OP trips the drives' sync-loss monitor (ErC1.1). 0 or an EC_RT_ERR_* above;
  * a missing or mismatched configured position fails loudly naming its slot. */
+/* `profile_name` selects the drive family ("a6ec", "estun-pronet"): the
+ * identity to match on, which optional objects are mapped, and the vendor SDOs
+ * bring-up writes. A non-zero vendor_id/product_code overrides the profile's
+ * own; a profile that ships none requires them (EC_RT_ERR_PROFILE). */
 int  ec_rt_bringup_preop(const char *ifname, int64_t cycle_ns, int rt_cpu, int rt_prio,
-                         const int32_t *slave_positions, int num_slaves);
+                         const int32_t *slave_positions, int num_slaves,
+                         const char *profile_name, uint32_t vendor_id,
+                         uint32_t product_code);
 int  ec_rt_bringup_finish(void);
 
 /* Drive every slot's CiA402 enable state machine to Operation Enabled in
@@ -97,11 +104,13 @@ typedef struct {
 
 void ec_rt_get_telemetry(int slave, ec_telemetry_t *out);
 
-/* SDO-read 6065h/6066h/6072h from slot `slave`. 0 ok; -1/-2/-3 per failing object. */
+/* SDO-read 6065h/6066h and the profile's torque-limit object (6072h, or 60E0h
+ * on a split-limit drive) from slot `slave`. 0 ok; -1/-2/-3 per failing object. */
 int ec_rt_read_limits(int slave, uint32_t *ferr_counts, uint16_t *ferr_timeout_ms,
                       uint16_t *torque_tenth_pct);
 
-/* SDO-write 6065h and 6072h to slot `slave`. 0 ok; -1/-2 per failing object. */
+/* SDO-write 6065h and the profile's torque limit to slot `slave`: 6072h, or
+ * 60E0h and 60E1h together on a split-limit drive. 0 ok; -1/-2 per object. */
 int ec_rt_write_limits(int slave, uint32_t ferr_counts, uint16_t torque_tenth_pct);
 
 /* One parked process-data cycle (controlword 0, target tracks actual), paced

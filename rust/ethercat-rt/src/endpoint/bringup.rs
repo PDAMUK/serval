@@ -272,6 +272,9 @@ pub fn bringup(args: Args) -> EndpointCtx {
         dynamics,
         late_tolerance_ns,
         group_delay_ns,
+        drive_profile,
+        vendor_id,
+        product_code,
     } = args;
 
     let num_slaves = slaves.len();
@@ -346,6 +349,7 @@ pub fn bringup(args: Args) -> EndpointCtx {
     }
 
     let cif = CString::new(ifname.clone()).expect("ifname must not contain NUL");
+    let cprofile = CString::new(drive_profile.clone()).expect("drive profile must not contain NUL");
 
     // Single-shot bring-up: sync_slave_clocks converges a non-reference drive's
     // DC clock from any starting offset while the kernel master's FSM keeps
@@ -363,6 +367,9 @@ pub fn bringup(args: Args) -> EndpointCtx {
                 rt_prio,
                 columns.positions.as_ptr(),
                 num_slaves as std::os::raw::c_int,
+                cprofile.as_ptr(),
+                vendor_id,
+                product_code,
             )
         };
         tracing::info!(
@@ -370,6 +377,7 @@ pub fn bringup(args: Args) -> EndpointCtx {
             event = "bringup_preop",
             rc,
             num_slaves,
+            drive_profile = drive_profile.as_str(),
             "PREOP bringup result"
         );
         if rc != 0 {

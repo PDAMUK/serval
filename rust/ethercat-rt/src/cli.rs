@@ -178,6 +178,28 @@ pub struct Args {
     pub dynamics: Option<crate::dynamics::DynamicsModel>,
     pub late_tolerance_ns: Option<i64>,
     pub group_delay_ns: u64,
+    pub drive_profile: String,
+    /// 0 means "take the profile's own identity"; the C side rejects a profile
+    /// that ships none without an explicit value.
+    pub vendor_id: u32,
+    pub product_code: u32,
+}
+
+pub const DEFAULT_DRIVE_PROFILE: &str = "a6ec";
+
+/// Accepts decimal or the `0x`-prefixed hex that `ethercat slaves -v` and every
+/// ESI print, since that is how the identity is read off a drive.
+pub fn parse_identity(flag: &str, raw: Option<String>) -> Result<u32, String> {
+    let Some(text) = raw else { return Ok(0) };
+    let trimmed = text.trim();
+    let parsed = match trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        Some(hex) => u32::from_str_radix(hex, 16),
+        None => trimmed.parse::<u32>(),
+    };
+    parsed.map_err(|_| format!("{flag} {text} is not a number"))
 }
 
 fn load_dynamics_profile(path: &str) -> crate::dynamics::DynamicsModel {
@@ -283,6 +305,18 @@ impl Args {
             });
             (us * 1000.0).round() as i64
         });
+        let drive_profile =
+            arg_val(&raw, "--drive-profile").unwrap_or_else(|| DEFAULT_DRIVE_PROFILE.into());
+        let vendor_id =
+            parse_identity("--vendor-id", arg_val(&raw, "--vendor-id")).unwrap_or_else(|e| {
+                eprintln!("ec-rt: {e}");
+                std::process::exit(1);
+            });
+        let product_code = parse_identity("--product-code", arg_val(&raw, "--product-code"))
+            .unwrap_or_else(|e| {
+                eprintln!("ec-rt: {e}");
+                std::process::exit(1);
+            });
         let group_delay_ns = match arg_val(&raw, "--group-delay-us") {
             Some(v) => {
                 let us: f64 = v.parse().unwrap_or_else(|_| {
@@ -308,6 +342,9 @@ impl Args {
             dynamics,
             late_tolerance_ns,
             group_delay_ns,
+            drive_profile,
+            vendor_id,
+            product_code,
         }
     }
 }

@@ -340,3 +340,53 @@ def test_dynamics_profile_option_existing_file_passes(tmp_path):
     assert servo_axis.read_dynamics_profile_option(
         FakeOptionConfig(str(path))
     ) == str(path)
+
+
+class _IdentityConfig:
+    """Minimal config stub for the identity parser: get(option, default)."""
+
+    error = FakeConfigError
+
+    def __init__(self, values):
+        self._values = values
+
+    def get(self, option, default=None):
+        return self._values.get(option, default)
+
+    def get_name(self):
+        return "ethercat_node node_x"
+
+
+def _identity(values, option):
+    return ethercat_node.EtherCatNode._parse_identity(
+        _IdentityConfig(values), option
+    )
+
+
+def test_identity_absent_means_use_the_profile_default():
+    assert _identity({}, "vendor_id") == 0
+
+
+def test_identity_accepts_the_hex_form_the_esi_prints():
+    assert _identity({"vendor_id": "0x0000060A"}, "vendor_id") == 0x60A
+    assert _identity({"vendor_id": " 0X60a "}, "vendor_id") == 0x60A
+
+
+def test_identity_accepts_decimal():
+    assert _identity({"product_code": "1546"}, "product_code") == 1546
+
+
+def test_identity_rejects_nonsense_loudly():
+    with pytest.raises(FakeConfigError) as e:
+        _identity({"vendor_id": "wibble"}, "vendor_id")
+    assert "vendor_id" in str(e.value)
+
+
+def test_known_drive_profiles_cover_a6ec_and_estun():
+    assert "a6ec" in ethercat_node.DRIVE_PROFILES
+    assert "estun-pronet" in ethercat_node.DRIVE_PROFILES
+
+
+def test_only_the_identityless_profile_demands_an_identity():
+    assert "estun-pronet" in ethercat_node.PROFILES_NEEDING_IDENTITY
+    assert "a6ec" not in ethercat_node.PROFILES_NEEDING_IDENTITY

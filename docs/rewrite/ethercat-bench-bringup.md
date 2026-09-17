@@ -135,6 +135,116 @@ the endpoint uses to convert host millimetres to drive counts. klippy derives it
 claim time from `[servo_x]` and hands it to the spawned endpoint. Get both keys right
 before the drive moves.
 
+## Drive profiles (which drive family is on the bus)
+
+Everything the endpoint streams is standard CiA 402, but the identity it matches
+on the bus, the optional objects it maps, and the vendor SDOs it writes in
+PRE-OP all differ per drive family. `drive_profile:` on `[ethercat_node]`
+selects one; `a6ec` is the default, so existing configs are unchanged.
+
+| | `a6ec` | `estun-pronet` |
+| --- | --- | --- |
+| Drives | StepperOnline A6-EC | ESTUN ProNet with EC100 (`ProNet-…-EC`) |
+| Identity | built in (`0x00400000` / `0x00000715`) | **not public — you must supply it** |
+| Torque limit | `6072h` | `60E0h`/`60E1h`, written as a symmetric pair |
+| Following error | `60F4h`, mapped into the TxPDO | not in the dictionary; derived from `607Ah - 6064h` |
+| Feedforward routing | `0x2001:14/15/17/18` (C01.13/14/16/17) | none — CSP applies `60B1h`/`60B2h` directly |
+
+Both offsets, `60B1h` velocity and `60B2h` torque, are PDO-mappable on ProNet,
+so the feedforward path works unchanged. ProNet's DC cycle range is 250 us to
+8 ms, so the default 250 us (4 kHz) `cycle_us` is in spec.
+
+**ESTUN identity.** ESTUN ships it only in `ESTUN_ProNet_CoE.xml`, which is not
+published — request it with the order, or read the live values off the bus:
+
+```sh
+ethercat slaves -v | grep -iE 'vendor|product'
+```
+
+Then set them on the node. Without them the claim fails loudly naming what is
+missing, rather than enumerating nothing and blaming the cable:
+
+```ini
+[ethercat_node node_xy]
+drive_profile: estun-pronet
+vendor_id: 0x0000060a       # from the ESI or `ethercat slaves -v`
+product_code: 0x00000002
+```
+
+A drive that is present but of a different identity looks exactly like an absent
+one to the master (`rc=-2`), so the endpoint now names the profile and the
+identity it matched on in that error.
+
+**Two ESTUN bring-up steps that are not on the EtherCAT side at all.** Set them
+from the panel operator or ESView before the bus will do anything:
+
+- `Pn006.0 = 4` selects EtherCAT communication mode.
+- `Pn704` sets the station alias.
+
+**ESTUN sync-loss alarm.** `A.70` ("EtherCAT synchronous error — the cycle the
+master set is not correct, or SYNC0 has not kept up") is ProNet's version of the
+A6-EC's ErC1.1 trap. Same root cause, same fix: the DC loop must hold `SCHED_FIFO`
+on an isolated core. See the real-time scheduling section below.
+
+## Markforged with two ESTUN drives (worked example)
+
+A Markforged gantry with the Y motor on a straight frame loop and the X motor on
+the T-shaped loop, one drive per belt — not AWD, so each lane owns exactly one
+drive and the pair-specific machinery (diff damper, diff trim, strain map) is
+not in play.
+
+`encoder_counts_per_rev` is the motor's, not the drive's: an EMJ-04AFD22 carries
+the **20-bit incremental** encoder, so it is **1048576**, not the 131072 of a
+17-bit absolute. Getting this wrong scales every move by 8.
+
+```ini
+[kinematics]
+type: markforged
+axis_x: x
+x_motors: motor_x          # the T-belt motor (lane 0, carries x + y)
+axis_y: y
+y_motors: motor_y          # the straight-loop motor (lane 1, pure y)
+axis_z: z
+z_motors: motor_z
+
+[ethercat_node node_xy]
+socket: /tmp/kalico-ethercat.sock
+interface: eth0
+drive_profile: estun-pronet
+vendor_id: 0x0000060a       # replace with your drives' real identity
+product_code: 0x00000002
+cycle_us: 250
+
+[motor motor_x]
+drive: servo
+protocol: ethercat
+node: node_xy
+ethercat_chain_index: 0
+rotation_distance: 40                 # your pulley, not a default
+encoder_counts_per_rev: 1048576       # EMJ-04AFD22, 20-bit incremental
+max_torque: 300                       # % of rated; EMJ-04A peaks at 300
+
+[motor motor_y]
+drive: servo
+protocol: ethercat
+node: node_xy
+ethercat_chain_index: 1
+rotation_distance: 40
+encoder_counts_per_rev: 1048576
+max_torque: 300
+```
+
+Homing note specific to Markforged: a Y move drives **both** motors, an X move
+drives only the X motor. Y therefore cannot take a per-motor `endstop_pin` and
+the config rejects it; X can.
+
+The ESTUN tuning parameters reachable as `params:` / `SERVO_PARAM` live in the
+manufacturer area at `0x3xxx` — `0x3012.0` = Pn102 speed loop gain, `0x3014.0`
+= Pn104 position loop gain, `0x3016.0` = Pn106 load inertia ratio, `0x301C.0`
+= Pn112 position feedforward, `0x301E.0` = Pn114 torque feedforward. Note
+ESTUN's feedforward percentages are 0-100, so the A6-EC's bench-measured
+feedforward calibration does not carry over.
+
 ## Drive parameters (SDO)
 
 Drive tuning lives in config, not drive EEPROM. `params:` entries on `[servo_*]`

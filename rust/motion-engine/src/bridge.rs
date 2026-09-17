@@ -41,12 +41,13 @@ mod state;
 mod telemetry;
 
 use endstop::{TripDeps, dispatch_endstop_trip};
+use ethercat_endpoint::{
+    DriveIdentity, arm_endpoint_death_watchdog, handshake_ethercat_endpoint,
+    message_for_claim_error, poll_socket_ready, report_ethercat_endpoint_death,
+    spawn_ethercat_endpoint,
+};
 #[cfg(test)]
 use ethercat_endpoint::{EndpointClaimError, endpoint_args};
-use ethercat_endpoint::{
-    arm_endpoint_death_watchdog, handshake_ethercat_endpoint, message_for_claim_error,
-    poll_socket_ready, report_ethercat_endpoint_death, spawn_ethercat_endpoint,
-};
 use motion_caps::{
     axis_ring_depth, drip_cohort_participants, require_events_dir_for_mcu_transport,
     resolve_motion_caps, ring_depth_for_axis_inner,
@@ -288,7 +289,7 @@ impl PyMotionEngine {
         Ok(raw)
     }
 
-    #[pyo3(signature = (label, socket_path, interface, endpoint_binary, cycle_us, dynamics_profile, drives, late_tolerance_us=None, group_delay_us=None))]
+    #[pyo3(signature = (label, socket_path, interface, endpoint_binary, cycle_us, dynamics_profile, drives, late_tolerance_us=None, group_delay_us=None, drive_profile=None, vendor_id=None, product_code=None))]
     fn claim_ethercat_node(
         &self,
         label: &str,
@@ -300,6 +301,9 @@ impl PyMotionEngine {
         drives: Vec<EthercatDrive>,
         late_tolerance_us: Option<f64>,
         group_delay_us: Option<f64>,
+        drive_profile: Option<String>,
+        vendor_id: Option<u32>,
+        product_code: Option<u32>,
     ) -> PyResult<u32> {
         if drives.is_empty() {
             return Err(PyRuntimeError::new_err(format!(
@@ -318,6 +322,11 @@ impl PyMotionEngine {
             }
         }
 
+        let identity = DriveIdentity {
+            profile: drive_profile.unwrap_or_else(|| "a6ec".to_string()),
+            vendor_id: vendor_id.unwrap_or(0),
+            product_code: product_code.unwrap_or(0),
+        };
         let events_dir = self.events_dir.lock_ok().clone();
         let mut child = spawn_ethercat_endpoint(
             endpoint_binary,
@@ -328,6 +337,7 @@ impl PyMotionEngine {
             late_tolerance_us,
             group_delay_us.unwrap_or(f64::from(cycle_us)),
             events_dir.as_deref(),
+            &identity,
             &drives,
         )
         .map_err(|e| {

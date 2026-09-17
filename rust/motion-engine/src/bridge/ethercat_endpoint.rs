@@ -147,6 +147,32 @@ fn push_drive_flags(args: &mut Vec<String>, d: &EthercatDrive) {
     }
 }
 
+/// Which drive family the endpoint matches on the bus and configures at
+/// bring-up. A `vendor_id` or `product_code` of 0 means "use the profile's
+/// own"; a profile that ships none — ESTUN ProNet, whose identity lives only in
+/// a non-public ESI — is rejected by the endpoint without them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DriveIdentity {
+    pub profile: String,
+    pub vendor_id: u32,
+    pub product_code: u32,
+}
+
+impl DriveIdentity {
+    fn push_flags(&self, args: &mut Vec<String>) {
+        args.push("--drive-profile".into());
+        args.push(self.profile.clone());
+        if self.vendor_id != 0 {
+            args.push("--vendor-id".into());
+            args.push(format!("0x{:08x}", self.vendor_id));
+        }
+        if self.product_code != 0 {
+            args.push("--product-code".into());
+            args.push(format!("0x{:08x}", self.product_code));
+        }
+    }
+}
+
 pub(crate) fn endpoint_args(
     interface: &str,
     socket_path: &str,
@@ -155,6 +181,7 @@ pub(crate) fn endpoint_args(
     late_tolerance_us: Option<f64>,
     group_delay_us: f64,
     events_dir: Option<&std::path::Path>,
+    identity: &DriveIdentity,
     drives: &[EthercatDrive],
 ) -> Vec<String> {
     let mut args = vec![
@@ -164,6 +191,7 @@ pub(crate) fn endpoint_args(
         "--cycle-us".into(),
         cycle_us.to_string(),
     ];
+    identity.push_flags(&mut args);
     if let Some(p) = dynamics_profile {
         args.push("--dynamics-profile".into());
         args.push(p.to_string());
@@ -201,6 +229,7 @@ pub(crate) fn spawn_ethercat_endpoint(
     late_tolerance_us: Option<f64>,
     group_delay_us: f64,
     events_dir: Option<&std::path::Path>,
+    identity: &DriveIdentity,
     drives: &[EthercatDrive],
 ) -> Result<std::process::Child, String> {
     let args = endpoint_args(
@@ -211,6 +240,7 @@ pub(crate) fn spawn_ethercat_endpoint(
         late_tolerance_us,
         group_delay_us,
         events_dir,
+        identity,
         drives,
     );
     std::process::Command::new(binary)

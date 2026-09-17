@@ -298,3 +298,28 @@ fn slave_dynamics_profile_defaults_none() {
     let slaves = parse_slaves(&args(&["ethercat-rt", "eth0"])).expect("defaults");
     assert_eq!(slaves[0].dynamics_profile, None);
 }
+
+#[test]
+fn identity_reads_hex_or_decimal_and_absent_means_profile_default() {
+    assert_eq!(super::parse_identity("--vendor-id", None), Ok(0));
+    assert_eq!(
+        super::parse_identity("--vendor-id", Some("0x0000060A".into())),
+        Ok(0x0000_060A)
+    );
+    assert_eq!(
+        super::parse_identity("--vendor-id", Some("0X60a".into())),
+        Ok(0x60A)
+    );
+    assert_eq!(
+        super::parse_identity("--vendor-id", Some(" 1546 ".into())),
+        Ok(1546)
+    );
+}
+
+#[test]
+fn identity_rejects_nonsense_loudly() {
+    let err = super::parse_identity("--vendor-id", Some("wibble".into())).unwrap_err();
+    assert!(err.contains("--vendor-id"), "{err}");
+    assert!(err.contains("wibble"), "{err}");
+    assert!(super::parse_identity("--product-code", Some("0xZZ".into())).is_err());
+}

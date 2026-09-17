@@ -38,6 +38,7 @@ Three tiers, honestly applied:
 | Step/dir | **solid** | classic path |
 | Phase stepping | **verified in sim (2026-07)**; not recently exercised on real hardware | opt in with `phase_stepping: 1` in the stepper's existing section. Switch-endstop homing on a phase-stepped axis is not covered by the sim tests — only sensorless |
 | EtherCAT servo | **solid on the test bench** | industrial servo on X, steppers elsewhere |
+| EtherCAT drive families | A6-EC **solid on the test bench**; ESTUN ProNet (EC100) **untested on hardware** | `drive_profile:` on `[ethercat_node]`; ProNet needs its identity supplied (see ethercat-bench-bringup.md) |
 
 ### Host to micro-controller transports
 

@@ -38,6 +38,13 @@ EC_RT_MAX_SLAVES = 8
 
 CYCLE_US_QUANTUM = 250
 
+# Drive families the endpoint knows how to bring up. Each decides the identity
+# matched on the bus, which optional CiA 402 objects are mapped, and the vendor
+# SDOs written in PRE-OP. A family whose identity is not public ships none and
+# must be given one here.
+DRIVE_PROFILES = ("a6ec", "estun-pronet")
+PROFILES_NEEDING_IDENTITY = ("estun-pronet",)
+
 # Per-motor options that must be identical across a coupled node: a
 # node-level dynamics profile computes each motor's torque feedforward
 # from every motor's commanded kinematics, so asymmetry in the FF path
@@ -76,6 +83,23 @@ class EtherCatNode:
                 "must be a positive integer multiple of %d us"
                 % (self.name, self.cycle_us, CYCLE_US_QUANTUM)
             )
+        self.drive_profile = config.get("drive_profile", "a6ec").strip()
+        if self.drive_profile not in DRIVE_PROFILES:
+            raise config.error(
+                "ethercat_node %s: drive_profile=%r is unknown (known: %s)"
+                % (self.name, self.drive_profile, ", ".join(DRIVE_PROFILES))
+            )
+        self.vendor_id = self._parse_identity(config, "vendor_id")
+        self.product_code = self._parse_identity(config, "product_code")
+        if (
+            self.drive_profile in PROFILES_NEEDING_IDENTITY
+            and not self.vendor_id
+        ):
+            raise config.error(
+                "ethercat_node %s: drive_profile=%s ships no built-in identity "
+                "— set vendor_id (and product_code) from the drive's ESI or "
+                "from `ethercat slaves -v`" % (self.name, self.drive_profile)
+            )
         self.dynamics_profile = servo_axis.read_dynamics_profile_option(config)
         self.live_dynamics_profile = None
         # Default 0: strict - any late frame faults. Deliberate fail-loud
@@ -97,6 +121,22 @@ class EtherCatNode:
         )
         self.printer.load_object(config, "servo_capture")
         self.printer.load_object(config, "servo_param")
+
+    @staticmethod
+    def _parse_identity(config, option):
+        """EtherCAT identities are published as hex, so accept the 0x form the
+        ESI and `ethercat slaves -v` both print, as well as plain decimal."""
+        raw = config.get(option, None)
+        if raw is None:
+            return 0
+        text = raw.strip()
+        try:
+            return int(text, 16 if text.lower().startswith("0x") else 10)
+        except ValueError:
+            raise config.error(
+                "ethercat_node %s: %s=%r is not an integer"
+                % (config.get_name().split()[-1], option, raw)
+            )
 
     def _find_motors(self):
         toolhead = self.printer.lookup_object("toolhead")
@@ -241,12 +281,16 @@ class EtherCatNode:
                 drives,
                 late_tolerance_us=self.late_tolerance_us,
                 group_delay_us=self.group_delay_us,
+                drive_profile=self.drive_profile,
+                vendor_id=self.vendor_id,
+                product_code=self.product_code,
             )
         except RuntimeError as e:
             raise self.printer.config_error(str(e))
         logging.info(
             "ethercat_node %s: claimed handle=%s socket=%s interface=%s "
-            "endpoint=%s drives=%s dynamics_profile=%s",
+            "endpoint=%s drives=%s dynamics_profile=%s drive_profile=%s "
+            "vendor_id=0x%08x product_code=0x%08x",
             self.name,
             self.engine_handle,
             self.socket_path,
@@ -254,6 +298,9 @@ class EtherCatNode:
             self.endpoint,
             drives,
             self.dynamics_profile,
+            self.drive_profile,
+            self.vendor_id,
+            self.product_code,
         )
         for slot, (_global_axis, motor) in enumerate(motors):
             self._push_drive_params(motor, slot)
