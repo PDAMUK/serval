@@ -229,8 +229,16 @@ Settings, taken from the board's own published Klipper config header:
 | Clock reference | **25 MHz crystal** |
 | Communication | USB (PA11/PA12) |
 
-`test/configs/stm32h723.config` already encodes exactly this and can be copied
-to `.config` instead of stepping through menuconfig. Then:
+Make the Communication choice in menuconfig rather than copying a `.config`
+from the repository. `test/configs/stm32h723.config` carries the same MCU,
+25 MHz reference and 128 KiB offset, but it is a firmware **build-matrix**
+fixture, not a board config: it selects `CONFIG_SERIAL` — a hardware UART — and
+never sets `CONFIG_USBSERIAL`. Copied to `.config` it produces a board that
+never appears under `/dev/serial/by-id/`, and the `CONFIG_STM32_USB_PA11_PA12`
+line in it is inert without USB selected, so it reads as though USB were
+configured when it is not.
+
+Then:
 
 ```sh
 make clean && make -j"$(nproc)"

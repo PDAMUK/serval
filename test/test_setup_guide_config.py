@@ -150,3 +150,40 @@ def test_bring_up_torque_stays_below_the_bench_ceiling():
             re.search(r"^max_torque\s*:\s*([\d.]+)", section, re.M)[1]
         )
         assert value <= SERVO_BENCH_TORQUE_CEILING_PCT
+
+
+H723_FIXTURE = GUIDE.parents[2] / "test" / "configs" / "stm32h723.config"
+
+
+def h723_fixture_options():
+    return dict(
+        line.split("=", 1)
+        for line in H723_FIXTURE.read_text(encoding="utf-8").splitlines()
+        if line.startswith("CONFIG_") and "=" in line
+    )
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("CONFIG_MACH_STM32H723", "y"),
+        ("CONFIG_STM32_CLOCK_REF_25M", "y"),
+        ("CONFIG_FLASH_APPLICATION_ADDRESS", "0x8020000"),
+    ],
+)
+def test_guide_firmware_rows_match_the_fixture(option, value):
+    """Three of the guide's four menuconfig rows are shared with the build
+    matrix fixture, so the guide cites it. If the fixture moves, the guide is
+    wrong."""
+    assert h723_fixture_options().get(option) == value
+
+
+def test_the_fixture_is_a_uart_build_and_the_guide_says_so():
+    """The fourth row is not shared: the fixture is a UART build, so copying
+    it to .config yields a board that never enumerates over USB. Should the
+    fixture ever gain USBSERIAL, the guide's warning becomes wrong and must be
+    rewritten rather than silently left in place."""
+    options = h723_fixture_options()
+    assert options.get("CONFIG_SERIAL") == "y"
+    assert "CONFIG_USBSERIAL" not in options
+    assert "CONFIG_USBSERIAL" in GUIDE.read_text(encoding="utf-8")
