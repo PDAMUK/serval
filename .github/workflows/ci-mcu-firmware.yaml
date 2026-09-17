@@ -20,6 +20,7 @@ on:
       - 'Cargo.lock'
       - 'test/configs/*.config'
       - 'scripts/ci-build-mcu.sh'
+      - 'scripts/fuzz-piece-sink.sh'
       - '.github/workflows/ci-mcu-firmware.yaml'
 
 concurrency:
@@ -124,3 +125,19 @@ jobs:
           make V=1 -j"$(nproc)"
           test -f out/klipper.elf
           echo "OK: sim Linux MCU linked"
+
+  # The piece parser is C running on the MCU, reached straight off the wire.
+  # scripts/fuzz-piece-sink.sh throws random byte streams at it under ASan and
+  # UBSan; its header says to run it before flashing a parser change, and until
+  # now nothing invoked it, so nothing did.
+  piece-sink-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the clang sanitizer runtime
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Fuzz the piece parser under ASan/UBSan
+        run: ./scripts/ci.sh fuzz-piece-sink

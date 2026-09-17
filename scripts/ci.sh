@@ -168,6 +168,19 @@ job_rust_ethercat_hw() {
         cargo check -p ethercat-rt --features hw --bin ethercat-rt
 }
 
+# ASan/UBSan over the MCU piece parser (src/piece_sink.c) on the host. The
+# script's own header says to run it before flashing firmware that changes the
+# parser; nothing invoked it, so nothing did.
+job_fuzz_piece_sink() {
+    local cc="${CC:-clang}"
+    if ! echo 'int main(void){return 0;}' \
+        | "$cc" -fsanitize=address,undefined -x c - -o /dev/null 2>/dev/null; then
+        echo "$cc cannot link the sanitizer runtime here (install compiler-rt, or set CC=gcc) — skipping locally; CI runs it"
+        return 0
+    fi
+    "$ROOT/scripts/fuzz-piece-sink.sh"
+}
+
 job_deny() {
     if command -v cargo-deny >/dev/null 2>&1; then
         cargo deny --manifest-path "$RUST/Cargo.toml" check
@@ -314,6 +327,7 @@ run_all() {
     if [ "$quick" != "true" ]; then
         run_check "cbindgen-drift"  job_cbindgen_drift
         run_check "c-smoke"         job_c_smoke
+        run_check "fuzz-piece-sink" job_fuzz_piece_sink
         run_check "rust-ethercat-hw" job_rust_ethercat_hw
         run_check "rust-mcu-h7"     job_rust_mcu_h7
         run_check "rust-mcu-f4"     job_rust_mcu_f4
@@ -381,6 +395,7 @@ case "$name" in
     rust-no-stepper)  job=(job_rust_no_stepper) ;;
     cbindgen-drift)   job=(job_cbindgen_drift) ;;
     c-smoke)          job=(job_c_smoke) ;;
+    fuzz-piece-sink)  job=(job_fuzz_piece_sink) ;;
     rust-ethercat-hw) job=(job_rust_ethercat_hw) ;;
     deny)             job=(job_deny) ;;
     miri)             job=(job_miri) ;;
