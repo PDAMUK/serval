@@ -781,3 +781,65 @@ fn state_at_clock_before_ring_falls_back_to_host_hold() {
         .unwrap();
     assert!((held.position - 3.0).abs() < 1e-6);
 }
+
+/// On cartesian the two lanes are independent, so one unanswerable motor must
+/// not take the other axis down with it. The matrix-driven assembler asks for
+/// both lane states before inverting, and relies on the non-feeding lane being
+/// substituted at rest; if that substitution were dropped, x would vanish
+/// whenever y's history was missing. Base Serval runs cartesian machines, so
+/// this is the corner where the rewrite would have cost someone a homed axis.
+#[test]
+fn assemble_cartesian_state_cartesian_keeps_each_axis_independent() {
+    use crate::kinematics::KinematicsModule;
+    use crate::motion_history::{AxisState, assemble_cartesian_state};
+    use runtime::segment::KinematicTag;
+
+    let kin = KinematicsModule::from_tag(KinematicTag::Cartesian as u8).unwrap();
+    let moving = Some(AxisState {
+        position: 15.0,
+        velocity: 2.0,
+        acceleration: 0.5,
+    });
+    let z = Some(AxisState {
+        position: 3.0,
+        velocity: 0.0,
+        acceleration: 0.0,
+    });
+
+    let out = assemble_cartesian_state([moving, None, z, None], &kin);
+    assert_eq!(out["x"], (15.0, 2.0, 0.5));
+    assert!(!out.contains_key("y"));
+    assert_eq!(out["z"], (3.0, 0.0, 0.0));
+
+    let out = assemble_cartesian_state([None, moving, z, None], &kin);
+    assert!(!out.contains_key("x"));
+    assert_eq!(out["y"], (15.0, 2.0, 0.5));
+    assert_eq!(out["z"], (3.0, 0.0, 0.0));
+}
+
+/// Markforged sits between the two, and the direction matters: moving x turns
+/// only its own motor, but *reconstructing* x is `m0 - m1` and needs both
+/// lanes, while y is `m1` alone. The forward relation drives the per-motor
+/// endstop rule in homing.py; this is the inverse, and they are not the same
+/// predicate.
+#[test]
+fn assemble_cartesian_state_markforged_recovers_y_from_one_lane_but_x_needs_both() {
+    use crate::kinematics::KinematicsModule;
+    use crate::motion_history::{AxisState, assemble_cartesian_state};
+    use runtime::segment::KinematicTag;
+
+    let kin = KinematicsModule::from_tag(KinematicTag::Markforged as u8).unwrap();
+    let moving = Some(AxisState {
+        position: 15.0,
+        velocity: 2.0,
+        acceleration: 0.5,
+    });
+
+    let out = assemble_cartesian_state([None, moving, None, None], &kin);
+    assert_eq!(out["y"], (15.0, 2.0, 0.5));
+    assert!(!out.contains_key("x"));
+
+    let out = assemble_cartesian_state([moving, None, None, None], &kin);
+    assert!(!out.contains_key("x"));
+    assert!(!out.contains_key("y"));
+}

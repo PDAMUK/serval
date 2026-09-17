@@ -2,6 +2,7 @@ import pytest
 
 from klippy.extras.resonance_buzz import (
     ResonanceBuzz,
+    _buzz_kind,
     buzz_axis_to_motor_mask,
 )
 
@@ -39,9 +40,18 @@ def test_unsupported_axis_raises():
         buzz_axis_to_motor_mask("e", kind="cartesian")
 
 
+class FakeBuzzKinematics:
+    """These tests bound accel and amplitude, not motor masks, but the buzz
+    code still has to know the machine: a bare stub used to be read as
+    cartesian by default, which would have buzzed a corexy gantry one motor at
+    a time. Say cartesian explicitly instead of relying on that."""
+
+    kind = "cartesian"
+
+
 class FakeBuzzToolhead:
     def get_kinematics(self):
-        return object()
+        return FakeBuzzKinematics()
 
     def wait_moves(self):
         pass
@@ -129,3 +139,9 @@ def test_markforged_x_buzzes_one_lane_and_y_buzzes_both_in_phase():
     assert buzz_axis_to_motor_mask("x", kind="markforged") == (0b001, 0b000)
     assert buzz_axis_to_motor_mask("y", kind="markforged") == (0b011, 0b000)
     assert buzz_axis_to_motor_mask("z", kind="markforged") == (0b100, 0b000)
+
+
+def test_kinematics_without_a_kind_is_an_error_not_a_cartesian_machine():
+    """Defaulting would drive one motor where a corexy needs two together."""
+    with pytest.raises(ValueError, match="does not report one"):
+        _buzz_kind(object())

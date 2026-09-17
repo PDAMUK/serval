@@ -32,7 +32,18 @@ def buzz_axis_to_motor_mask(axis, kind):
 
 
 def _buzz_kind(kin):
-    return getattr(kin, "kind", None) or "cartesian"
+    """The kinematics name the buzz masks are read from.
+
+    Defaulting here would buzz a corexy gantry as though it were cartesian —
+    one motor driven where two should move together — so an object that cannot
+    name its kinematics is an error, not a cartesian machine."""
+    kind = getattr(kin, "kind", None)
+    if not kind:
+        raise ValueError(
+            "resonance buzz needs the kinematics kind; %r does not report one"
+            % (type(kin).__name__,)
+        )
+    return kind
 
 
 def _servo_buzz_targets(motion, axis_mask, sign_mask):
