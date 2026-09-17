@@ -15,19 +15,46 @@ Everything here is under active development. Interfaces, config formats,
 and some design decisions may still change. Upstream Kalico's feature list
 and install instructions: [README_KALICO.md](README_KALICO.md).
 
-**Honest per-feature status** — what is solid, what is only verified in sim,
-what is exploratory, and the known limits:
-[docs/Feature_Status.md](docs/Feature_Status.md).
+## Where to start
 
-**Play with it in your browser** — the actual pipeline compiled to WASM;
-paste G-code, tweak config, watch it re-plan:
-[dderg.github.io/kalico/playground](https://dderg.github.io/kalico/playground/).
+No install needed to get a feel for it: the actual pipeline compiled to WASM,
+where G-code can be pasted and the config tweaked while it re-plans —
+[the playground](https://dderg.github.io/kalico/playground/).
 
-**Try it on your printer** — add a remote, switch the branch, build,
-flash, migrate the config: [docs/Quickstart.md](docs/Quickstart.md).
+To put it on a machine, in this order:
 
-**Host requirements** — lock motion memory and configure swap before running a
-printer: [docs/Installation.md#host-memory-requirements](docs/Installation.md#host-memory-requirements).
+1. **[docs/Feature_Status.md](docs/Feature_Status.md)** — what is solid, what is
+   sim-only, what is exploratory. Read this first; it decides whether the rest
+   is worth doing on a given printer.
+2. **[docs/Installation.md#host-memory-requirements](docs/Installation.md#host-memory-requirements)**
+   — lock motion memory and set up swap. A host that skips this stutters.
+3. **[docs/Quickstart.md](docs/Quickstart.md)** — add the remote, switch branch,
+   build the Rust host parts, reflash.
+4. **[docs/Config_Migration.md](docs/Config_Migration.md)** — convert the printer
+   config. Not optional: `[stepper_x]` and `[printer] kinematics` are rejected,
+   so an unconverted config will not start.
+5. **[docs/Config_Reference_Motion.md](docs/Config_Reference_Motion.md)** — the
+   motion sections in full: `[kinematics]`, `[motor]`, `[axis]`,
+   `[post_processor]`.
+6. **[docs/Config_Reference.md](docs/Config_Reference.md)** — everything that is
+   not motion: heaters, probes, fans, sensors.
+
+### Driving EtherCAT servos
+
+Only for machines using industrial servo drives instead of steppers on one or
+more axes. Everything above still applies.
+
+1. **[docs/rewrite/ethercat-igh-macb-install.md](docs/rewrite/ethercat-igh-macb-install.md)**
+   — the real-time kernel and EtherCAT master on the host. Do this before any
+   drive is wired.
+2. **[docs/rewrite/estun-pronet-markforged-setup.md](docs/rewrite/estun-pronet-markforged-setup.md)**
+   — a full worked build, bare frame to tuned machine, for ESTUN ProNet drives
+   on a Markforged gantry with a BTT Octopus Pro carrying Z and the extruder.
+3. **[docs/rewrite/ethercat-bench-bringup.md](docs/rewrite/ethercat-bench-bringup.md)**
+   — drive profiles, SDO parameters, telemetry capture, and the real-time
+   scheduling rules in depth.
+4. **[docs/rewrite/servo-feedforward.md](docs/rewrite/servo-feedforward.md)** —
+   velocity and torque feedforward, and identifying the axis dynamics they need.
 
 ---
 
