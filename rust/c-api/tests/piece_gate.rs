@@ -16,6 +16,17 @@ pub extern "C" fn runtime_cyccnt_read() -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn runtime_diag_progress(_tag: u32, _stage: u32, _value: u32) {}
 
+#[unsafe(no_mangle)]
+pub extern "C" fn event_log_emit(
+    _level: u8,
+    _subsystem: u8,
+    _event: u16,
+    _code: u16,
+    _arg0: u32,
+    _arg1: u32,
+) {
+}
+
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /// # SAFETY
