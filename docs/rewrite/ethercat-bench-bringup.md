@@ -151,8 +151,17 @@ selects one; `a6ec` is the default, so existing configs are unchanged.
 | Feedforward routing | `0x2001:14/15/17/18` (C01.13/14/16/17) | none — CSP applies `60B1h`/`60B2h` directly |
 
 Both offsets, `60B1h` velocity and `60B2h` torque, are PDO-mappable on ProNet,
-so the feedforward path works unchanged. ProNet's DC cycle range is 250 us to
-8 ms, so the default 250 us (4 kHz) `cycle_us` is in spec.
+so the feedforward path works unchanged. Both families also take the same DC
+`AssignActivate` word, `0x0300` (SYNC0 only, one pulse per cycle period), and
+ESTUN states it itself in chapter 4 of the ProNet EtherCAT manual - "DC mode
+(ESC register: 0x980 = 0x0300)", worded identically in V1.05 and V1.06 - so the
+shared value is documented for both, not inherited from the A6-EC.
+
+ESTUN gives the DC cycle range twice and the two disagree: the communication
+specification table says 250 us to 8 ms, while `0x1C32:02` gives `125000 * n`
+ns with `n = 2..16`, which stops at 2 ms. The lower bound matches, so the
+default 250 us (4 kHz) `cycle_us` is in spec under either reading; a cycle
+slower than 2 ms is the part to check against the drive in hand.
 
 **ESTUN identity.** ESTUN ships it only in `ESTUN_ProNet_CoE.xml`, which is not
 published — request it with the order, or read the live values off the bus:

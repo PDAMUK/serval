@@ -50,11 +50,15 @@ static const cfg_sdo16_t a6ec_cfg_sdos[] = {
 
 /* Everything on the wire is standard CiA 402; what differs per drive family is
  * the identity, which optional objects exist, and the vendor SDOs bring-up must
- * write. `dc_assign_activate` is the ESI's Dc/OpMode "DC-Synchron" word:
- * SYNC0-only at 1x the cycle period. The A6-EC requires SYNC0 active before
- * SAFE-OP (else AL 0x0030); the ESI ships ShiftTimeSync0=0, so we shift SYNC0
- * half a cycle and the process-data frame (sent at the cycle boundary) arrives
- * mid-window, maximizing margin to the drive's latch instant. */
+ * write. `dc_assign_activate` is the word written to the ESC's DC activation
+ * register 0x0980, selecting SYNC0-only at 1x the cycle period. Both families
+ * use 0x0300, and both say so themselves: the A6-EC in its ESI's Dc/OpMode
+ * "DC-Synchron" entry, and ESTUN in the ProNet EtherCAT manual chapter 4
+ * ("DC mode (ESC register: 0x980 = 0x0300)", stated identically in V1.05 and
+ * V1.06). The A6-EC additionally requires SYNC0 active before SAFE-OP (else
+ * AL 0x0030); its ESI ships ShiftTimeSync0=0, so SYNC0 is shifted half a cycle
+ * and the process-data frame, sent at the cycle boundary, arrives mid-window
+ * with maximum margin to the drive's latch instant. */
 typedef struct {
     const char        *name;
     uint32_t           vendor_id;
@@ -74,7 +78,9 @@ static const drive_profile_t g_profiles[] = {
      (int)(sizeof(a6ec_cfg_sdos) / sizeof(a6ec_cfg_sdos[0]))},
     /* ESTUN ProNet with the EC100 EtherCAT module (ProNet-xxxxx-EC). Identity
      * lives only in ESTUN's ESI (ESTUN_ProNet_CoE.xml), which is not public, so
-     * it has no default and must be passed in. The ProNet object dictionary has
+     * it has no default and must be passed in. The DC word is not a guess
+     * carried over from the A6-EC: ESTUN documents 0x0300 for DC mode in its
+     * own EtherCAT manual. The ProNet object dictionary has
      * neither 60F4h (following error actual) nor 6072h (max torque): the
      * following error is derived from 607Ah - 6064h and the torque limit is the
      * 60E0h/60E1h pair, whose 0.1%-of-rated unit already matches what the host

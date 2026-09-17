@@ -582,7 +582,10 @@ The tandem extruder is a **follower axis with two motors**, not two axes.
 trajectory — there is no synchronisation to maintain and no way for them to
 diverge.
 
-`cycle_us: 250` (4 kHz) sits inside ProNet's documented 250 us - 8 ms DC range.
+`cycle_us: 250` (4 kHz) is the fast end of ProNet's DC range. ESTUN's manual
+prints that range twice and the two disagree - 250 us to 8 ms in the
+specification table, 250 us to 2 ms in object `0x1C32:02` - but both agree on
+the 250 us floor, so this value is in spec either way.
 
 A Markforged Y move drives **both** motors while an X move drives only its own.
 A plain `endstop_pin` works on both axes; only the **per-motor keyed** endstop
@@ -693,8 +696,6 @@ Carried forward honestly. None of the following has run on real hardware:
 
 - The ESTUN vendor ID and product code (no public ESI — read them off the bus
   at Part 10).
-- The DC `AssignActivate` word: the `estun-pronet` profile reuses the A6-EC's
-  `0x0300`, which ESTUN's ESI may contradict.
 - The Markforged belt coupling sign (Part 12, step 5 checks it).
 - `ec_dwmac-rk`, if the CB2 is the host: it compiles and its symbols resolve,
   but it has never been loaded. A Pi 5 host avoids this one entirely.
