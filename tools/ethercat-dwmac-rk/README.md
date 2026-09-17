@@ -57,19 +57,72 @@ complete recipe, and `generate.py` implements exactly it:
 
 ## Running it
 
+`--install` generates the sources, copies them in, and wires the build system.
+It is idempotent, so it can be re-run after regenerating for a new kernel.
+
 ```sh
 python3 tools/ethercat-dwmac-rk/generate.py \
-    --igh ~/ethercat-igh/devices/stmmac \
-    --work /tmp/ec-dwmac
+    --igh  ~/ethercat-igh/devices/stmmac \
+    --work /tmp/ec-dwmac \
+    --install ~/ethercat-igh
+
+cd ~/ethercat-igh
+./bootstrap
+./configure --with-linux-dir=/path/to/linux-6.12 \
+            --with-stmmac-kernel=6.12 \
+            --enable-dwmac-rk
+make modules && sudo make modules_install
 ```
 
-Then copy `/tmp/ec-dwmac/devices-stmmac/*` into `~/ethercat-igh/devices/stmmac/`,
-add the six new filenames to that directory's `Makefile.am` `EXTRA_DIST` list
-alongside the `dwmac-intel` entries, and wire `dwmac-rk` into `Kbuild.in` and
-`configure.ac` following how `dwmac-intel` is wired.
+Then load `ec_dwmac-rk` in place of `ec_generic`.
 
-Build with `--enable-stmmac` (see the master's `configure --help` for the exact
-flag as shipped) and load `ec_dwmac` in place of `ec_generic`.
+## Build status
+
+**The module compiles and links.** Built here for arm64 against a prepared
+Linux 6.12 tree, from a clean `stable-1.6` clone wired by `--install`:
+
+```
+LD [M]  devices/stmmac/ec_dwmac-rk.ko     ELF 64-bit LSB relocatable, ARM aarch64
+```
+
+Symbol checks on the result:
+
+| Check | Result |
+| --- | --- |
+| EtherCAT API referenced | `ecdev_offer`, `ecdev_open`, `ecdev_close`, `ecdev_receive`, `ecdev_set_link`, `ecdev_withdraw` |
+| Those symbols exported by `ec_master.ko` | all six present |
+| Renamed core symbol | `ec_stmmac_bus_clks_config` defined in-module (`T`) |
+| Probe path | `stmmac_ec_dvr_probe` / `stmmac_ec_dvr_remove` defined in-module |
+| Undefined `stmmac_*` symbols | **none** — every rename landed |
+
+`modpost` reports unresolved *core kernel* symbols (`kfree`, `_printk`,
+`jiffies`) because `modules_prepare` does not produce the kernel's
+`Module.symvers`. That affects every IgH module including the stock examples,
+is unrelated to this binding, and is why the build above passes
+`KBUILD_MODPOST_WARN=1`. Building against a fully built kernel — which is what
+a real host has — resolves them.
+
+### What compiling caught that review did not
+
+The first build failed on `stmmac_platform.c`:
+
+```
+error: implicit declaration of 'stmmac_bus_clks_config';
+       did you mean 'ec_stmmac_bus_clks_config'?
+```
+
+IgH renames the symbols its patched core exports, so the EtherCAT module and
+the in-tree `stmmac` do not clash — and it uses **two** conventions at once:
+`stmmac_dvr_probe` becomes `stmmac_ec_dvr_probe`, while
+`stmmac_bus_clks_config` becomes `ec_stmmac_bus_clks_config`. The generator now
+derives that map from `stmmac-<kv>-ethercat.h` rather than assuming it, so a
+later IgH release renaming more symbols is picked up automatically.
+
+The renames apply to **call sites only** — an identifier followed by `(`. That
+distinction is load-bearing: `dwmac-rk` asks for its clock with
+`devm_clk_get(dev, "stmmaceth")`, and `stmmaceth` is also a renamed symbol. A
+blind textual rename would have compiled cleanly and then failed to find the
+clock at probe time, which is a far worse failure than a build error.
 
 ## What the generator verifies, and what it cannot
 
@@ -83,20 +136,20 @@ Verified automatically, aborting on failure:
 - No call still reaches the non-EtherCAT probe path.
 - The driver does not auto-bind and does bracket registration.
 
-**Not verified: it has never been compiled or run.** The generator emits source
-and checks its structure; it cannot substitute for a build against real kernel
-headers, and nothing here has touched hardware. Treat a clean run as "the port
-is structurally sound", not "the driver works".
+**Not verified: it has never been loaded or run on hardware.** It compiles and
+its symbols resolve; nothing here has touched a NIC, a bus, or a drive. Treat
+this as "the port builds and is structurally sound", not "the driver works".
 
-Two further unknowns a build will surface first:
+Two further unknowns:
 
 - **Kernel version.** IgH's stmmac file set stops at 6.12 while its `macb` set
   is at 6.18, so a Rockchip host should run a 6.12-series PREEMPT_RT kernel to
-  match. A different kernel needs the file set rebased via IgH's `update.sh`.
+  match. A different kernel needs the file set rebased via IgH's `update.sh`,
+  and `--kernel-version` / `--kernel-tag` then point at it.
 - **ABI drift.** `dwmac-intel-6.12-ethercat.c` carries a `LINUX_VERSION_CODE`
-  shim for a `plat_stmmacenet_data` member removed in 6.12.78. `dwmac-rk` may
-  need its own shim; a compile error naming a struct member is that, not a
-  mistake in the transform.
+  shim for a `plat_stmmacenet_data` member removed in 6.12.78. `dwmac-rk` did
+  not need one against 6.12 proper, but a stable-branch kernel may differ; a
+  compile error naming a struct member is that, not a transform mistake.
 
 ## Bench validation
 

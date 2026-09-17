@@ -86,6 +86,42 @@ def fetch(dest: pathlib.Path, tag: str) -> None:
             raise PortError(f"could not fetch {url}")
 
 
+def ec_renames(igh: pathlib.Path, kv: str) -> dict:
+    """Symbols IgH re-exports under an ec_ prefix, read from its own header.
+
+    The patched core cannot keep the in-tree stmmac symbol names or the two
+    modules would clash, so IgH renames what it exports. It uses two
+    conventions -- stmmac_dvr_probe becomes stmmac_ec_dvr_probe while
+    stmmac_bus_clks_config becomes ec_stmmac_bus_clks_config -- so the map is
+    derived here rather than assumed, and picks up anything a later IgH
+    release renames as well.
+    """
+    ec_h = igh / f"stmmac-{kv}-ethercat.h"
+    orig_h = igh / f"stmmac-{kv}-orig.h"
+    if not (ec_h.exists() and orig_h.exists()):
+        raise PortError(f"cannot read the rename map: {ec_h.name} not found")
+    ec_text = ec_h.read_text(encoding="utf-8")
+    orig_text = orig_h.read_text(encoding="utf-8")
+    renames = {}
+    for base in sorted(set(re.findall(r"\bec_(\w+)", ec_text))):
+        if re.search(rf"\b{re.escape(base)}\b", orig_text):
+            renames[base] = f"ec_{base}"
+    return renames
+
+
+def apply_renames(text: str, renames: dict) -> str:
+    """Rename call sites only.
+
+    Requiring a following '(' keeps string literals intact. That matters:
+    dwmac-rk asks for its clock by the name "stmmaceth", which is a
+    device-tree string and not a symbol. Renaming it would still compile and
+    then fail to find the clock at probe time.
+    """
+    for old, new in renames.items():
+        text = re.sub(rf"\b{re.escape(old)}\s*\(", f"{new}(", text)
+    return text
+
+
 def rewrite_includes(text: str, kv: str) -> str:
     return re.sub(
         r'#include "([A-Za-z0-9_\-]+)\.h"',
@@ -94,10 +130,11 @@ def rewrite_includes(text: str, kv: str) -> str:
     )
 
 
-def ethercat_variant(text: str, kv: str, is_driver: bool) -> str:
+def ethercat_variant(text: str, kv: str, is_driver: bool, renames: dict) -> str:
     text = rewrite_includes(text, kv)
     text = text.replace("stmmac_dvr_probe(", "stmmac_ec_dvr_probe(")
     text = text.replace("stmmac_dvr_remove(", "stmmac_ec_dvr_remove(")
+    text = apply_renames(text, renames)
     text = re.sub(
         r'(MODULE_DESCRIPTION\("[^"]+)"',
         lambda m: m.group(1) + ' (EtherCAT-enabled)"',
@@ -117,17 +154,106 @@ def ethercat_variant(text: str, kv: str, is_driver: bool) -> str:
     return text
 
 
-def generate(ksrc: pathlib.Path, out: pathlib.Path, kv: str) -> None:
+def generate(
+    ksrc: pathlib.Path, out: pathlib.Path, kv: str, renames: dict
+) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for name in KERNEL_FILES:
         stem, ext = name.rsplit(".", 1)
         src = ksrc / name
         shutil.copy(src, out / f"{stem}-{kv}-orig.{ext}")
         body = src.read_text(encoding="utf-8")
-        variant = ethercat_variant(body, kv, is_driver=(name == "dwmac-rk.c"))
+        variant = ethercat_variant(
+            body, kv, is_driver=(name == "dwmac-rk.c"), renames=renames
+        )
         (out / f"{stem}-{kv}-ethercat.{ext}").write_text(
             variant, encoding="utf-8"
         )
+
+
+CONFIGURE_HOOK = """AM_CONDITIONAL(ENABLE_DWMACINTEL, test "x$enabledwmacintel" = "x1")
+AC_SUBST(ENABLE_DWMACINTEL, [$enabledwmacintel])
+"""
+
+CONFIGURE_ADD = """
+AC_ARG_ENABLE([dwmac-rk],
+    AS_HELP_STRING([--enable-dwmac-rk],
+                   [Build dwmac rockchip driver [default=no]]),
+    [
+        case "${enableval}" in
+            yes) enabledwmacrk=1
+                 enablestmmac=1
+                ;;
+            no) enabledwmacrk=0
+                ;;
+            *) AC_MSG_ERROR([Invalid value for --enable-dwmac-rk])
+                ;;
+        esac
+    ],
+    [enabledwmacrk=0]
+)
+
+AM_CONDITIONAL(ENABLE_DWMACRK, test "x$enabledwmacrk" = "x1")
+AC_SUBST(ENABLE_DWMACRK, [$enabledwmacrk])
+"""
+
+KBUILD_HOOK = """ifeq (@ENABLE_STMMACPCI@,1)
+\tobj-m += ec_stmmac-pci.o"""
+
+KBUILD_ADD = """ifeq (@ENABLE_DWMACRK@,1)
+\tobj-m += ec_dwmac-rk.o
+\tec_dwmac-rk-objs := \\
+\t\t$(EC_STMMAC_OBJS) \\
+\t\tstmmac_platform-@KERNEL_STMMAC@-ethercat.o \\
+\t\tdwmac-rk-@KERNEL_STMMAC@-ethercat.o
+endif
+
+"""
+
+
+def wire(igh_root: pathlib.Path, out: pathlib.Path, kv: str) -> None:
+    """Copy the generated pair set in and wire it into IgH's build system.
+
+    Idempotent: a tree already carrying the binding is left alone, so this can
+    be re-run after regenerating for a new kernel version.
+    """
+    dest = igh_root / "devices" / "stmmac"
+    if not dest.is_dir():
+        raise PortError(f"{dest} is not an IgH devices/stmmac directory")
+    for f in sorted(out.iterdir()):
+        shutil.copy(f, dest / f.name)
+
+    configure = igh_root / "configure.ac"
+    text = configure.read_text(encoding="utf-8")
+    if "ENABLE_DWMACRK" not in text:
+        if text.count(CONFIGURE_HOOK) != 1:
+            raise PortError("configure.ac: dwmac-intel anchor not found once")
+        configure.write_text(
+            text.replace(CONFIGURE_HOOK, CONFIGURE_HOOK + CONFIGURE_ADD, 1),
+            encoding="utf-8",
+        )
+
+    kbuild = dest / "Kbuild.in"
+    text = kbuild.read_text(encoding="utf-8")
+    if "ec_dwmac-rk" not in text:
+        hook, add = (
+            KBUILD_HOOK.replace("\\t", "\t"),
+            KBUILD_ADD.replace("\\t", "\t"),
+        )
+        if text.count(hook) != 1:
+            raise PortError("Kbuild.in: stmmac-pci anchor not found once")
+        kbuild.write_text(text.replace(hook, add + hook, 1), encoding="utf-8")
+
+    am = dest / "Makefile.am"
+    text = am.read_text(encoding="utf-8")
+    if f"dwmac-rk-{kv}-ethercat.c" not in text:
+        names = sorted(f.name for f in out.iterdir())
+        block = "".join(f"\t{n} \\\n" for n in names)
+        anchor = "EXTRA_DIST = \\\n"
+        if text.count(anchor) != 1:
+            raise PortError("Makefile.am: EXTRA_DIST anchor not found once")
+        am.write_text(text.replace(anchor, anchor + block, 1), encoding="utf-8")
+    print(f"     wired into {igh_root}")
 
 
 def digest(path: pathlib.Path) -> str:
@@ -158,12 +284,17 @@ def verify(
             if not any((d / inc).exists() for d in search):
                 failures.append(f"{path.name}: unresolved include {inc}")
 
-    # 3. No call may still reach the non-EtherCAT probe path.
+    # 3. No call may still reach an in-tree symbol the patched core renamed.
+    #    A survivor either links against the stock stmmac or does not link.
+    renames = ec_renames(igh, kv) if igh.is_dir() else {}
     for path in sorted(out.glob("*-ethercat.c")):
         body = path.read_text(encoding="utf-8")
         for symbol in ("stmmac_dvr_probe(", "stmmac_dvr_remove("):
             if symbol in body.replace("stmmac_ec_dvr", "X"):
                 failures.append(f"{path.name}: unconverted {symbol}")
+        for old in renames:
+            if re.search(rf"(?<!ec_)\b{re.escape(old)}\s*\(", body):
+                failures.append(f"{path.name}: unconverted call to {old}()")
 
     # 4. The driver must not auto-bind, and must bracket registration.
     drv = (out / f"dwmac-rk-{kv}-ethercat.c").read_text(encoding="utf-8")
@@ -205,17 +336,33 @@ def main() -> int:
         help="IgH devices/stmmac directory, for the include check",
     )
     ap.add_argument("--work", type=pathlib.Path, default=pathlib.Path("build"))
+    ap.add_argument(
+        "--install",
+        type=pathlib.Path,
+        default=None,
+        help="IgH source root to copy into and wire up",
+    )
     args = ap.parse_args()
 
     ksrc, out = args.work / "upstream", args.work / "devices-stmmac"
     try:
         fetch(ksrc, args.kernel_tag)
-        generate(ksrc, out, args.kernel_version)
+        renames = ec_renames(args.igh, args.kernel_version)
+        print(f"     rename map from IgH header: {len(renames)} symbol(s)")
+        generate(ksrc, out, args.kernel_version, renames)
         verify(ksrc, out, args.igh, args.kernel_version)
     except PortError as e:
         print(f"ec_dwmac: {e}", file=sys.stderr)
         return 1
-    print(f"     copy {out}/* into the IgH tree at devices/stmmac/")
+    if args.install is not None:
+        try:
+            wire(args.install, out, args.kernel_version)
+        except PortError as e:
+            print(f"ec_dwmac: {e}", file=sys.stderr)
+            return 1
+        print("     configure with --enable-dwmac-rk after ./bootstrap")
+    else:
+        print(f"     copy {out}/* into the IgH tree at devices/stmmac/")
     return 0
 
 
