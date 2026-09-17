@@ -52,11 +52,32 @@ def lanes_driven_by_axis(kind, axis):
 
 
 _REBUILD_HINT = (
-    "Change MARKFORGED_Y_COUPLING in both klippy/motion_kinematics.py and "
-    "rust/motion-core/src/kinematics.rs, then rebuild the module with "
-    "scripts/build-native.sh — the Rust edit does nothing until it is "
-    "recompiled."
+    "Change the value on both sides — klippy/motion_kinematics.py and the "
+    "matching Rust source — then rebuild the module with "
+    "scripts/build-native.sh: a Rust edit does nothing until it is recompiled."
 )
+
+
+def check_kinematic_tags_agree(planner_tags):
+    """Fail on a kinematics tag table that disagrees with the planner's.
+
+    The tag is the whole of what klippy tells the planner about the machine's
+    geometry, so a renumber on either side — or a swap between two valid tags —
+    builds the wrong kinematics from a config that still looks right."""
+    if planner_tags is None:
+        raise stepper.error(
+            "the native motion engine is missing or predates the kinematics "
+            "tag check, so the tags this host sends (%r) cannot be confirmed "
+            "against it. " % (_KIN_TAGS,) + _REBUILD_HINT
+        )
+    if dict(planner_tags) == _KIN_TAGS:
+        return
+    raise stepper.error(
+        "kinematics tag mismatch: klippy/motion_kinematics.py says %r but the "
+        "planner says %r. The tag is all the planner is told about the "
+        "machine's geometry, so a disagreement silently builds the wrong "
+        "kinematics. " % (_KIN_TAGS, dict(planner_tags)) + _REBUILD_HINT
+    )
 
 
 def check_markforged_coupling_agrees(planner_coupling):
@@ -80,7 +101,8 @@ def check_markforged_coupling_agrees(planner_coupling):
         return
     raise stepper.error(
         "markforged coupling mismatch: klippy/motion_kinematics.py says %r but "
-        "the planner in klippy/_motion_engine.so says %r. "
+        "the planner in klippy/_motion_engine.so says %r. The two copies are "
+        "MARKFORGED_Y_COUPLING here and in rust/motion-core/src/kinematics.rs. "
         % (MARKFORGED_Y_COUPLING, planner_coupling)
         + _REBUILD_HINT
     )
@@ -93,6 +115,7 @@ def load_kinematics(config, motion):
     if motion.kinematics_decl is None:
         raise config.error("[kinematics] section is required")
     kind, lanes, _followers = motion.kinematics_decl
+    check_kinematic_tags_agree(motion_engine.native_attr("KINEMATIC_TAGS"))
     if kind == "markforged":
         check_markforged_coupling_agrees(
             motion_engine.native_attr("MARKFORGED_Y_COUPLING")

@@ -31,6 +31,15 @@ fn _motion_engine(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         "MARKFORGED_Y_COUPLING",
         motion_core::kinematics::MARKFORGED_Y_COUPLING,
     )?;
+    let tags = pyo3::types::PyDict::new(_py);
+    for (name, tag) in [
+        ("corexy", runtime::segment::KinematicTag::CoreXy),
+        ("cartesian", runtime::segment::KinematicTag::Cartesian),
+        ("markforged", runtime::segment::KinematicTag::Markforged),
+    ] {
+        tags.set_item(name, tag as u8)?;
+    }
+    m.add("KINEMATIC_TAGS", tags)?;
     #[cfg(feature = "snapshot")]
     m.add_function(wrap_pyfunction!(viz::pipeline_snapshot, m)?)?;
     Ok(())

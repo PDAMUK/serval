@@ -645,3 +645,35 @@ def test_a_module_too_old_to_report_its_constant_fails_loudly():
     with pytest.raises(stepper.error) as e:
         motion_kinematics.check_markforged_coupling_agrees(None)
     assert "build-native.sh" in str(e.value)
+
+
+def test_matching_kinematic_tags_pass():
+    motion_kinematics.check_kinematic_tags_agree(
+        dict(motion_kinematics._KIN_TAGS)
+    )
+
+
+def test_a_renumbered_kinematic_tag_fails_loudly():
+    skewed = dict(motion_kinematics._KIN_TAGS)
+    skewed["markforged"] = 7
+    with pytest.raises(stepper.error) as e:
+        motion_kinematics.check_kinematic_tags_agree(skewed)
+    assert "tag mismatch" in str(e.value)
+
+
+def test_two_kinematics_swapped_between_tags_fails_loudly():
+    """A swap keeps every tag valid, so nothing downstream rejects it."""
+    swapped = dict(motion_kinematics._KIN_TAGS)
+    swapped["cartesian"], swapped["markforged"] = (
+        swapped["markforged"],
+        swapped["cartesian"],
+    )
+    with pytest.raises(stepper.error) as e:
+        motion_kinematics.check_kinematic_tags_agree(swapped)
+    assert "tag mismatch" in str(e.value)
+
+
+def test_a_module_without_the_tag_table_fails_loudly():
+    with pytest.raises(stepper.error) as e:
+        motion_kinematics.check_kinematic_tags_agree(None)
+    assert "build-native.sh" in str(e.value)
