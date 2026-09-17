@@ -128,7 +128,7 @@ Only `cartesian`, `corexy` and `markforged` are accepted. `[printer] kinematics`
 
 ## `[motor <name>]`
 
-A stepper motor section is consumed by `klippy/stepper.py:188-216` and `:219-256`. The enable module also accepts `enable_pin` (`klippy/extras/stepper_enable.py:117-119`).
+A stepper motor section is consumed by `PrinterStepper` in `klippy/stepper.py`, with the step distance and gear ratio parsed by `parse_step_distance` and `parse_gear_ratio` in the same file. The enable module also accepts `enable_pin` (`register_stepper` in `klippy/extras/stepper_enable.py`).
 
 ### Stepper motor
 
@@ -162,7 +162,7 @@ microsteps: 16
 
 ### Servo motor
 
-`drive: servo` selects the EtherCAT servo parser in `klippy/extras/servo_axis.py:87-143`. Its options are separate from stepper electrical options:
+`drive: servo` selects the EtherCAT servo parser, `ServoMotor` in `klippy/extras/servo_axis.py`. Its options are separate from stepper electrical options:
 
 ```
 [motor x_motor]
@@ -204,7 +204,7 @@ The servo parser requires `protocol`, `node`, `ethercat_chain_index`, `rotation_
 
 ## `[axis <name>]`
 
-Axis declarations are read by `rust/planner-config/src/from_doc.rs:570-591`. Travel and homing options are applied when a kinematic lane constructs a stepper/servo rail (`klippy/motion_kinematics.py:40-62`, `klippy/stepper.py:276-317`); follower axes are built from their motors without this rail parser (`klippy/motion_setup.py:41-51`).
+Axis declarations are read by `axis_sections` in `rust/planner-config/src/from_doc.rs`. Travel and homing options are applied when a kinematic lane constructs a stepper or servo rail (`_build_lane` and `_build_servo_lane` in `klippy/motion_kinematics.py`, reaching `AxisRail` in `klippy/stepper.py`); follower axes are built from their motors without that rail parser (`build_follower_steppers` in `klippy/motion_setup.py`).
 
 ```
 

@@ -63,3 +63,18 @@ def test_every_cited_symbol_exists_where_it_says(symbol, path):
     assert symbol in target.read_text(encoding="utf-8"), (
         f"{path} no longer defines {symbol}"
     )
+
+
+LINE_CITATION = re.compile(r"[\w./-]+\.(?:py|rs|c|h):\d+")
+
+
+def test_no_line_number_citations_remain():
+    """Line ranges are the defect this file exists for.
+
+    Every one of them in this document had gone stale or was heading there —
+    including one that this session's own edits to motion_kinematics.py shifted
+    out from under the text. A symbol survives an edit above it; a line number
+    does not, and says nothing when it stops being true.
+    """
+    found = LINE_CITATION.findall(REFERENCE.read_text(encoding="utf-8"))
+    assert not found, f"cite these by symbol instead: {found}"
