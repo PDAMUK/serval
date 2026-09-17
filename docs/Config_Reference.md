@@ -1864,6 +1864,8 @@ z_offset:
 
 ### [probe_eddy_current]
 
+**Not shipped in this fork.** `klippy/extras/probe_eddy_current.py` does not exist here, so this section raises `Module 'probe_eddy_current' not found` at startup. It is kept documented because the module can be supplied as a [plugin](Kalico_Additions.md#plugins) in `klippy/plugins/`.
+
 Support for eddy current inductive probes. One may define this section
 instead of a probe section to enable this probe.
 
@@ -2080,6 +2082,8 @@ axis:
 ```
 
 ### [manual_stepper]
+
+**Not shipped in this fork.** `klippy/extras/manual_stepper.py` does not exist here, so this section raises `Module 'manual_stepper' not found` at startup. It is kept documented because the module can be supplied as a [plugin](Kalico_Additions.md#plugins) in `klippy/plugins/`.
 
 Manual steppers (one may define any number of sections with a
 "manual_stepper" prefix). These are steppers that are controlled by
@@ -4953,6 +4957,8 @@ data_ready_pin:
 
 
 ### [load_cell_probe]
+
+**Not shipped in this fork.** `klippy/extras/load_cell_probe.py` does not exist here, so this section raises `Module 'load_cell_probe' not found` at startup. It is kept documented because the module can be supplied as a [plugin](Kalico_Additions.md#plugins) in `klippy/plugins/`.
 Load Cell Probe. This combines the functionality of a [probe] and a [load_cell].
 
 See also [simple_tap_classifier] for tap validation configuration.
@@ -5317,6 +5323,8 @@ trigger_to_bottom_z: 0.25
 ```
 
 ### [trad_rack]
+
+**Not shipped in this fork.** `klippy/extras/trad_rack.py` does not exist here, so this section raises `Module 'trad_rack' not found` at startup. It is kept documented because the module can be supplied as a [plugin](Kalico_Additions.md#plugins) in `klippy/plugins/`.
 
 Trad Rack multimaterial system support. See the following documents from the
 TradRack repo for additional information:
