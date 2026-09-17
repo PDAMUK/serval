@@ -728,10 +728,30 @@ Pn409/Pn410 (filter 2).
 | `A.25` | motor line U overcurrent | U/V/W phase order, or mechanical seizure |
 | `A.10` / `A.22` | encoder / sensor break | CN2 wiring, shield, 5 V |
 | `rc=-2` | no slave matched | vendor/product identity, not necessarily the cable |
+| `rc=-4` | a drive never reached OP | read the per-slot `al_state`/`al_status` lines printed with it |
+| `rc=-6` | the drive refused the PDO map | an object in the map this drive does not have, or a fixed map |
+| `rc=-21` | profile identity missing or zero | `vendor_id` **and** `product_code` both set, from Part 10 |
 
 `rc=-2` deserves emphasis: a drive that is present but of a different identity
 looks **exactly** like an absent one to the master. The endpoint names the
 profile and identity it matched on, so read that line before suspecting wiring.
+
+**`rc=-6` and `rc=-4` are the ones to expect first on ProNet**, because the
+profile carries assumptions inherited from the drive family this fork was built
+against. The endpoint prints what it assumed alongside either failure — the
+touch-probe objects, the digital I/O, the variable `1600h`/`1A00h` remapping,
+and the following-error window `6065h` and timeout `6066h` — so the message
+names the assumption that broke rather than leaving a bare code.
+
+`rc=-4` is also where a rejected configuration SDO surfaces. The master applies
+those in PRE-OP, not at the call, so a drive that refuses one simply never
+reaches OP; the endpoint says so and prints each slot's AL state and status
+code. A drive rejecting `6065h` at the session-limit write is named directly
+instead, with its abort code — likely if ESTUN's dictionary omits that object
+the way it omits `60F4h`.
+
+None of this is a reason to expect failure. It is what to read when it happens,
+and it is the difference between a five-minute fix and an afternoon.
 
 ## What "done" looks like
 

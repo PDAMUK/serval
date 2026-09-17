@@ -187,3 +187,27 @@ def test_the_fixture_is_a_uart_build_and_the_guide_says_so():
     assert options.get("CONFIG_SERIAL") == "y"
     assert "CONFIG_USBSERIAL" not in options
     assert "CONFIG_USBSERIAL" in GUIDE.read_text(encoding="utf-8")
+
+
+LIBECRT_H = GUIDE.parents[2] / "rust" / "ethercat-rt" / "csrc" / "libecrt.h"
+
+
+def endpoint_return_codes():
+    return {
+        int(m.group(2)): m.group(1)
+        for m in re.finditer(
+            r"#define (EC_RT_ERR_\w+)\s+\((-\d+)\)",
+            LIBECRT_H.read_text(encoding="utf-8"),
+        )
+    }
+
+
+@pytest.mark.parametrize("code", [-2, -4, -6, -21])
+def test_fault_table_codes_are_real_endpoint_codes(code):
+    """The guide's fault table lists rc values a reader will see on the bench.
+
+    A code that no longer exists, or that never did, sends someone chasing the
+    wrong failure at the worst moment.
+    """
+    assert code in endpoint_return_codes()
+    assert "`rc=%d`" % code in GUIDE.read_text(encoding="utf-8")
