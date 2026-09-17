@@ -379,6 +379,10 @@ add them to `Makefile.am`. Full detail is in `devices/macb/PORTING-NOTES.md`.
 
 ## See also
 
+- [`tools/ethercat-dwmac-rk/`](../../tools/ethercat-dwmac-rk/README.md) —
+  generates the native binding for a Rockchip platform GMAC (RK3566 on a BTT
+  CB2, RK3588), for hosts where `ec_macb` does not apply.
+
 - [`estun-pronet-markforged-setup.md`](estun-pronet-markforged-setup.md) —
   drive/motor wiring and staged power-on for an ESTUN ProNet Markforged build.
 
