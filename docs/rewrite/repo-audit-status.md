@@ -33,6 +33,9 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 16 | The motion config reference cited line ranges; two of seven were already wrong, `[kinematics]` parsing having moved into a gap between two of them | `c0f6c15` |
 | 17 | Three more line citations in the same document's body, one of them shifted by this branch's own edits | `b53b013` |
 | 18 | `fuzz-piece-sink.sh` — ASan/UBSan over the MCU piece parser — was invoked by no job, workflow or document | `1dbab70` |
+| 19 | Four documented config sections have no module and fail startup, with nothing saying so | `1420542` |
+| 20 | `assemble_cartesian_state`'s cartesian one-motor-missing corner was rewritten and untested | `b8365aa` |
+| 21 | `_buzz_kind` defaulted a kinematics-less object to cartesian instead of failing | `b8365aa` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -96,6 +99,24 @@ Not defects. Recorded so the next pass does not spend the time again.
   six times over. Ten scripts under `scripts/` already import matplotlib, so
   there is a reasonable case for `dev` — but that is a call about dependency
   weight for whoever owns the repo, not one to make from an audit.
+
+## The diff against base, reviewed for regression
+
+Base Serval runs on hardware, so the risk this branch carries is in the shared
+code it rewrote under cartesian and corexy machines, not in the Markforged
+code. Every behavioural change against `14f6296` was walked for equivalence:
+
+| Changed | Verdict |
+| --- | --- |
+| `homing.py` per-motor endstop rule | equivalent — the predicate counts matrix rows, so multi-Z cartesian is unaffected |
+| `stepper.py` | purely additive; cartesian and corexy branches untouched |
+| `motion_history.rs` | equivalent; the cartesian corner was untested and now is |
+| `resonance_buzz.py` masks | equivalent — corexy and cartesian pinned to the pre-rewrite bitmasks |
+| `servo_axis.corexy_fit_layout` | equivalent for corexy and cartesian; also stops accepting markforged, which the old `coupled_xy()` test wrongly allowed |
+| `servo_strain_comp` kin tag | equivalent; also stops tagging markforged as corexy |
+| `homing_api.required_motor_axes` | equivalent for every axis of both kinematics |
+| `from_doc.rs` roles | purely additive |
+| EtherCAT endpoint args, FFI, `libecrt.h` | additive; the `a6ec` default resolves to the same identity, PDO map and SDOs as base, and a test pins that no identity flags are passed |
 
 ## Not yet audited
 
