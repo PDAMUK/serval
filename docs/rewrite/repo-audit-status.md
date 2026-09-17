@@ -78,6 +78,25 @@ Not defects. Recorded so the next pass does not spend the time again.
   (48 of the 55 in `docs/`) are historical analyses pointing at upstream files,
   not references anyone configures from. Left alone deliberately.
 
+## Known, deliberately not changed
+
+- **Five plot-rendering tests never run anywhere.**
+  `test_servo_capture_analysis.py` guards five cases with
+  `pytest.importorskip("matplotlib")`. matplotlib sits in the `prototype`
+  dependency group, `tool.uv.default-groups` is unset so only `dev` installs,
+  and the CI image's entrypoint is the same `uv run` — so they skip in CI
+  exactly as they do locally. Run with `uv run --group prototype pytest
+  test/test_servo_capture_analysis.py` all 51 pass, so the `servo_capture.py
+  --png` path works; it is simply unexercised.
+
+  Left as it is because both fixes cost more than the gap. Moving matplotlib
+  into `dev` adds it plus pillow, fontTools, kiwisolver and contourpy to every
+  install and to the CI image across six Python versions; adding `--group
+  prototype` to `ci.sh py` makes that job resolve and download them at runtime,
+  six times over. Ten scripts under `scripts/` already import matplotlib, so
+  there is a reasonable case for `dev` — but that is a call about dependency
+  weight for whoever owns the repo, not one to make from an audit.
+
 ## Not yet audited
 
 - `Config_Reference.md` — the non-motion half. Only
