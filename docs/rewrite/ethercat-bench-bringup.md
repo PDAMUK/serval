@@ -188,6 +188,11 @@ on an isolated core. See the real-time scheduling section below.
 
 ## Markforged with two ESTUN drives (worked example)
 
+> Wiring, mains, encoder cabling and the staged first power-on for exactly this
+> machine are in
+> [`estun-pronet-markforged-setup.md`](estun-pronet-markforged-setup.md).
+
+
 A Markforged gantry with the Y motor on a straight frame loop and the X motor on
 the T-shaped loop, one drive per belt — not AWD, so each lane owns exactly one
 drive and the pair-specific machinery (diff damper, diff trim, strain map) is

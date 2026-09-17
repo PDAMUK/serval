@@ -379,6 +379,9 @@ add them to `Makefile.am`. Full detail is in `devices/macb/PORTING-NOTES.md`.
 
 ## See also
 
+- [`estun-pronet-markforged-setup.md`](estun-pronet-markforged-setup.md) —
+  drive/motor wiring and staged power-on for an ESTUN ProNet Markforged build.
+
 - [`ethercat-bench-bringup.md`](ethercat-bench-bringup.md) — drive bring-up, config, homing, faults.
 - [`servo-feedforward.md`](servo-feedforward.md) — velocity/torque feedforward.
 - [`servo-telemetry-capture.md`](servo-telemetry-capture.md) — `.scap` capture + dynamics fitting.
