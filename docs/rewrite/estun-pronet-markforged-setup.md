@@ -1,4 +1,4 @@
-# Markforged servo build: ESTUN ProNet + BTT Octopus Pro (H723)
+# Markforged servo build: ESTUN ProNet + BTT Manta M8P V2
 
 A complete build-up from a mechanically assembled but electrically bare
 printer to a homing, tuned Markforged machine.
@@ -15,15 +15,16 @@ control, Z and the extruder on TMC steppers, all axes homing, drives tuned.
 | Role | Part |
 | --- | --- |
 | X, Y motors | 2x ESTUN ProNet-04AEG-EC drive + EMJ-04AFD22 motor |
-| Z, extruder | TMC2209 stepper drivers in the mainboard |
-| Mainboard | BigTreeTech Octopus Pro V1.1, **STM32H723** variant |
-| Host | Raspberry Pi 5, Debian 13 trixie |
+| Z | one TMC2209 stepper in the mainboard |
+| Extruder | two TMC2209 steppers, driven in tandem as one axis |
+| Mainboard | BigTreeTech Manta M8P V2.0 (**STM32H723ZET6**, 8 driver slots) |
+| Host | BTT CB2 compute module in the Manta's BTB socket |
 | Servo supply | single-phase 230 VAC, >= 1.8 kVA |
 
-> The Octopus Pro V1.1 ships in two MCU variants, **STM32F446** and
-> **STM32H723**. This guide targets the H723; the repository already carries a
-> matching firmware config at `test/configs/stm32h723.config`. Check the chip
-> marking before flashing — the two are not interchangeable.
+The Manta carries the host on the board itself, so there is no separate SBC.
+That is convenient for everything except EtherCAT — see
+[The EtherCAT host problem](#the-ethercat-host-problem) below, which needs
+settling before the servo wiring is worth starting.
 
 ## Architecture, and why steppers remain
 
@@ -31,28 +32,60 @@ The servos replace the X and Y **steppers only**. Everything else on the
 printer stays conventional:
 
 ```
-                       ┌─────────────────────────────┐
-   Raspberry Pi 5 ─────┤ klippy + ethercat-rt endpoint│
-        │  │           └─────────────────────────────┘
-        │  └── USB ──> Octopus Pro H723 ──> TMC2209 Driver2/3 ──> Z motors
-        │                    │                TMC2209 Driver4  ──> extruder
-        │                    └── endstops PG6 / PG9 / PG10, heaters, fans
-        │
-        └── eth0 ──> [CN3] ProNet X [CN4] ──> [CN3] ProNet Y [CN4]
-                          │                        │
-                      EMJ motor X               EMJ motor Y
-                      (T-shaped belt)           (straight loop)
+   ┌──────────────── Manta M8P V2 ────────────────┐
+   │  CB2 module ── klippy + ethercat-rt endpoint │
+   │      │                                       │
+   │      │ (on-board link)                       │
+   │  STM32H723 ── Motor3 TMC2209 ──> Z stepper   │
+   │      │        Motor5 TMC2209 ──> extruder A  │
+   │      │        Motor6 TMC2209 ──> extruder B  │
+   │      └── endstops PF4 / PF3 / PF2, heaters, fans
+   │  Motor1, Motor2 slots: EMPTY (X/Y are servos)│
+   └───────────────────┬──────────────────────────┘
+                       │ eth0
+          [CN3] ProNet X [CN4] ──> [CN3] ProNet Y [CN4]
+                │                        │
+            EMJ motor X               EMJ motor Y
+            (T-shaped belt)           (straight loop)
 ```
 
 Mixed drive types are supported per **lane**: a lane's motors must all be the
 same type, but different lanes may differ. X and Y are servo lanes, Z is a
-stepper lane, and the extruder is a follower axis on a stepper. This is the
-configuration the repository describes as "industrial servo on X, steppers
-elsewhere".
+stepper lane, and the extruder is a follower axis carrying **two** steppers
+that always move together. This is the configuration the repository describes
+as "industrial servo on X, steppers elsewhere".
 
-The Octopus also carries the **endstops for the servo axes**. A servo axis
-homes against a GPIO endstop on any bridge MCU, so the X and Y switches land on
-the mainboard exactly like a stepper machine's would.
+The Manta also carries the **endstops for the servo axes**. A servo axis homes
+against a GPIO endstop on any bridge MCU, so the X and Y switches land on the
+mainboard exactly like a stepper machine's would.
+
+## The EtherCAT host problem
+
+The endpoint's DC loop needs a **native** EtherCAT NIC driver. IgH's `generic`
+driver pushes every frame through the Linux net stack, and that jitter is what
+makes a drive miss SYNC0 and latch `A.70`.
+
+The CB2 is a Rockchip **RK3566**, whose GbE is a Synopsys DesignWare MAC driven
+by `stmmac`/`rk_gmac-dwmac`. IgH ships native drivers for `e1000e`, `igb`,
+`r8169`, `genet` and `macb` — **none of which match it**. The `ec_macb` driver
+in the host install guide is specific to the Pi 5's RP1 Cadence GEM and does not
+apply here. A Raspberry Pi CM4 in the same socket does not help either: its
+GENET MAC has no native IgH driver.
+
+Three ways forward, in increasing order of risk:
+
+1. **A separate Raspberry Pi 5 as the EtherCAT host**, with the Manta as a plain
+   USB-attached MCU. This is the only path the repository has actually
+   exercised. The CB2 is not wasted — it can still run the printer.
+2. **Build `ec_dwmac`.** IgH already carries the whole stmmac core
+   EtherCAT-ified; only the Rockchip binding is missing, and
+   [`tools/ethercat-dwmac-rk/`](../../tools/ethercat-dwmac-rk/README.md)
+   generates it. That code has never been compiled or run.
+3. **Accept `ec_generic`** and expect sync faults under load.
+
+Everything below assumes one of these is settled. The wiring, firmware and
+configuration are identical either way; only which machine runs the endpoint
+changes.
 
 Markforged lane assignment, which everything downstream depends on:
 
@@ -77,28 +110,31 @@ Markforged lane assignment, which everything downstream depends on:
 
 | Item | Spec | Note |
 | --- | --- | --- |
-| TMC2209 drivers | 3x (Z, Z1, extruder) | **Driver0 and Driver1 stay empty** — X/Y are servos |
+| TMC2209 drivers | 3x (Z, extruder A, extruder B) | **Motor1 and Motor2 stay empty** — X/Y are servos |
 | Encoder cable | ESTUN **PBP** series | `PBP` = incremental. The `F` encoder is incremental; a `PDP` (absolute) cable is the wrong part |
 | Motor power cable | PDM-GD12-XX, or 1 mm^2 self-made | 1 mm^2 covers the 0.05-1 kW band |
 | EtherCAT cable | 2x shielded Cat5 or better | 100BASE-TX |
 | Drive debug cable | **mini-USB**, double shielded with ferrites | the `-EC` variant uses mini-USB, not the base drive's RS-485 |
 | Mains parts | breaker, surge protector, noise filter, contactor | plus a surge suppressor for the contactor coil |
 | Regen resistor | external, sized to the gantry | see Part 4 — this frame size has no internal resistor |
-| Endstop switches | 3x (X, Y, Z) | wired to the Octopus |
+| Endstop switches | 3x (X, Y, Z) | wired to the Manta |
 
 ---
 
 ## Part 2 — Host
 
-The host runs klippy and the real-time EtherCAT endpoint. It needs a
-PREEMPT_RT kernel, the IgH master, and the native `ec_macb` NIC driver.
+Whichever machine runs the endpoint needs a PREEMPT_RT kernel, the IgH master,
+and a **native** NIC driver for its own Ethernet controller — `ec_macb` on a
+Pi 5, `ec_dwmac` on the CB2.
 
 Follow [`ethercat-igh-macb-install.md`](ethercat-igh-macb-install.md) end to
-end before wiring anything. Three of its requirements cause most failures:
+end before wiring anything. Everything in it apart from the `ec_macb` step is
+NIC-independent. Three of its requirements cause most failures:
 
 - **`eth0` is given entirely to the EtherCAT master and receives no IP
   address.** SSH and LAN must live on Wi-Fi or a second NIC. Confirm with
-  `ip route get 1.1.1.1` — the route must not leave via `eth0`.
+  `ip route get 1.1.1.1` — the route must not leave via `eth0`. The CB2's
+  dual-band Wi-Fi covers this.
 - **An isolated CPU core** on the kernel command line, for the DC loop to pin
   to.
 - **The systemd drop-in** granting the endpoint `CAP_SYS_NICE` and
@@ -113,7 +149,7 @@ Re-check after a **cold reboot**, not a warm restart.
 
 ---
 
-## Part 3 — Firmware for the Octopus Pro
+## Part 3 — Firmware for the Manta
 
 Build on the host, in the repository:
 
@@ -121,7 +157,7 @@ Build on the host, in the repository:
 make menuconfig
 ```
 
-Settings for the H723 variant:
+Settings, taken from the board's own published Klipper config header:
 
 | Option | Value |
 | --- | --- |
@@ -152,22 +188,26 @@ Record the `usb-Klipper_stm32h723xx_*` path — Part 10 needs it.
 
 ## Part 4 — Fit the stepper drivers
 
-Power off the Octopus completely.
+Power off the Manta completely.
+
+The Manta has eight slots, Motor1 through Motor8. This build uses three:
 
 | Slot | Driver | Purpose |
 | --- | --- | --- |
-| Driver0 | **empty** | X is an EtherCAT servo |
-| Driver1 | **empty** | Y is an EtherCAT servo |
-| Driver2 | TMC2209 | Z |
-| Driver3 | TMC2209 | Z1 (second Z, if fitted) |
-| Driver4 | TMC2209 | extruder |
+| Motor1 | **empty** | X is an EtherCAT servo |
+| Motor2 | **empty** | Y is an EtherCAT servo |
+| Motor3 | TMC2209 | Z (single stepper) |
+| Motor5 | TMC2209 | extruder A |
+| Motor6 | TMC2209 | extruder B |
+| Motor4, 7, 8 | **empty** | unused |
 
 Set every fitted TMC2209 for **UART mode** per the driver documentation, seat it
 in the correct orientation, and fit its heatsink. A reversed driver is destroyed
 on power-up.
 
-Leaving Driver0 and Driver1 empty is deliberate: those lanes have no stepper to
-drive, and the pins that would serve them are simply unused.
+Leaving Motor1 and Motor2 empty is deliberate: those lanes have no stepper to
+drive, and the pins that would serve them are simply unused. Their **endstop
+inputs are still used** — the servo axes home on them.
 
 **Verify.** Visual check of orientation on all three, before power.
 
@@ -287,30 +327,34 @@ sequence input channels** rather than 8.
 
 ---
 
-## Part 8 — Octopus wiring
+## Part 8 — Manta wiring
 
 All of this is conventional Klipper wiring; the only unusual part is that the X
 and Y endstops serve servo axes.
 
 | Function | Pin | Slot |
 | --- | --- | --- |
-| Z stepper | step `PF11`, dir `PG3`, enable `!PG5`, uart `PC6` | Driver2 |
-| Z1 stepper | step `PG4`, dir `PC1`, enable `!PA2`, uart `PC7` | Driver3 |
-| Extruder | step `PF9`, dir `PF10`, enable `!PG2`, uart `PF2` | Driver4 |
-| X endstop | `PG6` | serves the X **servo** axis |
-| Y endstop | `PG9` | serves the Y **servo** axis |
-| Z endstop | `PG10` | |
-| Hotend heater / thermistor | `PA0` / `PF4` | |
-| Bed heater / thermistor | `PA1` / `PF3` | |
-| Part cooling fan | `PA8` | |
+| Z stepper | step `PB8`, dir `!PB7`, enable `!PE0`, uart `PB9` | Motor3 |
+| Extruder A | step `PG13`, dir `PG12`, enable `!PG15`, uart `PG14` | Motor5 |
+| Extruder B | step `PG9`, dir `PD7`, enable `!PG11`, uart `PG10` | Motor6 |
+| X endstop | `PF4` (E-Stop1) | serves the X **servo** axis |
+| Y endstop | `PF3` (E-Stop2) | serves the Y **servo** axis |
+| Z endstop | `PF2` (E-Stop3) | |
+| Hotend heater / thermistor | `PA0` (HE0) / `PB0` (T0) | |
+| Bed heater / thermistor | `PF5` / `PB1` (TB) | |
+| Part cooling fan | `PF7` (Fan0) | |
+
+Note `PG9`: it is the **step** pin of Motor6 on this board, unrelated to the
+similarly-named pin on other boards. Pin names do not transfer between
+mainboards — these come from the Manta M8P V2.0's own published Klipper config.
 
 Wire the motor coils in pairs by phase, not by wire colour. Route endstop and
 thermistor wiring away from the servo motor cables — those carry PWM switching
 noise.
 
-**Verify.** With the Octopus powered over USB only and no mains on the drives,
-klippy can be started against a minimal config and `QUERY_ENDSTOPS` reports all
-three switches changing state when pressed.
+**Verify.** With the Manta powered and no mains on the drives, klippy can be
+started against a minimal config and `QUERY_ENDSTOPS` reports all three
+switches changing state when pressed.
 
 ---
 
@@ -367,7 +411,7 @@ x_motors: motor_x          # lane 0 — T-belt, carries x + y
 axis_y: y
 y_motors: motor_y          # lane 1 — straight loop, pure y
 axis_z: z
-z_motors: motor_z, motor_z1
+z_motors: motor_z
 
 [ethercat_node node_xy]
 socket: /tmp/kalico-ethercat.sock
@@ -395,48 +439,85 @@ rotation_distance: 40
 encoder_counts_per_rev: 1048576
 max_torque: 300
 
-[motor motor_z]
+[motor motor_z]                 # Motor3
 drive: stepper
-step_pin: PF11
-dir_pin: PG3
-enable_pin: !PG5
+step_pin: PB8
+dir_pin: !PB7
+enable_pin: !PE0
 rotation_distance: 8
 microsteps: 16
 
-[motor motor_z1]
+# The extruder pair. Both motors sit on one follower axis, so they are
+# stepped from the same trajectory and cannot drift apart.
+[motor motor_e0]                # Motor5
 drive: stepper
-step_pin: PG4
-dir_pin: PC1
-enable_pin: !PA2
-rotation_distance: 8
+step_pin: PG13
+dir_pin: PG12
+enable_pin: !PG15
+rotation_distance: 33.5
 microsteps: 16
+
+[motor motor_e1]                # Motor6
+drive: stepper
+step_pin: PG9
+dir_pin: PD7
+enable_pin: !PG11
+rotation_distance: 33.5
+microsteps: 16
+
+[axis e]
+follows: x, y, z
+motors: motor_e0, motor_e1
+
+[extruder]
+axis: e
+heater_pin: PA0
+sensor_pin: PB0
+sensor_type: Generic 3950
 
 [axis x]
-endstop_pin: PG6
+endstop_pin: PF4
 position_min: 0
 position_max: 300
 position_endstop: 0
 homing_speed: 50
 
 [axis y]
-endstop_pin: PG9
+endstop_pin: PF3
 position_min: 0
 position_max: 300
 position_endstop: 0
 homing_speed: 50
 
 [axis z]
-endstop_pin: PG10
+endstop_pin: PF2
 position_max: 250
 
 [tmc2209 motor_z]
-uart_pin: PC6
+uart_pin: PB9
 run_current: 0.8
 
-[tmc2209 motor_z1]
-uart_pin: PC7
-run_current: 0.8
+[tmc2209 motor_e0]
+uart_pin: PG14
+run_current: 0.6
+
+[tmc2209 motor_e1]
+uart_pin: PG10
+run_current: 0.6
+
+[heater_bed]
+heater_pin: PF5
+sensor_pin: PB1
+sensor_type: ATC Semitec 104GT-2
+
+[fan]
+pin: PF7
 ```
+
+The tandem extruder is a **follower axis with two motors**, not two axes.
+`build_follower_steppers` walks every motor of the axis, so both step from one
+trajectory — there is no synchronisation to maintain and no way for them to
+diverge.
 
 `cycle_us: 250` (4 kHz) sits inside ProNet's documented 250 us - 8 ms DC range.
 
