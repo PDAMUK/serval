@@ -50,7 +50,8 @@ more axes. Everything above still applies.
    or [BTT CB2](docs/rewrite/ethercat-host-cb2-rk3566.md) (builds, never run).
 2. **[docs/rewrite/estun-pronet-markforged-setup.md](docs/rewrite/estun-pronet-markforged-setup.md)**
    — a full worked build, bare frame to tuned machine, for ESTUN ProNet drives
-   on a Markforged gantry with a BTT Octopus Pro carrying Z and the extruder.
+   on a Markforged gantry, with a BTT Manta M8P V2 carrying Z and the tandem
+   extruder pair.
 3. **[docs/rewrite/ethercat-bench-bringup.md](docs/rewrite/ethercat-bench-bringup.md)**
    — drive profiles, SDO parameters, telemetry capture, and the real-time
    scheduling rules in depth.
