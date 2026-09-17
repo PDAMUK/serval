@@ -59,6 +59,62 @@ The Manta also carries the **endstops for the servo axes**. A servo axis homes
 against a GPIO endstop on any bridge MCU, so the X and Y switches land on the
 mainboard exactly like a stepper machine's would.
 
+## Coming from steppers: what is actually different
+
+Nothing below assumes prior servo experience, but a handful of ideas make the
+rest read much more easily. Anyone who has built a Klipper printer already knows
+most of the machine; these are the parts that are genuinely new.
+
+**A servo knows where it is; a stepper assumes.** A stepper is told "take 200
+steps" and is trusted to have done it. A servo has an encoder on the motor
+shaft, so the drive compares where it was told to go against where it actually
+is, every cycle, and applies whatever current closes the gap. Skipped steps stop
+being a failure mode. A jam or a crash becomes one, because the drive will push
+harder rather than slip — which is why torque limits and supervised first moves
+matter far more than on a stepper machine.
+
+**The drive is a separate computer.** Each ProNet is its own controller with its
+own parameters, its own faults and its own front panel. Klipper does not manage
+it the way it manages a TMC2209. Parameters live in the drive, faults latch in
+the drive, and some of them survive a host reboot — clearing those needs a drive
+power cycle, not a `FIRMWARE_RESTART`.
+
+**EtherCAT is the wire between them**, and it is hard real-time. Every cycle —
+250 microseconds here, 4000 times a second — the host sends each drive a new
+target position and reads back where it is. This is why the host needs a
+real-time kernel and an isolated CPU core: not for throughput, but because a
+frame that arrives *late* is a fault, not a delay.
+
+**Distributed clocks (DC) and SYNC0.** All drives on the bus share one clock, so
+they act on their targets at the same instant rather than whenever a frame
+happens to land. SYNC0 is the pulse that marks that instant. If the host misses
+it, the drive decides the master has lost the plot and latches
+`A.70`. Most first-bring-up trouble is some version of this.
+
+**Following error** is commanded position minus actual position. A healthy axis
+has a small, steady one. A growing one means the machine is fighting something,
+and the drive trips out rather than forcing through it.
+
+**Torque limit** is how hard the drive is allowed to push, as a percentage of
+the motor's rating. Keep it low during first moves.
+
+**A few acronyms appear in drive documentation and in fault messages:**
+
+| Term | Meaning |
+| --- | --- |
+| CiA 402 | the standard vocabulary drives speak for position, velocity and torque |
+| CoE | that vocabulary carried over EtherCAT |
+| PDO | data exchanged *every cycle* — target position, actual position, torque |
+| SDO | occasional settings, sent once at startup or when a parameter changes |
+| CSP | Cyclic Synchronous Position — the mode where the host streams positions, which is what this build uses |
+| PREOP / SAFEOP / OP | the bus startup states a drive walks through; `OP` is running |
+| ESI | the XML file describing a drive, published by its maker |
+
+**Homing still happens.** These motors have incremental encoders, so the drive
+knows its position relative to where it powered on, not where the machine's
+origin is. Every axis homes against a switch on each power-up, exactly like a
+stepper machine.
+
 ## The EtherCAT host problem
 
 The endpoint's DC loop needs a **native** EtherCAT NIC driver. IgH's `generic`
@@ -76,11 +132,11 @@ Three ways forward, in increasing order of risk:
 
 1. **A separate Raspberry Pi 5 as the EtherCAT host**, with the Manta as a plain
    USB-attached MCU. This is the only path the repository has actually
-   exercised. The CB2 is not wasted — it can still run the printer.
-2. **Build `ec_dwmac`.** IgH already carries the whole stmmac core
-   EtherCAT-ified; only the Rockchip binding is missing, and
-   [`tools/ethercat-dwmac-rk/`](../../tools/ethercat-dwmac-rk/README.md)
-   generates it. That code has never been compiled or run.
+   exercised, and the right choice for a first build. The CB2 is not wasted —
+   it can still run the printer.
+2. **Run the endpoint on the CB2 with `ec_dwmac-rk`**, following
+   [`ethercat-host-cb2-rk3566.md`](ethercat-host-cb2-rk3566.md). The driver
+   builds and its symbols resolve, but it has never been loaded on hardware.
 3. **Accept `ec_generic`** and expect sync faults under load.
 
 Everything below assumes one of these is settled. The wiring, firmware and
@@ -127,9 +183,16 @@ Whichever machine runs the endpoint needs a PREEMPT_RT kernel, the IgH master,
 and a **native** NIC driver for its own Ethernet controller — `ec_macb` on a
 Pi 5, `ec_dwmac` on the CB2.
 
-Follow [`ethercat-igh-macb-install.md`](ethercat-igh-macb-install.md) end to
-end before wiring anything. Everything in it apart from the `ec_macb` step is
-NIC-independent. Three of its requirements cause most failures:
+Follow the document matching the host **before wiring anything**:
+
+- **Raspberry Pi 5** —
+  [`ethercat-igh-macb-install.md`](ethercat-igh-macb-install.md). Exercised on
+  the bench; the path to use for a first build.
+- **BTT CB2** — [`ethercat-host-cb2-rk3566.md`](ethercat-host-cb2-rk3566.md).
+  Builds, never run.
+
+Follow one or the other, not both: they need different kernels and different
+NIC drivers. Three requirements common to both cause most failures:
 
 - **`eth0` is given entirely to the EtherCAT master and receives no IP
   address.** SSH and LAN must live on Wi-Fi or a second NIC. Confirm with
@@ -604,14 +667,37 @@ Pn409/Pn410 (filter 2).
 looks **exactly** like an absent one to the master. The endpoint names the
 profile and identity it matched on, so read that line before suspecting wiring.
 
+## What "done" looks like
+
+The bench is finished when all of the following hold on a machine that has been
+**cold booted**, not warm restarted:
+
+| | Check |
+| --- | --- |
+| Bus | `ethercat slaves` lists both drives, in wired order, reaching `OP` |
+| Host | endpoint runs `SCHED_FIFO` on the isolated core (`chrt -p`) |
+| Drives | no `A.70` in the log after a full boot under load |
+| Motion | `G1 X…` turns one motor; `G1 Y…` turns both |
+| Homing | all three axes home and repeat without drift |
+| Tracking | following error stays small and steady during a fast move |
+| Extruder | both extruder motors turn together, always |
+
+Anything short of that is a bench still being brought up, not a finished one.
+The most common reason a machine passes every step and then misbehaves is that
+the cold-boot test was skipped — a marginal real-time setup survives a warm
+restart on an idle board and drops frames under boot load.
+
 ## Still unverified on hardware
 
-None of the following has run on a real ProNet:
+Carried forward honestly. None of the following has run on real hardware:
 
-- The ESTUN vendor ID and product code (no public ESI).
+- The ESTUN vendor ID and product code (no public ESI — read them off the bus
+  at Part 10).
 - The DC `AssignActivate` word: the `estun-pronet` profile reuses the A6-EC's
-  `0x0300`, which the ESI may contradict.
-- The Markforged belt coupling sign.
+  `0x0300`, which ESTUN's ESI may contradict.
+- The Markforged belt coupling sign (Part 12, step 5 checks it).
+- `ec_dwmac-rk`, if the CB2 is the host: it compiles and its symbols resolve,
+  but it has never been loaded. A Pi 5 host avoids this one entirely.
 
 ## See also
 

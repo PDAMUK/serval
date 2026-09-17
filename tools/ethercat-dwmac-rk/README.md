@@ -151,6 +151,12 @@ Two further unknowns:
   not need one against 6.12 proper, but a stable-branch kernel may differ; a
   compile error naming a struct member is that, not a transform mistake.
 
+## Host setup
+
+The full host build that uses this driver -- RT kernel, core isolation, NIC
+handover, master build -- is
+[`ethercat-host-cb2-rk3566.md`](../../docs/rewrite/ethercat-host-cb2-rk3566.md).
+
 ## Bench validation
 
 Bring it up in this order, and stop at the first step that fails:

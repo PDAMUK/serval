@@ -28,6 +28,10 @@ busy. On the Raspberry Pi 5 the gigabit MAC is the **Cadence GEM** on the RP1
 (`macb` kernel driver, platform device `1f00100000.ethernet`), so the native
 driver is a purpose-built `ec_macb`. This is what this guide installs.
 
+> **On a BTT CB2?** Follow
+> [`ethercat-host-cb2-rk3566.md`](ethercat-host-cb2-rk3566.md) instead — the
+> RK3566 needs a different kernel and the `ec_dwmac-rk` driver.
+>
 > **Not on a Pi 5?** The `ec_macb` driver is specific to the RP1 Cadence GEM.
 > IgH already carries native drivers for other NICs (`e1000e`, `igb`, `r8169`,
 > `ccat`, …). Pick the one matching your NIC, or use `generic` as a starting

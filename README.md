@@ -44,9 +44,10 @@ To put it on a machine, in this order:
 Only for machines using industrial servo drives instead of steppers on one or
 more axes. Everything above still applies.
 
-1. **[docs/rewrite/ethercat-igh-macb-install.md](docs/rewrite/ethercat-igh-macb-install.md)**
-   — the real-time kernel and EtherCAT master on the host. Do this before any
-   drive is wired.
+1. **The real-time kernel and EtherCAT master on the host** — do this before
+   any drive is wired, and follow the one matching the machine:
+   [Raspberry Pi 5](docs/rewrite/ethercat-igh-macb-install.md) (bench-proven)
+   or [BTT CB2](docs/rewrite/ethercat-host-cb2-rk3566.md) (builds, never run).
 2. **[docs/rewrite/estun-pronet-markforged-setup.md](docs/rewrite/estun-pronet-markforged-setup.md)**
    — a full worked build, bare frame to tuned machine, for ESTUN ProNet drives
    on a Markforged gantry with a BTT Octopus Pro carrying Z and the extruder.
