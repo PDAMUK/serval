@@ -44,6 +44,8 @@ fn defines(header: &str, prefix: &str) -> BTreeMap<String, i64> {
     found
 }
 
+const EVENT_LOG_H: &str = "src/event_log.h";
+const STEP_QUEUE_H: &str = "src/step_queue.h";
 const FAULT_HANDLER_H: &str = "src/generic/fault_handler.h";
 const TRANSPORT_DISPATCH_H: &str = "src/mcu_transport_dispatch.h";
 
@@ -129,5 +131,63 @@ fn transport_return_codes_match_the_c_header() {
             panic!("{name} is declared in {TRANSPORT_DISPATCH_H} with no Rust counterpart here")
         });
         assert_eq!(*expected, value, "{name} disagrees");
+    }
+}
+
+/// The level rides the wire as a bare number and is turned back into a word
+/// on the host, so a renumber silently relabels every record rather than
+/// failing anything.
+#[test]
+fn log_levels_match_the_c_header() {
+    use crate::fault_helpers::*;
+    let c = defines(EVENT_LOG_H, "EVENT_LOG_LEVEL_");
+    let rust: BTreeMap<String, i64> = [
+        ("EVENT_LOG_LEVEL_TRACE", LOG_LEVEL_TRACE),
+        ("EVENT_LOG_LEVEL_DEBUG", LOG_LEVEL_DEBUG),
+        ("EVENT_LOG_LEVEL_WARN", LOG_LEVEL_WARN),
+        ("EVENT_LOG_LEVEL_ERROR", LOG_LEVEL_ERROR),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_string(), i64::from(value)))
+    .collect();
+    assert_eq!(rust, c);
+}
+
+/// The step-queue depth is derived independently on each side, from the same
+/// two inputs: the Makefile passes CONFIG_MOTION_SAMPLE_RATE_HZ through as
+/// RUNTIME_SAMPLE_RATE_HZ, and this rate is written down in both. The C header
+/// rounds up with a ladder of ternaries and build.rs with next_power_of_two,
+/// which agree today but are two expressions, not one.
+#[test]
+fn step_rate_target_matches_the_c_header() {
+    let c = defines(STEP_QUEUE_H, "RUNTIME_TARGET_STEP_RATE_HZ");
+    assert_eq!(
+        c.get("RUNTIME_TARGET_STEP_RATE_HZ"),
+        Some(&(crate::sizing::TARGET_STEP_RATE_HZ as i64))
+    );
+}
+
+/// The C ladder and build.rs's next_power_of_two must agree for every sample
+/// rate either side could be built with, not just the one this build used.
+#[test]
+fn the_two_queue_depth_formulas_agree_over_the_whole_range() {
+    fn c_ladder(depth_min: usize) -> usize {
+        match depth_min {
+            0..=32 => 32,
+            33..=64 => 64,
+            65..=128 => 128,
+            129..=256 => 256,
+            _ => 512,
+        }
+    }
+    let target = crate::sizing::TARGET_STEP_RATE_HZ;
+    for sample_rate_hz in 1..=200_000usize {
+        let max_steps = target.div_ceil(sample_rate_hz).clamp(16, 256);
+        let depth_min = 2 * max_steps;
+        assert_eq!(
+            depth_min.next_power_of_two(),
+            c_ladder(depth_min),
+            "depths diverge at sample_rate_hz={sample_rate_hz}"
+        );
     }
 }

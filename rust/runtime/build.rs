@@ -50,6 +50,7 @@ fn main() {
     const TARGET_STEP_RATE_HZ: usize = 500_000;
     let max_steps_per_sample = TARGET_STEP_RATE_HZ.div_ceil(sample_rate_hz).clamp(16, 256);
     let step_queue_depth = (2 * max_steps_per_sample).next_power_of_two();
+    let target_step_rate_hz = TARGET_STEP_RATE_HZ;
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"));
 
@@ -67,7 +68,8 @@ fn main() {
          #[allow(clippy::unreadable_literal)]\n\
          pub const TOTAL_RING_PIECES: usize = {total_ring_pieces};\n\
          pub const MAX_STEPS_PER_SAMPLE: usize = {max_steps_per_sample};\n\
-         pub const STEP_QUEUE_DEPTH: usize = {step_queue_depth};\n"
+         pub const STEP_QUEUE_DEPTH: usize = {step_queue_depth};\n\
+         pub const TARGET_STEP_RATE_HZ: usize = {target_step_rate_hz};\n"
     );
     fs::write(out_dir.join("sizing.rs"), sizing_body).expect("write sizing.rs");
 

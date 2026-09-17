@@ -16,6 +16,9 @@ use crate::logging::context::load_context;
 use crate::logging::schema::format_time;
 use crate::logging::writer::RotatingJsonlWriter;
 
+#[cfg(test)]
+mod tests;
+
 fn mcu_level_str(level: u8) -> &'static str {
     match level {
         0 => "trace",

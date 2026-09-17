@@ -7,10 +7,20 @@ use crate::error::FaultCode;
 use crate::log_codes::{EVENT_RUNTIME_FAULT_LATCHED, SUBSYSTEM_RUNTIME};
 use crate::state::SharedState;
 
-/// Wire log levels — must match motion-engine's mcu_level_str (0=trace,1=debug,2=warn,3=error).
-const LOG_LEVEL_ERROR: u8 = 3;
+/// Wire log levels. This scale is written down three times: here, in
+/// `src/event_log.h` as `EVENT_LOG_LEVEL_*`, and in motion-services'
+/// `mcu_level_str`, which turns the number back into a word for the JSONL.
+/// `c_header_mirrors` compares this copy against the header.
+/// The runtime only ever emits at WARN and ERROR; the quieter two exist so the
+/// scale is complete where it is compared against the header.
+#[allow(dead_code)]
+pub(crate) const LOG_LEVEL_TRACE: u8 = 0;
+#[allow(dead_code)]
+pub(crate) const LOG_LEVEL_DEBUG: u8 = 1;
+pub(crate) const LOG_LEVEL_WARN: u8 = 2;
+pub(crate) const LOG_LEVEL_ERROR: u8 = 3;
 
-static MIN_LEVEL: AtomicU8 = AtomicU8::new(2);
+static MIN_LEVEL: AtomicU8 = AtomicU8::new(LOG_LEVEL_WARN);
 
 #[cfg(any(not(any(test, feature = "host")), feature = "mcu-linux"))]
 unsafe extern "C" {
