@@ -91,6 +91,8 @@ pub const EVENT_DIAG_TX_DROP_KAL: u16 = 5;
 pub const EVENT_DIAG_TX_DROP_KLP: u16 = 6;
 pub const EVENT_DIAG_ENGINE_XITION: u16 = 7;
 pub const EVENT_DIAG_RUST_FAULT: u16 = 8;
+pub const EVENT_DIAG_FAULT_POSITIONS: u16 = 9;
+pub const EVENT_DIAG_FAULT_STEP_COUNTS: u16 = 10;
 
 /// Resolve a `(subsystem, event)` pair to a `(name, template)` tuple.
 ///
@@ -223,6 +225,14 @@ pub fn event_info(subsystem: u8, event: u16) -> (&'static str, &'static str) {
         (SUBSYSTEM_DIAG, EVENT_DIAG_RUST_FAULT) => {
             ("diag.rust_fault", "rust fault err={arg0} detail={arg1}")
         }
+        (SUBSYSTEM_DIAG, EVENT_DIAG_FAULT_POSITIONS) => (
+            "diag.fault_positions",
+            "step fault context: p_end={arg0:f32} p_sample_start={arg1:f32}",
+        ),
+        (SUBSYSTEM_DIAG, EVENT_DIAG_FAULT_STEP_COUNTS) => (
+            "diag.fault_step_counts",
+            "step fault context: prev_step_count={arg0:i32} target_step_count={arg1:i32}",
+        ),
         (SUBSYSTEM_MOTION, EVENT_MOTION_PIECE_START_PAST) => (
             "motion.piece_start_past",
             "piece start in past start_time={arg0} now={arg1}",
@@ -298,6 +308,8 @@ pub fn event_info(subsystem: u8, event: u16) -> (&'static str, &'static str) {
 /// Placeholders `{arg0}`/`{arg1}` render the raw `u32` as decimal. Typed
 /// forms reinterpret the same bits for display:
 /// - `{arg0:i32}` / `{arg1:i32}` — signed decimal (e.g. a negative ms delta)
+/// - `{arg0:f32}` / `{arg1:f32}` — the bits read back as the `f32` they are
+///   (positions captured straight from the step dispatcher)
 /// - `{arg0:hex}` / `{arg1:hex}` — `0x`-prefixed hex (program counters,
 ///   addresses)
 /// - `{arg0:hi16}` / `{arg1:hi16}` — high 16 bits, decimal
@@ -316,12 +328,17 @@ pub fn event_info(subsystem: u8, event: u16) -> (&'static str, &'static str) {
 ///
 /// let msg3 = compose_msg("pc={arg0:hex}", 0x0800_1234, 0);
 /// assert_eq!(msg3, "pc=0x8001234");
+///
+/// let msg4 = compose_msg("p_end={arg0:f32}", 1.5f32.to_bits(), 0);
+/// assert_eq!(msg4, "p_end=1.5");
 /// ```
 #[cfg(feature = "host")]
 pub fn compose_msg(template: &str, arg0: u32, arg1: u32) -> String {
     template
         .replace("{arg0:i32}", &format!("{}", arg0 as i32))
         .replace("{arg1:i32}", &format!("{}", arg1 as i32))
+        .replace("{arg0:f32}", &format!("{}", f32::from_bits(arg0)))
+        .replace("{arg1:f32}", &format!("{}", f32::from_bits(arg1)))
         .replace("{arg0:hex}", &format!("{arg0:#x}"))
         .replace("{arg1:hex}", &format!("{arg1:#x}"))
         .replace("{arg0:hi16}", &format!("{}", arg0 >> 16))

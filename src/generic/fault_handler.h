@@ -19,6 +19,12 @@ extern "C" {
 // a = (uint32_t)last_error (i32 cast), b = fault_detail.
 #define DIAG_EV_RUST_FAULT    8
 
+// Forensic context pushed immediately before DIAG_EV_RUST_FAULT by the Rust
+// step dispatcher. a/b are f32 bit patterns for POSITIONS and i32 step counts
+// for STEP_COUNTS; both are decoded by rust/runtime/src/log_codes.rs.
+#define DIAG_EV_FAULT_POSITIONS   9
+#define DIAG_EV_FAULT_STEP_COUNTS 10
+
 // ISR-phase breadcrumb; value at IWDG reset names the hung phase.
 // MUST match rust/runtime/src/isr_phase.rs.
 #define RT_PHASE_IDLE          0

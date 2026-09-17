@@ -349,3 +349,40 @@ fn compose_msg_hard_fault_template_renders_hex() {
     let msg = compose_msg(tmpl, 0x0800_1234, 0x2000_5678);
     assert_eq!(msg, "cpu hard fault pc=0x8001234 lr=0x20005678");
 }
+
+/// The step dispatcher pushes three ring entries together as the forensic
+/// context for a step-overrun fault. All three must decode, or a post-mortem
+/// gets the fault code with neither the positions nor the counts that explain
+/// it — both of which used to resolve as "unknown" and drop their payload.
+#[cfg(feature = "host")]
+#[test]
+fn compose_msg_fault_positions_template_renders_the_f32_bits() {
+    let (name, tmpl) = event_info(SUBSYSTEM_DIAG, EVENT_DIAG_FAULT_POSITIONS);
+    assert_eq!(name, "diag.fault_positions");
+    let msg = compose_msg(tmpl, 12.5f32.to_bits(), (-3.25f32).to_bits());
+    assert_eq!(msg, "step fault context: p_end=12.5 p_sample_start=-3.25");
+}
+
+#[cfg(feature = "host")]
+#[test]
+fn compose_msg_fault_step_counts_template_renders_signed_counts() {
+    let (name, tmpl) = event_info(SUBSYSTEM_DIAG, EVENT_DIAG_FAULT_STEP_COUNTS);
+    assert_eq!(name, "diag.fault_step_counts");
+    let msg = compose_msg(tmpl, (-40i32) as u32, 1200);
+    assert_eq!(
+        msg,
+        "step fault context: prev_step_count=-40 target_step_count=1200"
+    );
+}
+
+/// The Rust tags and the C header's DIAG_EV_* numbering are one tag space
+/// travelling one wire: diag_emit.c re-emits each ring tag as a DIAG event
+/// code verbatim, so a tag the decoder does not know resolves as "unknown"
+/// and loses both payload words.
+#[test]
+fn every_diag_ring_tag_the_mcu_can_emit_resolves() {
+    for tag in 1..=10u16 {
+        let (name, _) = event_info(SUBSYSTEM_DIAG, tag);
+        assert_ne!(name, "unknown", "diag tag {tag} has no decoder entry");
+    }
+}

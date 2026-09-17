@@ -44,7 +44,7 @@ unsafe extern "C" {
     fn diag_ring_push(tag: u8, a: u32, b: u32);
 }
 
-// Must match fault_handler.c's DIAG_EV_* tags.
+// Must match src/generic/fault_handler.h's DIAG_EV_* tags.
 // TODO: only read on the cfg(not(test, host)) bare-metal path below; host/test builds see them as dead.
 #[allow(dead_code)]
 const DIAG_TAG_RUST_FAULT: u8 = 8;
