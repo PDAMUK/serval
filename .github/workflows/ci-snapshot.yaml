@@ -22,9 +22,7 @@ jobs:
             snapshot:
               - 'rust/**'
               - 'snapshots/**'
-              - 'klippy/arc_fit_config.py'
               - 'klippy/configfile.py'
-              - 'scripts/viz_pipeline.py'
               - 'scripts/ci.sh'
               - 'Makefile.rust'
               - '.github/workflows/ci-snapshot.yaml'

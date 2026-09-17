@@ -32,7 +32,7 @@ jobs:
             -t klipper-build:latest . 2>&1 \
             | sed -u -E 's/^#[0-9]+ [0-9.]+ ?//g'
 
-      - name: Ensure scripts/klippy-dependencies.txt is up to date
+      - name: Ensure the exported requirements files are up to date
         if: steps.changes.outputs.dependencies == 'true'
         uses: nickcharlton/diff-check@main
         with:
@@ -54,3 +54,34 @@ jobs:
         run: ./scripts/ci.sh py 3.13
       - name: Test Klippy (Python 3.14)
         run: ./scripts/ci.sh py 3.14
+
+  # `ci.sh run_all` includes both of these, but neither was reachable from any
+  # workflow: py-typecheck ran nowhere at all, which is how it went its whole
+  # life pointing at three files that never existed, and the CI-able sim unit
+  # subset was left to `ci.sh sim` that nothing called — pyproject's testpaths
+  # deliberately exclude tools/, so the `py` job above does not cover it and
+  # the advisory sim-e2e workflow runs a different suite.
+  py-typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: 'latest'
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Typecheck the annotated modules
+        run: ./scripts/ci.sh py-typecheck
+
+  sim-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the sim unit subset
+        run: ./scripts/ci.sh sim
