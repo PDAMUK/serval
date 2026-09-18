@@ -1,8 +1,10 @@
-# Serval
+# Serval-ish
 
 Serval is a fork of [Kalico](https://github.com/KalicoCrew/kalico) that
 **replaces the motion stack** with a streaming, jerk-limited planner
 written in Rust.
+
+This branch/fork is tailored specifically to a personal build, primarily to test unsupervised agentic coding. Obligatory "I cannot code a printer firmware", so expect this not to work. Use Dderg's original.
 
 **Why:** print faster without giving up quality, by dropping the
 approximations classical planners are built on — trapezoidal profiles,
