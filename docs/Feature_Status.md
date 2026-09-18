@@ -58,7 +58,11 @@ Three tiers, honestly applied:
   jerk goes soft there (`rust/geometry/src/velocity/ride.rs`).
 - **No per-axis XY limits.** Global limits plus Z-only caps, nothing
   finer.
-- **Kinematics:** cartesian and corexy only.
+- **Kinematics:** cartesian, corexy and markforged only — and markforged
+  is untested on hardware (see the table above). The model is a constant
+  3x3 lane mix, so another linear belt arrangement is a tag plus two
+  matrices; delta, SCARA and polar need a position-dependent Jacobian and
+  do not fit.
 - **Boards: STM32 F4, G0, and H7.** `src/Kconfig` also carries a
   Linux-process MCU and the host simulator. AVR, LPC176x, RP2040, SAMD,
   HC32 and the STM32 F0/F2/F7/L4/G4 families are absent, and since the
