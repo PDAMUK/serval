@@ -36,6 +36,11 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 19 | Four documented config sections have no module and fail startup, with nothing saying so | `1420542` |
 | 20 | `assemble_cartesian_state`'s cartesian one-motor-missing corner was rewritten and untested | `b8365aa` |
 | 21 | `_buzz_kind` defaulted a kinematics-less object to cartesian instead of failing | `b8365aa` |
+| 22 | The guide never explained the endpoint failures the audit made readable | `0b875c7` |
+| 23 | `Feature_Status` Known limits said cartesian and corexy long after markforged shipped | `87d8cba` |
+| 24 | Six gaps a first-time builder hits: no mains-safety warning, a wrong part reference, no tuning syntax, an `endpoint:` line Part 12 needs but the config lacked, no statement of where the config goes, and a See also missing this build's own host page | `3393b4a` |
+| 25 | Six more on the CB2 host page, the worst an SSH lockout warned about only after the step that causes it, plus a missing udev rule, systemd unit, NetworkManager override and MAC format | `3e6f4db` |
+| 26 | The bench checklist's worked example for this machine contradicted the guide on torque and following error, and showed a drive identity klippy accepts but no drive matches | `f9660dd` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -100,6 +105,23 @@ Not defects. Recorded so the next pass does not spend the time again.
   there is a reasonable case for `dev` — but that is a call about dependency
   weight for whoever owns the repo, not one to make from an audit.
 
+## What the later rounds looked like
+
+The code audit converged after the cross-language mirrors: sweeps started
+returning one finding against several clean results. Rereading the documents as
+someone *following* them rather than checking them started it again — six, six
+and four across three rounds, because correctness and followability fail
+differently. A page can be accurate and still strand a reader who has no
+display attached, no idea where the config file lives, or a plausible-looking
+drive identity that the code accepts and the bus does not.
+
+The recurring cause was drift between documents describing one machine, and
+between a path that has been walked and one that has not. Both are now tests:
+`test_servo_doc_consistency.py` holds the guide and the bench checklist to the
+same drive limits and refuses any identity klippy would accept, and
+`test_host_docs_parity.py` requires the two host pages to cover the same eleven
+steps.
+
 ## The diff against base, reviewed for regression
 
 Base Serval runs on hardware, so the risk this branch carries is in the shared
@@ -117,6 +139,20 @@ code. Every behavioural change against `14f6296` was walked for equivalence:
 | `homing_api.required_motor_axes` | equivalent for every axis of both kinematics |
 | `from_doc.rs` roles | purely additive |
 | EtherCAT endpoint args, FFI, `libecrt.h` | additive; the `a6ec` default resolves to the same identity, PDO map and SDOs as base, and a test pins that no identity flags are passed |
+
+## Where this stopped
+
+Rounds went 6, 6, 4 and the character of the fourth changed: one theme rather
+than several independent gaps, and more checks confirming things were sound
+than finding faults. That is the point to stop rather than manufacture another
+pass. What remains unexamined is listed below and is genuinely unexamined, not
+quietly skipped.
+
+Every gate this repository has was run green at that point: the eighteen
+`ci.sh` jobs a container without Docker can execute, the Python suite at 979,
+nine doc tests, the piece-sink sanitizer fuzz, and all thirteen workflows
+parsing. Snapshots read 51 ok / 0 changed, which is the load-bearing one: the
+planner's output is byte-identical to base.
 
 ## Not yet audited
 
