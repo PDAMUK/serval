@@ -193,9 +193,15 @@ missing, rather than enumerating nothing and blaming the cable:
 ```ini
 [ethercat_node node_xy]
 drive_profile: estun-pronet
-vendor_id: 0x0000060a       # from the ESI or `ethercat slaves -v`
-product_code: 0x00000002
+vendor_id: 0x00000000       # replace, from the ESI or `ethercat slaves -v`
+product_code: 0x00000000    # both halves; a zero either side is refused
 ```
+
+The placeholders are zeros deliberately. **Both** halves are required and both
+must be non-zero, and klippy names whichever is missing before anything is
+claimed. A plausible-looking wrong value is the worse failure: it passes config
+time, then never matches a drive, and the bus dies at the OP walk with nothing
+pointing back at the identity.
 
 A drive that is present but of a different identity looks exactly like an absent
 one to the master (`rc=-2`), so the endpoint now names the profile and the
@@ -242,8 +248,8 @@ z_motors: motor_z
 socket: /tmp/kalico-ethercat.sock
 interface: eth0
 drive_profile: estun-pronet
-vendor_id: 0x0000060a       # replace with your drives' real identity
-product_code: 0x00000002
+vendor_id: 0x00000000       # replace: klippy refuses to start until you do
+product_code: 0x00000000    # both halves, and both non-zero
 cycle_us: 250
 
 [motor motor_x]
@@ -253,7 +259,8 @@ node: node_xy
 ethercat_chain_index: 0
 rotation_distance: 40                 # your pulley, not a default
 encoder_counts_per_rev: 1048576       # EMJ-04AFD22, 20-bit incremental
-max_torque: 300                       # % of rated; EMJ-04A peaks at 300
+max_torque: 100                       # % of rated. 300 is the motor's peak
+following_error: 2.0                  # mm; unset writes no session limit
 
 [motor motor_y]
 drive: servo
@@ -262,8 +269,15 @@ node: node_xy
 ethercat_chain_index: 1
 rotation_distance: 40
 encoder_counts_per_rev: 1048576
-max_torque: 300
+max_torque: 100
+following_error: 2.0
 ```
+
+`max_torque` is a percentage of *rated* torque and accepts up to 400, so 300 is
+the EMJ-04A's full peak — roughly 600 N at a 40 mm pulley. Bring a machine up at
+100 and raise it because a move stalled, not before. `following_error` has no
+default: leave it out and no session limit is written at all, and the drive
+keeps whatever the last session left in `6065h`.
 
 Homing note specific to Markforged: a Y move drives **both** motors, an X move
 drives only the X motor. Y therefore cannot take a per-motor `endstop_pin` and
@@ -317,6 +331,15 @@ clamping at 500, 0x2010.1, 0x6041.0 read-only), so the whole path — claim-push
 verify-mismatch claim failure, SERVO_PARAM — can be validated drive-off.
 
 ## Bring-up sequence
+
+> **This is the original A6-EC bench's sequence**, kept as the record of how
+> that machine was brought up: a Pi host, two MCUs, and config backups
+> (`.config.h7.bak`, `.config.f446.test`) that live on that bench and not in
+> this repository. A Markforged servo build follows
+> [`estun-pronet-markforged-setup.md`](estun-pronet-markforged-setup.md)
+> Part 12 instead, which stages the same idea for one Manta and two ESTUN
+> drives. Read this one for *why* each stage exists; take the steps from that
+> one.
 
 The endpoint is **spawned by klippy** at node-claim time (mcu-identify), using the
 `endpoint:` path and the derived `counts_per_mm`. There is no manual endpoint launch
