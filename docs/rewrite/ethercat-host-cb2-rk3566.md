@@ -25,6 +25,23 @@ printer for the first time should use a Pi 5, get the machine working, and come
 back to this afterwards — that way a fault has one candidate cause instead of
 two.
 
+## Get off `eth0` first
+
+Step 5 gives `eth0` to the EtherCAT master, and once it does the interface
+leaves the normal network stack. On a CB2 in a Manta socket there is often no
+display attached, so **if SSH is on `eth0` when that happens, the board becomes
+unreachable** — and the handover runs at every boot from then on.
+
+Before Step 5, put SSH on the CB2's Wi-Fi, reboot, and confirm you can still
+log in with the Ethernet cable unplugged:
+
+```sh
+ip route get 1.1.1.1      # must not leave via eth0
+```
+
+Keep a serial console to hand regardless. Recovering a headless board whose only
+route went to the EtherCAT master otherwise means pulling the eMMC.
+
 ## Why the kernel version is not negotiable
 
 Two independent requirements happen to meet at 6.12:
@@ -192,17 +209,65 @@ echo "$DEV" > "$SYS/drivers/ec_dwmac-rk/bind" 2>/dev/null || true
 Configure the master to expect this MAC. In `/etc/ethercat.conf`:
 
 ```
-MASTER0_DEVICE="<the MAC address of eth0>"
+MASTER0_DEVICE="<eth0 MAC, lowercase, e.g. 2c:cf:67:7d:37:1b>"
 DEVICE_MODULES="dwmac-rk"
 ```
 
-Run the script at boot, before klipper. A systemd unit ordered
-`Before=klipper.service` is the usual way.
+The MAC is matched as a string, so **lowercase with colons** — an uppercase one
+produces a master that loads and finds no link, which is the third row of the
+troubleshooting table below. `DEVICE_MODULES` takes the name without the `ec_`
+prefix, exactly as the Pi 5 path writes `macb` for `ec_macb`.
+
+Run it at boot, before klipper. `/etc/systemd/system/ethercat-dwmac.service`:
+
+```ini
+[Unit]
+Description=EtherCAT master on native ec_dwmac-rk (RK3566 GMAC)
+DefaultDependencies=no
+After=sysinit.target
+Wants=sysinit.target
+Before=klipper.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ethercat-dwmac-up.sh
+ExecStop=/opt/etherlab/etc/init.d/ethercat stop
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The master creates `/dev/EtherCAT0` root-owned, and klippy spawns the endpoint
+as the klipper user, so it needs a udev rule or the endpoint cannot open the
+master at all. `/etc/udev/rules.d/99-ethercat.rules`:
+
+```
+KERNEL=="EtherCAT[0-9]*", MODE="0660", GROUP="<your-user>"
+```
+
+**Armbian runs NetworkManager by default**, and it will fight the handover at
+boot by reclaiming the interface. Tell it not to manage `eth0` —
+`/etc/NetworkManager/conf.d/99-ethercat-unmanaged.conf`:
+
+```ini
+[keyfile]
+unmanaged-devices=interface-name:eth0
+```
+
+Enable and start:
+
+```sh
+sudo udevadm control --reload-rules
+sudo systemctl daemon-reload
+sudo systemctl enable --now ethercat-dwmac.service
+```
 
 **Verify.**
 
 ```sh
 ethercat master            # must report the master up with a link
+ls -l /dev/EtherCAT0       # must exist, and be readable by the klipper user
 ip link show eth0          # the interface should no longer be managed normally
 ```
 
@@ -293,6 +358,18 @@ Then return to
 | Builds, but `ethercat master` shows no link | `MASTER0_DEVICE` MAC does not match `eth0` |
 | Device stays bound to `stmmac` | `driver_override` written after the driver already bound — the unbind step is what fixes it |
 | Compile error naming a struct member | kernel is not 6.12-series; see the version note above |
+
+## See also
+
+- [`estun-pronet-markforged-setup.md`](estun-pronet-markforged-setup.md) — the
+  build this host serves; return to it at Part 10.
+- [`ethercat-igh-macb-install.md`](ethercat-igh-macb-install.md) — the Pi 5
+  path, exercised on the bench. Worth reading alongside this one: where the two
+  differ it is the SoC, not the method.
+- [`tools/ethercat-dwmac-rk/README.md`](../../tools/ethercat-dwmac-rk/README.md)
+  — what the generator does to IgH's tree, and what it verifies.
+- [`ethercat-bench-bringup.md`](ethercat-bench-bringup.md) — drive profiles,
+  SDO parameters and the real-time scheduling rules in depth.
 
 ## Still unverified
 
