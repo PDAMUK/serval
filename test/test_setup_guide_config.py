@@ -211,3 +211,38 @@ def test_fault_table_codes_are_real_endpoint_codes(code):
     """
     assert code in endpoint_return_codes()
     assert "`rc=%d`" % code in GUIDE.read_text(encoding="utf-8")
+
+
+def test_guide_params_example_parses_with_the_real_parser():
+    """Part 13 shows a `params:` block for drive tuning.
+
+    The format is not guessable — address, type token and value, with the
+    subindex after a dot — so an example that does not parse is worse than no
+    example at all.
+    """
+    from klippy.extras.servo_param import parse_params_block
+
+    text = GUIDE.read_text(encoding="utf-8")
+    block = re.search(
+        r"^params:\n((?:\s+0x[0-9A-Fa-f]+\.\d+:.*\n)+)", text, re.M
+    )
+    assert block, "the params: example in Part 13 has moved or gone"
+    entries = parse_params_block(block.group(1))
+    assert entries, "the example parsed to nothing"
+    for index, subindex, size, value in entries:
+        assert 0x3000 <= index <= 0x3FFF, (
+            "ESTUN tuning parameters live in the 0x3xxx manufacturer area"
+        )
+        assert size > 0 and value >= 0
+
+
+def test_guide_servo_param_examples_name_a_motor_the_config_declares():
+    """SERVO= resolves a [motor] name, or an axis with a single servo. An
+    example naming neither sends the reader to a command that cannot resolve."""
+    text = GUIDE.read_text(encoding="utf-8")
+    names = set(re.findall(r"^\[motor (\w+)\]", guide_config(), re.M))
+    used = set(re.findall(r"SERVO_PARAM SERVO=(\w+)", text))
+    assert used, "no SERVO_PARAM example found in the guide"
+    assert used <= names, (
+        f"{used - names} is not a [motor] in the guide's config"
+    )

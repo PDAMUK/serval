@@ -10,6 +10,21 @@ no endstops, and none of the wiring for any of it.
 **Finishing point.** X and Y driven by EtherCAT servos under closed-loop
 control, Z and the extruder on TMC steppers, all axes homing, drives tuned.
 
+## Before anything else
+
+These drives run on **230 VAC mains**, and their DC bus stays charged after the
+supply is removed. Every drive has a `CHARGE` lamp for exactly this reason.
+
+- Isolate at the breaker before touching drive terminals or motor leads.
+- After powering down, **wait five minutes and confirm `CHARGE` is out** before
+  working. The lamp, not the clock, is the authority.
+- Wire motors with the drives isolated. Part 5 ends powered down for that
+  reason, and Part 6 assumes it.
+- Nothing in this guide needs a drive opened. If a step seems to, stop.
+
+Mains wiring is notifiable work in some jurisdictions. This document describes
+what to connect, not whether you are the right person to connect it.
+
 ## Hardware this targets
 
 | Role | Part |
@@ -172,7 +187,7 @@ Markforged lane assignment, which everything downstream depends on:
 | EtherCAT cable | 2x shielded Cat5 or better | 100BASE-TX |
 | Drive debug cable | **mini-USB**, double shielded with ferrites | the `-EC` variant uses mini-USB, not the base drive's RS-485 |
 | Mains parts | breaker, surge protector, noise filter, contactor | plus a surge suppressor for the contactor coil |
-| Regen resistor | external, sized to the gantry | see Part 4 — this frame size has no internal resistor |
+| Regen resistor | external, sized to the gantry | see Part 5 — this frame size has no internal resistor |
 | Endstop switches | 3x (X, Y, Z) | wired to the Manta |
 
 ---
@@ -483,6 +498,15 @@ host's native driver — `ec_macb` on a Pi 5, `ec_dwmac-rk` on the CB2.
 
 ## Part 11 — Configuration
 
+This is the machine's `printer.cfg`, which klippy reads from
+`~/printer_data/config/` on the CB2. Replace the file's contents rather than
+appending: the classic `[stepper_x]` and `[printer] kinematics:` sections this
+fork rejects will stop it starting. Coming from a mainline Klipper
+configuration, [`Config_Migration.md`](../Config_Migration.md) covers the
+conversion.
+
+Apply it with `RESTART`, or `FIRMWARE_RESTART` after reflashing the Manta.
+
 `encoder_counts_per_rev` is the **motor's** resolution: 1048576 for the 20-bit
 incremental EMJ-04AFD22. Using the 131072 of a 17-bit absolute scales every move
 by 8.
@@ -507,6 +531,10 @@ drive_profile: estun-pronet
 vendor_id: 0x00000000       # <- replace, from Part 10
 product_code: 0x00000000    # <- replace, from Part 10
 cycle_us: 250
+#endpoint: /home/biqu/serval/rust/target/release/ethercat-rt
+#   Optional. Defaults to rust/target/release/ethercat-rt inside the
+#   repository. Part 12 step 1 switches this to ethercat-rt-stub for the
+#   drive-off dry run, so uncomment it when you get there.
 
 [motor motor_x]
 drive: servo
@@ -704,6 +732,31 @@ ESTUN exposes its tuning parameters in the manufacturer object area at
 | `0x3068.0` | Pn401 | forward torque limit (%) |
 | `0x3069.0` | Pn402 | reverse torque limit (%) |
 
+Two ways to write them. `SERVO_PARAM` from the console, for trying a value:
+
+```
+SERVO_PARAM SERVO=motor_x GET=0x3014.0
+SERVO_PARAM SERVO=motor_x SET=0x3014.0 VALUE=40 TYPE=u16
+```
+
+`SERVO=` takes the `[motor]` name, or the axis name where the axis has a single
+servo — both `motor_x` and `x` reach the same drive on this machine. A `SET`
+reports the value read back from the drive, which is not always the one sent:
+out-of-range writes settle at the drive's own limit.
+
+A `params:` block on the `[motor]` section, for values that must survive a
+restart, one per line as `0xINDEX.SUB: type value`:
+
+```ini
+[motor motor_x]
+# ... the options from Part 11 ...
+params:
+  0x3016.0: u16 300
+  0x3014.0: u16 40
+```
+
+These are written at claim time, every start, in the order given.
+
 Order of work: establish the load inertia ratio (Pn106) first, raise the speed
 loop gain (Pn102) until the axis is stiff without audible ringing, then the
 position loop gain (Pn104), then add feedforward.
@@ -785,7 +838,9 @@ Carried forward honestly. None of the following has run on real hardware:
 
 ## See also
 
-- [`ethercat-igh-macb-install.md`](ethercat-igh-macb-install.md) — host kernel
-  and EtherCAT master build.
+- [`ethercat-host-cb2-rk3566.md`](ethercat-host-cb2-rk3566.md) — the CB2 host:
+  kernel, IgH master, `ec_dwmac-rk`, and the endpoint build.
+- [`ethercat-igh-macb-install.md`](ethercat-igh-macb-install.md) — the Pi 5 host
+  alternative, kernel and EtherCAT master build.
 - [`ethercat-bench-bringup.md`](ethercat-bench-bringup.md) — drive profiles, SDO
   parameters, telemetry capture, and the real-time scheduling rules in depth.
