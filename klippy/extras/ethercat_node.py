@@ -33,6 +33,9 @@ _DEFAULT_ENDPOINT = os.path.join(
 )
 
 DRIVE_FAULT_POLL_PERIOD = 1.0
+# ERR_PIECES_WHILE_PARKED in rust/ethercat-rt/src/torque.rs, truncated to the
+# u16 the heartbeat carries.
+TORQUE_GATE_FAULT_CODE = 0xFEC7
 
 EC_RT_MAX_SLAVES = 8
 
@@ -378,6 +381,13 @@ class EtherCatNode:
                 "endpoint overran a full cycle and the drives coasted on "
                 "a stale target (host CPU stall, not a drive alarm)"
                 % (self.name,)
+            )
+        elif fault == TORQUE_GATE_FAULT_CODE:
+            msg = (
+                "EtherCAT torque-gate fault on node %s: a torque disable "
+                "came due with motion still queued, so the endpoint exited "
+                "**without** disabling. The drives were not parked — they "
+                "hold their last command until power goes" % (self.name,)
             )
         else:
             msg = (

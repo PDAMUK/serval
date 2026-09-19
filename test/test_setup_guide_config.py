@@ -620,3 +620,25 @@ def test_dead_is_reserved_for_the_electrical_sense():
     assert '**"Dead" in this document means electrically dead**' in text
     broken = re.findall(r"\bdead (drive|endpoint|motor|board|module)s?\b", text)
     assert not broken, f"'dead' used of a broken component: {broken}"
+
+
+def test_the_halt_test_is_where_klippy_actually_runs():
+    """Part 5 is mains bring-up: no config, no klippy. A step there that asks
+    for QUERY_EMERGENCY_STOP cannot be performed when it is read. Part 5 now
+    points forward instead, and this holds the pointer to the step that really
+    carries the test — renumbering Part 12 is what breaks it."""
+    text = GUIDE.read_text(encoding="utf-8")
+    mains = mains_section()
+    assert "QUERY_EMERGENCY_STOP" not in mains, (
+        "Part 5 asks for a command that needs the Part 11 config"
+    )
+    pointed = int(re.search(r"\*\*Part 12, step (\d+)\*\*", mains)[1])
+
+    part12 = text.split("## Part 12")[1].split("\n## ")[0]
+    steps = re.findall(r"^(\d+)\. (.*(?:\n(?!\d+\. |## ).*)*)", part12, re.M)
+    carrying = [
+        int(number) for number, body in steps if "QUERY_EMERGENCY_STOP" in body
+    ]
+    assert carrying == [pointed], (
+        f"halt tested in {carrying}, pointed at {pointed}"
+    )

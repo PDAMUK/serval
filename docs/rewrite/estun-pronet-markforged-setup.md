@@ -848,15 +848,12 @@ intermittent encoder faults:
    goes out on both drives and the motors lose torque, while `POWER` stays lit,
    because control power is upstream. This is the one test that proves the
    stop does anything. If `POWER` drops too, control power is on the wrong
-   side of the contactor and the halt in Part 11 will never arrive.
-7. Test the halt, which is a separate thing from step 6 and fails separately.
-   With klippy ready, `QUERY_EMERGENCY_STOP STOP=estop` reports `clear`. Press
-   the stop: klippy shuts down naming the stop, and the same query — which
-   still answers during a shutdown — reports `ASSERTED`. Release, then
-   `FIRMWARE_RESTART`. A query that answers `clear` with the button held means
-   the second contact is not wired to `PF1`; a klippy that does not shut down
-   at all means the contact is NO where the config expects NC.
-8. Power down, wait 5 minutes, confirm `CHARGE` is out.
+   side of the contactor and the halt configured in Part 11 will never arrive.
+
+   This tests the contactor only. The second contact — the one that halts the
+   drives — needs klippy and the config from Part 11, so it is tested at
+   **Part 12, step 2**.
+7. Power down, wait 5 minutes, confirm `CHARGE` is out.
 
 ---
 
@@ -1268,17 +1265,27 @@ Belts stay uncoupled until the final step.
    already (`make -f Makefile.rust ethercat-stub`), point `endpoint:` at
    `rust/target/release/ethercat-rt-stub` and start klippy. It must reach
    `ready`. This proves planner -> bridge -> transport with zero hardware risk.
-2. **Real endpoint, motors uncoupled.** Switch `endpoint:` back to
+2. **Test the halt, still on the stub.** The drives are off and the stub
+   answers `Stop` and `SetTorque` exactly as the real endpoint does, so this
+   costs nothing and proves the wiring before any drive is live.
+   `QUERY_EMERGENCY_STOP STOP=estop` reports `clear`. Press the stop: klippy
+   shuts down naming it, and the same query — which still answers during a
+   shutdown — reports `ASSERTED`. Release, `FIRMWARE_RESTART`, and the query
+   reads `clear` again.
+
+   `clear` with the button held means the second contact is not on `PF1`.
+   No shutdown at all means the contact is NO where the config expects NC.
+3. **Real endpoint, motors uncoupled.** Switch `endpoint:` back to
    `rust/target/release/ethercat-rt`, built by the host page's endpoint step
    (`make -f Makefile.rust ethercat-endpoint-hw`). klippy spawns it itself at
    claim time; it is never launched by hand. Expect `ready` and a log line
    naming the profile and matched identity.
-3. **Torque on, no motion.** Both drives reach Operation Enabled and hold
+4. **Torque on, no motion.** Both drives reach Operation Enabled and hold
    position. `engine_state` stays running and never reaches `Fault (3)`.
-4. **Small supervised jog.** `SET_KINEMATIC_POSITION`, then short `G1 X…` and
+5. **Small supervised jog.** `SET_KINEMATIC_POSITION`, then short `G1 X…` and
    `G1 Y…` moves. An X move turns **one** motor; a Y move turns **both**. Seeing
    that is the cheapest confirmation the kinematics matches the mechanics.
-5. **Check the coupling sign.** With belts slack, hold the X motor still and
+6. **Check the coupling sign.** With belts slack, hold the X motor still and
    move the gantry to +Y. A carriage sliding **-X** confirms the default
    `MARKFORGED_Y_COUPLING = 1.0`. A carriage sliding **+X** means flipping that
    constant to `-1.0` in `rust/motion-core/src/kinematics.rs` and the mirror in
@@ -1297,8 +1304,8 @@ Belts stay uncoupled until the final step.
    Changing only the Python side, or changing both and skipping the rebuild,
    leaves the host and the planner disagreeing about the machine, which is
    worse than the wrong sign: the two halves then fight each other.
-6. **Home Z and the extruder** as on any stepper machine.
-7. **Couple the belts and home slowly.** Low `homing_speed`, hand on the power.
+7. **Home Z and the extruder** as on any stepper machine.
+8. **Couple the belts and home slowly.** Low `homing_speed`, hand on the power.
 
 ---
 
@@ -1422,7 +1429,7 @@ Carried forward honestly. None of the following has run on real hardware:
 
 - The ESTUN vendor ID and product code (no public ESI — read them off the bus
   at Part 10).
-- The Markforged belt coupling sign (Part 12, step 5 checks it).
+- The Markforged belt coupling sign (Part 12, step 6 checks it).
 - `ec_dwmac-rk`, if the CB2 is the host: it compiles and its symbols resolve,
   but it has never been loaded. A Pi 5 host avoids this one entirely.
 - Whether 60 W per drive is enough regenerative capacity for this gantry. The

@@ -1,3 +1,6 @@
+import pathlib
+import re
+
 import pytest
 from fakes import (
     FakeConfigError,
@@ -318,3 +321,35 @@ def test_fault_poll_shuts_down_on_endpoint_death():
     assert "endpoint died" in msg
     assert "node_x" in msg
     assert "-203" in msg
+
+
+def test_torque_gate_fault_does_not_claim_the_drives_were_parked():
+    """0xFEC7 is the one fault that means the endpoint exited without
+    disabling. The generic message says the drives were parked by the
+    endpoint, which is the opposite of what happened and would send someone
+    looking in the wrong place."""
+    engine = FakeEngine(take_drive_fault=[ethercat_node.TORQUE_GATE_FAULT_CODE])
+    node = make_node_for_fault_poll(engine)
+
+    node._poll_drive_fault(7.0)
+
+    msg = node.printer.shutdown_reasons[0]
+    assert "without" in msg and "disabling" in msg
+    assert "parked by the realtime endpoint" not in msg
+
+
+def test_the_torque_gate_code_matches_the_rust_constant():
+    """The host names this code; the endpoint sends it as the low 16 bits of
+    ERR_PIECES_WHILE_PARKED. Change one and the message silently stops
+    matching the fault it explains."""
+    source = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "rust"
+        / "ethercat-rt"
+        / "src"
+        / "torque.rs"
+    ).read_text(encoding="utf-8")
+    declared = int(
+        re.search(r"ERR_PIECES_WHILE_PARKED: i32 = (-?\d+)", source)[1]
+    )
+    assert ethercat_node.TORQUE_GATE_FAULT_CODE == declared & 0xFFFF

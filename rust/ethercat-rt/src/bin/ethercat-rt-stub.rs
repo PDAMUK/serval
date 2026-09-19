@@ -547,7 +547,7 @@ fn main() {
                 eprintln!("ec-rt-stub: torque-gate fault code={code} — exiting");
                 server.respond(&status_heartbeat_frame(
                     ENGINE_STATE_FAULT,
-                    0,
+                    (code as u32 & 0xFFFF) as u16,
                     &[ring.retired_count()],
                     0,
                 ));
