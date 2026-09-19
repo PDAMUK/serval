@@ -574,7 +574,7 @@ def test_the_halt_button_pin_matches_the_wiring_table():
     text = GUIDE.read_text(encoding="utf-8")
     row = re.search(r"^\| Emergency stop signal \| `(\w+)` \|", text, re.M)
     assert row, "Part 8 no longer assigns a pin to the emergency stop"
-    configured = re.search(r"\[gcode_button estop\]\npin: ([^\n]+)", text)
+    configured = re.search(r"\[emergency_stop estop\]\npin: ([^\n]+)", text)
     assert configured, "the config no longer carries the estop button"
     assert configured[1].lstrip("^") == row[1], (
         f"{configured[1]} is not the {row[1]} the wiring table gives"
@@ -586,7 +586,9 @@ def test_the_halt_input_is_wired_to_fail_safe():
     with the wire off, so a broken signal wire stops the machine. Inverting it
     for an NO contact makes that same fault silent."""
     text = GUIDE.read_text(encoding="utf-8")
-    pin = re.search(r"\[gcode_button estop\]\npin: ([^\n]+)", text)[1]
+    pin = re.search(r"\[emergency_stop estop\]\npin: ([^\n]+)", text)[1]
     assert pin.startswith("^"), f"{pin} has no pull-up"
     assert "!" not in pin, f"{pin} is inverted, which is the NO wiring"
-    assert "press_gcode: M112" in text
+    assert "[gcode_button estop]" not in text, (
+        "the halt is back on the G-Code queue"
+    )

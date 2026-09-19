@@ -3107,6 +3107,29 @@ pin:
 #   send any signal at startup.
 ```
 
+### [emergency_stop]
+
+An emergency stop input. Unlike a `[gcode_button]` running `M112`, this
+shuts the printer down from the button callback itself, so it does not
+wait on the G-Code queue behind a running print. Check the input with
+`QUERY_EMERGENCY_STOP STOP=my_emergency_stop`.
+
+Wire the button's **normally closed** contact between the pin and
+ground and declare the pin with a pull-up. The input then reads as
+asserted both when the button is pressed and when the wire is broken,
+so a damaged cable stops the machine instead of silently disabling the
+stop.
+
+```
+[emergency_stop my_emergency_stop]
+pin:
+#   The pin the button is connected to. This parameter must be
+#   provided.
+#message:
+#   The shutdown message recorded when the input is asserted. The
+#   default is "emergency stop '<name>' asserted".
+```
+
 ### [gcode_button]
 
 Execute gcode when a button is pressed or released (or when a pin

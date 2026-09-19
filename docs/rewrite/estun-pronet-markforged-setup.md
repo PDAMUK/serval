@@ -510,10 +510,10 @@ it, klippy keeps streaming cyclic position targets into a bus that has just
 gone dark, and the first thing anyone sees is an endpoint death and a spread of
 drive faults rather than "the stop was pressed".
 
-The path already exists in this fork. A second contact on the button drives an
-input on the Manta, `M112` runs on the edge, and the `klippy:shutdown` that
-follows reaches `ethercat_node`, which calls `stop_node` on each node: a CiA
-402 **Stop** to every drive, then **torque disable**. Part 11 wires it up.
+A second contact on the button drives an input on the Manta, and the
+`klippy:shutdown` it raises reaches `ethercat_node`, which calls `stop_node` on
+each node: a CiA 402 **Stop** to every drive, then **torque disable**. Part 11
+wires it up, and explains why it is not a `[gcode_button]` running `M112`.
 
 **Two things have to be true for that halt to land.**
 
@@ -1115,14 +1115,30 @@ sensor_type: ATC Semitec 104GT-2
 [fan]
 pin: PF7
 
-[gcode_button estop]
+[emergency_stop estop]
 pin: ^PF1
-press_gcode: M112
 ```
 
-**`[gcode_button estop]` is the halt.** `M112` shuts klippy down, and the
-shutdown reaches `ethercat_node`, which sends every drive a Stop and then
-disables its torque.
+**`[emergency_stop estop]` is the halt, and it is deliberately not a
+`[gcode_button]` running `M112`.**
+
+G-code runs through a queue behind a mutex. An `M112` typed at the console or
+sent by the front-end does jump that queue, but by a route nothing inside
+klippy can use: `GCodeIO` scans lines as they arrive on its input descriptor
+and calls `cmd_M112` directly, outside the lock, before anything is queued. A
+`[gcode_button]` callback does not arrive on that descriptor. It calls
+`run_script`, which takes the G-Code mutex and waits for whatever holds it.
+
+Most of the time that wait is short, because dispatching a move queues it into
+the lookahead rather than executing it. But `G4`, `M400`, `TEMPERATURE_WAIT`
+and a homing move all hold the mutex for real time, and a print is full of
+them. The halt would arrive late by an amount nothing bounds — which is the
+one property an emergency stop cannot have.
+
+`[emergency_stop]` registers the button with `buttons` directly and calls
+`printer.invoke_shutdown` from the callback. That runs every `klippy:shutdown`
+handler there and then, on the reactor, with no queue and no mutex in the way.
+`ethercat_node` is one of those handlers, and `stop_node` is what it does.
 
 The pin polarity is the whole of the wiring, and it is worth being slow about.
 `^PF1` pulls the input up, so the button's contact goes between `PF1` and
@@ -1139,8 +1155,10 @@ the failure is discovered by pressing the stop and watching nothing happen. A
 button with two NC contacts does this job with no NO contact anywhere: one for
 the contactor coil, one for `PF1`.
 
-There is no `release_gcode`. A shutdown latches, and clearing it is a
-`FIRMWARE_RESTART` once the stop has been released deliberately.
+Releasing the button does nothing on its own. A shutdown latches, and clearing
+it is a `FIRMWARE_RESTART` once the stop has been released deliberately.
+`QUERY_EMERGENCY_STOP STOP=estop` reports the input without touching it, which
+is how to check the wiring before trusting it.
 
 **The two drive limits are the only thing standing between a wrong number and
 a bent frame.** `max_torque` is a percentage of *rated* torque, not a raw
