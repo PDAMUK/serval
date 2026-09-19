@@ -3128,7 +3128,17 @@ pin:
 #message:
 #   The shutdown message recorded when the input is asserted. The
 #   default is "emergency stop '<name>' asserted".
+#debounce_delay:
+#   Seconds the input must hold its new state before it is acted on.
+#   The default is 0. Raise it if switching noise on a long run to the
+#   button asserts the stop on its own; it delays a real press by the
+#   same amount, which is small against the contactor it works with.
 ```
+
+QUERY_EMERGENCY_STOP still answers after the shutdown the stop causes,
+but it answers with the last sample taken before it — an MCU shutdown
+stops the button being sampled, so the reading freezes and a release
+does not clear it until FIRMWARE_RESTART.
 
 ### [gcode_button]
 

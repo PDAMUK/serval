@@ -178,6 +178,9 @@ Markforged lane assignment, which everything downstream depends on:
   opening the contactor, and control power stays on so the drives can be halted
   cleanly — see Part 5. Only the isolator, locked off and proved, makes the
   enclosure safe to work in.
+- **Releasing the stop restores power immediately.** Nothing latches: the
+  contactor closes again the moment the button is reset, with no separate reset
+  step. Never release it as a way of checking what happened.
 - Never plug or unplug a drive connector with power applied.
 - Power sequencing: control power (`L1C`/`L2C`) **on first**, main circuit
   (`L1`/`L2`) on second; reverse on shutdown.
@@ -744,6 +747,21 @@ welded pole. An industrial machine would use a safety relay and a contactor
 with mirror contacts, and a printer on a bench generally does not. That is a
 defensible choice, but it should be a choice.
 
+**And the second half of that choice: releasing the button restores power.**
+The contact sits in series with the coil and nothing latches, so the moment the
+stop is twisted or keyed back the coil re-energises, the contactor closes, and
+the drives have main power again. There is no reset step and nothing asks for
+one. The motors stay still, because klippy is shut down and torque is disabled
+until a `FIRMWARE_RESTART` — but the DC bus is live and `CHARGE` is lit.
+
+That is the behaviour this circuit has, not a fault in it, and it is exactly
+why the stop is not what makes the machine safe to reach into. Anyone who
+pressed the stop to clear a jam and then released it to see what happened has
+re-energised the enclosure they are standing in. Lock the isolator off instead;
+it is the only thing in this chain that stays off by itself. A latching safety
+relay with a separate reset button is the part that would change this, and it
+is what an industrial build would fit.
+
 **The 16 A rating is not about the 7.83 A load.** At 16 A the drives sit at
 under half the breaker's rating, which looks generous until the inrush is
 considered: energising two DC buses charges their capacitors through the
@@ -956,9 +974,18 @@ three endstop pins are the ones that file uses for `stepper_x`, `stepper_y` and
 build leaves empty. Check the row against that file rather than against
 another board's config before plugging anything in.
 
-Wire the motor coils in pairs by phase, not by wire colour. Route endstop and
-thermistor wiring away from the servo motor cables — those carry PWM switching
-noise.
+Wire the motor coils in pairs by phase, not by wire colour. Route endstop,
+thermistor **and emergency-stop** wiring away from the servo motor cables —
+those carry PWM switching noise.
+
+The emergency-stop signal deserves the most care of the three. It is the
+longest low-voltage run on the machine, out to a button on a panel, and `^PF1`
+holds it up through the STM32's internal pull-up of tens of kilohms — a high
+impedance looking at a cabinet full of switching. Noise on it cannot mask a
+press, because an open contact stays open, but it can assert one: the machine
+stops mid-print for nothing. Use a twisted pair with the return to ground, keep
+it off the motor loom, and if trips still appear set `debounce_delay` on the
+`[emergency_stop]` section before suspecting the button.
 
 **Verify.** With the Manta powered and no mains on the drives, klippy can be
 started against a minimal config and `QUERY_ENDSTOPS` reports all three
@@ -1213,8 +1240,14 @@ the contactor coil, one for `PF1`.
 
 Releasing the button does nothing on its own. A shutdown latches, and clearing
 it is a `FIRMWARE_RESTART` once the stop has been released deliberately.
+
 `QUERY_EMERGENCY_STOP STOP=estop` reports the input without touching it, which
-is how to check the wiring before trusting it.
+is how to check the wiring before trusting it. It answers during a shutdown,
+which is the point — but what it answers with is **the last sample taken before
+the shutdown, not a live reading**. An MCU shutdown drops every user timer,
+including the one sampling the button, so the value freezes at whatever caused
+the stop. Releasing the button will not change it. Only a `FIRMWARE_RESTART`
+starts the sampling again.
 
 **The two drive limits are the only thing standing between a wrong number and
 a bent frame.** `max_torque` is a percentage of *rated* torque, not a raw
@@ -1270,8 +1303,9 @@ Belts stay uncoupled until the final step.
    costs nothing and proves the wiring before any drive is live.
    `QUERY_EMERGENCY_STOP STOP=estop` reports `clear`. Press the stop: klippy
    shuts down naming it, and the same query — which still answers during a
-   shutdown — reports `ASSERTED`. Release, `FIRMWARE_RESTART`, and the query
-   reads `clear` again.
+   shutdown — reports `ASSERTED`. That reading is frozen at the moment of the
+   stop, so releasing the button will not clear it; `FIRMWARE_RESTART` first,
+   and then the query reads `clear` again.
 
    `clear` with the button held means the second contact is not on `PF1`.
    No shutdown at all means the contact is NO where the config expects NC.

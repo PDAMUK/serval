@@ -8,8 +8,8 @@ class RecordingButtons:
     def __init__(self):
         self.registered = []
 
-    def register_buttons(self, pins, callback):
-        self.registered.append((list(pins), callback))
+    def register_debounce_button(self, pin, callback, config):
+        self.registered.append(([pin], callback, config))
 
 
 class RecordingGCode:
@@ -40,7 +40,7 @@ def test_asserting_the_input_shuts_down_without_touching_the_gcode_queue():
     G-Code mutex and wait behind whatever is already queued; invoke_shutdown
     runs the klippy:shutdown handlers there and then."""
     stop, printer, buttons, gcode = build()
-    (_pins, callback) = buttons.registered[0]
+    (_pins, callback, _config) = buttons.registered[0]
 
     callback(0.0, 1)
 
@@ -51,7 +51,7 @@ def test_asserting_the_input_shuts_down_without_touching_the_gcode_queue():
 
 def test_a_released_input_does_not_shut_down():
     stop, printer, buttons, _gcode = build()
-    (_pins, callback) = buttons.registered[0]
+    (_pins, callback, _config) = buttons.registered[0]
 
     callback(0.0, 0)
 
@@ -64,14 +64,14 @@ def test_the_pin_is_registered_unchanged():
     what decides whether a broken wire reads as pressed."""
     _stop, _printer, buttons, _gcode = build()
 
-    assert buttons.registered == [(["^PF1"], buttons.registered[0][1])]
+    assert buttons.registered[0][0] == ["^PF1"]
 
 
 def test_a_stop_already_asserted_at_connect_still_shuts_down():
     """buttons reports an initial state that differs from its assumed zero, so
     a latched stop at power-on arrives as an ordinary press."""
     _stop, printer, buttons, _gcode = build()
-    (_pins, callback) = buttons.registered[0]
+    (_pins, callback, _config) = buttons.registered[0]
 
     callback(0.0, 1)
 
@@ -80,7 +80,7 @@ def test_a_stop_already_asserted_at_connect_still_shuts_down():
 
 def test_the_message_is_configurable_and_names_the_input():
     _stop, printer, buttons, _gcode = build({"message": "gantry stop hit"})
-    (_pins, callback) = buttons.registered[0]
+    (_pins, callback, _config) = buttons.registered[0]
 
     callback(0.0, 1)
 
@@ -91,7 +91,7 @@ def test_releasing_after_a_press_clears_the_query_but_not_the_shutdown():
     """Klipper latches a shutdown; releasing the button must not look like
     recovery. Only FIRMWARE_RESTART clears it."""
     stop, printer, buttons, gcode = build()
-    (_pins, callback) = buttons.registered[0]
+    (_pins, callback, _config) = buttons.registered[0]
 
     callback(0.0, 1)
     callback(1.0, 0)
@@ -102,7 +102,7 @@ def test_releasing_after_a_press_clears_the_query_but_not_the_shutdown():
 
 def test_query_reports_both_states():
     stop, _printer, buttons, gcode = build()
-    (_pins, callback) = buttons.registered[0]
+    (_pins, callback, _config) = buttons.registered[0]
     query = gcode.mux_commands[0][3]
 
     query(gcode)
@@ -132,3 +132,18 @@ def test_the_query_survives_the_shutdown_the_stop_causes():
 
     assert (cmd, key) == ("QUERY_EMERGENCY_STOP", "STOP")
     assert when_not_ready is True
+
+
+def test_the_input_can_be_debounced_against_servo_noise():
+    """The button hangs off a high-impedance pull-up on a cable run through a
+    cabinet full of servo drives, and a false assert stops a print. Going
+    through the debounce wrapper costs nothing at its 0.0 default and leaves
+    debounce_delay available to anyone who sees trips; registering the raw
+    button leaves them no option in config at all."""
+    _stop, _printer, buttons, _gcode = build()
+
+    (_pins, _callback, passed_config) = buttons.registered[0]
+
+    assert passed_config is not None, (
+        "no config reached the debouncer, so debounce_delay cannot be set"
+    )

@@ -13,7 +13,9 @@ class EmergencyStop:
         )
         self.asserted = False
         buttons = self.printer.load_object(config, "buttons")
-        buttons.register_buttons([config.get("pin")], self._handle_state)
+        buttons.register_debounce_button(
+            config.get("pin"), self._handle_state, config
+        )
         gcode = self.printer.lookup_object("gcode")
         gcode.register_mux_command(
             "QUERY_EMERGENCY_STOP",

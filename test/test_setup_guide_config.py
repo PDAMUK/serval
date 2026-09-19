@@ -642,3 +642,23 @@ def test_the_halt_test_is_where_klippy_actually_runs():
     assert carrying == [pointed], (
         f"halt tested in {carrying}, pointed at {pointed}"
     )
+
+
+def test_the_guide_does_not_present_the_query_as_a_live_reading():
+    """An MCU shutdown drops every user timer, the button sampler among them,
+    so the value freezes at whatever caused the stop. Someone told it is live
+    would hold the button, release it, see no change and conclude the wiring
+    is broken."""
+    text = GUIDE.read_text(encoding="utf-8")
+    assert "not a live reading" in text
+    assert "FIRMWARE_RESTART" in text.split("not a live reading")[1][:600]
+
+
+def test_the_guide_says_releasing_the_stop_restores_power():
+    """Nothing latches the contactor open, so resetting the button closes it
+    and the bus comes back with no reset step. Someone who pressed the stop to
+    clear a jam and released it to look has re-energised the enclosure they
+    are reaching into."""
+    text = GUIDE.read_text(encoding="utf-8")
+    assert "Releasing the stop restores power immediately" in text
+    assert "releasing the button restores power" in text.lower()
