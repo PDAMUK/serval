@@ -280,13 +280,76 @@ def test_rcd_type_rules_out_the_one_that_cannot_see_dc():
     assert "Type A is the minimum" in section
 
 
-def test_parts_row_defers_to_the_specified_table():
-    """Part 1 listed mains parts independently and fell behind Part 5's chain.
-    It now points at the table rather than repeating it."""
+def bom_section():
     text = GUIDE.read_text(encoding="utf-8")
-    row = re.search(r"^\| Mains parts \|.*$", text, re.M)
-    assert row, "the Part 1 mains row has gone"
-    assert "Part 5" in row.group(0)
+    return text.split("## Part 1 — Bill of materials")[1].split("## Part 2")[0]
+
+
+def bom_group(heading):
+    block = bom_section().split(heading)[1].split("\n\n")
+    rows = next(part for part in block if part.lstrip().startswith("| Item |"))
+    return [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in rows.splitlines()[2:]
+    ]
+
+
+def stock_codes(text):
+    return re.findall(r"\*\*(\d{3}-\d{4})\*\*", text)
+
+
+def test_every_buyable_part_is_counted_in_the_bill_of_materials():
+    """Part 5 argues each part and Part 1 says how many. A part that only one
+    of them knows about is either uncounted or unexplained."""
+    specified = set(stock_codes(buy_section()))
+    counted = set(stock_codes(bom_section()))
+    assert specified and counted
+    assert not specified - counted, (
+        f"specified, never counted: {specified - counted}"
+    )
+    assert not counted - specified, (
+        f"counted, never specified: {counted - specified}"
+    )
+
+
+def test_no_stock_code_names_two_different_parts():
+    """The same code appears in both parts of the guide. If one side is edited
+    and the other is not, the code and the part number stop agreeing."""
+    named = {}
+    for line in GUIDE.read_text(encoding="utf-8").splitlines():
+        codes = stock_codes(line)
+        parts = set(re.findall(r"`([A-Z][\w./-]{4,})`", line))
+        if len(codes) == 1 and parts:
+            named.setdefault(codes[0], []).append(parts)
+    for code, seen in named.items():
+        assert set.intersection(*seen), f"{code} names {seen}"
+
+
+def test_each_drive_gets_its_own_copy_of_the_per_drive_parts():
+    """A regenerative resistor is per drive because each drive switches its
+    own braking transistor. Anything in this group counted once is a part two
+    drives would have to share, which none of them can."""
+    rows = bom_group("### Per drive — two of each")
+    assert len(rows) >= 6, rows
+    for row in rows:
+        assert row[1] == "2", row
+
+
+def test_the_shared_chain_is_counted_once():
+    """The drives sit on one supply, so the chain is one of each. A count of
+    two here means someone has built a per-drive chain by accident."""
+    rows = bom_group("### Once for the pair — the mains chain")
+    assert len(rows) >= 8, rows
+    for row in rows:
+        assert not row[1].startswith("2"), row
+
+
+def test_the_substitution_says_what_it_removes():
+    section = bom_section()
+    table = section.split("### Substitutions, and what each one removes")[1]
+    row = next(line for line in table.splitlines() if line.startswith("| RCBO"))
+    assert "MCB" in row and "RCD" in row, row
+    assert "one" in row, f"no net count stated: {row}"
 
 
 def buy_section():

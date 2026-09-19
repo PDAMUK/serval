@@ -177,18 +177,78 @@ Markforged lane assignment, which everything downstream depends on:
 
 ---
 
-## Part 1 — Parts and cables to have in hand
+## Part 1 — Bill of materials
 
-| Item | Spec | Note |
+Counts for the servo pair and the supply feeding it. The printer's own frame,
+bed, hotend and host board are assumed and not listed; the last group holds
+only the printer-side parts this conversion changes.
+
+Part 5 carries the reasoning and the ratings behind every mains row. This is
+the shopping list; that is the argument.
+
+### Per drive — two of each
+
+| Item | Qty | Part | RS stock no. |
+| --- | --- | --- | --- |
+| Servo drive | 2 | ESTUN `ProNet-04AEG-EC` | — |
+| Servo motor | 2 | ESTUN `EMJ-04AFD22` | — |
+| Encoder cable | 2 | ESTUN **PBP** series — `PBP` is incremental; a `PDP` (absolute) cable is the wrong part for the `F` encoder | — |
+| Motor power cable | 2 | ESTUN `PDM-GD12-XX`, or 1 mm^2 self-made | — |
+| Regenerative resistor | 2 | 50 ohm, and 60 W **at the mounting it gets**, which is the part of this row that catches people. An Arcol `HS100 50R J` makes 100 W bolted to metal and 30 W free-standing; an `HS300 50R` makes the 60 W with nothing attached. Part 5 has the table | **252-2928** |
+| EtherCAT patch lead | 2 | Shielded Cat5e or better, 100BASE-TX | — |
+
+The regenerative resistor is per drive, not per machine: each drive switches
+its own braking transistor across its own `B1`/`B2`, and both axes of a
+Markforged gantry decelerate hard.
+
+Two EtherCAT leads for two drives, because the chain starts at the host:
+host to drive 0, drive 0 to drive 1. A star topology would need a switch and
+three leads, and EtherCAT does not work through a switch anyway.
+
+### Once for the pair — the mains chain
+
+Every row here is one, not two. The drives share the chain because they share
+the supply: 7.83 A for the pair sits inside a single 16 A circuit, so a
+per-drive chain would double every protective device and buy nothing.
+
+| Item | Qty | Part | RS stock no. |
+| --- | --- | --- | --- |
+| Isolator | 1 | ABB `SD202/32` | **175-5085** |
+| MCB | 1 | ABB `S201-C16` | **489-0447** |
+| RCD | 1 | ABB `F202 A-25/0.03` | **232-0339** |
+| EMC filter | 1 | Roxburgh/Deltron `DRF10`, or Schaffner `FN2412-16-44` if the filter's ambient reaches 50 C — Part 5 decides which | **761-5696** / **518-6389** |
+| Contactor | 1 | ABB `ESB20-20N-06` | **211-1482** |
+| Emergency stop | 1 | Schneider `XALK178` — enclosed, twist release, 1 NC, breaks the contactor coil | **795-1295** |
+| Coil suppressor | 1 | RC snubber, 100 ohm / 0.1 uF across the contactor coil | — |
+| SPD | 1, optional | Schneider `A9L20500` iPRD20 | **065-4748** |
+| DIN rail | 1 | 35 mm top-hat, plus two end stops | — |
+| Terminal blocks | 3 | L, N and PE feed-through with jumper links. Each drive takes main power at `L1`/`L2` **and** control power at `L1C`/`L2C` off the same pair, so one contactor pole lands on four conductors, not two | — |
+| Mains cable, supply to drives | 1 run | 3-core flexible 300/500 V; 1.5 mm^2 carries 7.83 A, 2.5 mm^2 for volt-drop margin over a couple of metres | — |
+| Protective earth | 1 run | 4 mm^2 green/yellow, ring-terminated to the plate | — |
+
+### One for the machine
+
+| Item | Qty | Part | RS stock no. |
+| --- | --- | --- | --- |
+| Drive debug cable | 1 | **mini-USB**, double shielded with ferrites. Moved between drives, not duplicated — the `-EC` variant uses mini-USB, not the base drive's RS-485 | — |
+
+### Substitutions, and what each one removes
+
+| Fit this | Instead of | Net |
 | --- | --- | --- |
-| TMC2209 drivers | 3x (Z, extruder A, extruder B) | **Motor1 and Motor2 stay empty** — X/Y are servos |
-| Encoder cable | ESTUN **PBP** series | `PBP` = incremental. The `F` encoder is incremental; a `PDP` (absolute) cable is the wrong part |
-| Motor power cable | PDM-GD12-XX, or 1 mm^2 self-made | 1 mm^2 covers the 0.05-1 kW band |
-| EtherCAT cable | 2x shielded Cat5 or better | 100BASE-TX |
-| Drive debug cable | **mini-USB**, double shielded with ferrites | the `-EC` variant uses mini-USB, not the base drive's RS-485 |
-| Mains parts | isolator, MCB, RCBO, SPD, EMC filter, contactor, coil snubber | specified with ratings and examples in **Part 5** — buy from that table, not this row |
-| Regen resistor | external, sized to the gantry | see Part 5 — this frame size has no internal resistor |
-| Endstop switches | 3x (X, Y, Z) | wired to the Manta |
+| RCBO — ABB `DSE201 M C16 A30` (**136-7786**) or Siemens `5SV1316-7KK16` (**187-3289**) | the MCB **and** the RCD | Two line items become one, and 53 mm of rail becomes 36 mm, or 18 mm with the Siemens |
+
+That is the only substitution on this list. The savings that look like
+substitutions elsewhere are not: one filter and one contactor serve both
+drives because they sit on a shared supply, which is the count above rather
+than a reduction from it.
+
+### Printer side, changed by this conversion
+
+| Item | Qty | Note |
+| --- | --- | --- |
+| TMC2209 drivers | 3 | Z, extruder A, extruder B. **Motor1 and Motor2 stay empty** — X/Y are servos |
+| Endstop switches | 3 | X, Y, Z, wired to the Manta |
 
 ---
 
@@ -362,6 +422,37 @@ for the drive circuit with 30 mA kept for anything a person touches, or a
 genuine earth fault that has just been found. Measuring the standing leakage
 with a clamp meter distinguishes the two in a minute.
 
+### The filter's rating is the one that depends on where it sits
+
+A filter's headline current is quoted at an ambient temperature, and an
+enclosure beside two servo drives is not that temperature. The `DRF10` is
+rated 10 A at 40 C and derates from there:
+
+| Ambient | 40 C | 45 C | 50 C | 55 C | 60 C |
+| --- | --- | --- | --- | --- | --- |
+| `DRF10` ampacity | 10.00 A | 9.34 A | 8.65 A | 7.94 A | 7.18 A |
+
+The machine draws **7.83 A**. At 45 C that is 84% of the filter; at 55 C it is
+99%; at 60 C the filter is rated below the load. A bay holding two drives can
+sit at 45 C without anything being wrong with it, and a bay inside a heated
+chamber goes past 55 C by design.
+
+So the filter choice follows the temperature where the filter is mounted:
+
+- **Filter ambient stays at or below 45 C** — the `DRF10` is the right part.
+  It is 100 g, sits on the rail, and leaks 1.46 mA.
+- **Filter ambient reaches 50 C or more** — step up to a Schaffner
+  `FN2412-16-44`, rated 16 A *at 50 C*, which leaves the load at half the
+  filter with room above it.
+
+The step up is not free, and the cost is leakage rather than money. The
+`FN2412-16-44` leaks **3.4 mA** at 230 V, against the `DRF10`'s 1.46 mA, and
+its datasheet notes that an interrupted neutral can double that. Against the
+15 mA a 30 mA RCD may trip at, a 3.4 mA standing leak is most of a quarter of
+the budget before the drives have contributed anything. Measure the standing
+leakage after fitting either one — step 4 of the verification below exists for
+this.
+
 ### What to buy
 
 Specifications first: those are arithmetic from this machine's 7.8 A and hold
@@ -379,11 +470,12 @@ enough to corrupt encoder feedback.
 | Isolator | 2-pole, >= 16 A, lockable in the OFF position; IP65 if it mounts through the enclosure wall rather than sitting on the rail behind a door | ABB `SD202/32` — 2-pole, 32 A, DIN, padlockable — RS **175-5085** |
 | MCB | 16 A, **Type C**, 6 kA. One pole breaking line is enough here — the isolator and the RCD are both 2-pole, so the double-pole break exists | ABB `S201-C16` — 1 pole, 1 module — RS **489-0447** |
 | RCD | 2-pole, 30 mA, **Type A** | ABB `F202 A-25/0.03` — 25 A, 2 pole, 2 modules — RS **232-0339** |
-| EMC filter | Single phase, 250 VAC, **>= 10 A** | Roxburgh/Deltron `DRF10` — DIN rail, screw terminals, 1.46 mA max leakage — RS **761-5696** |
+| EMC filter | Single phase, 250 VAC, rated above 7.83 A **at the temperature the filter sits at** | Roxburgh/Deltron `DRF10` — DIN rail, 100 g, 1.46 mA leakage, 10 A at 40 C — RS **761-5696**. Above 45 C ambient: Schaffner `FN2412-16-44` — DIN rail, 16 A at 50 C, 110 x 93 x 73 mm, 3.4 mA leakage — RS **518-6389** |
 | Contactor | 2 pole, >= 20 A AC-1, **230 VAC coil** | ABB `ESB20-20N-06` — modular, 35 mm — RS **211-1482** |
+| Emergency stop | Latching, twist release, at least one **NC** contact, in its own enclosure. Wired in series with the contactor coil, not in the mains path | Schneider `XALK178` — enclosed, 40 mm head, 1 NC, IP69K — RS **795-1295** |
 | Mains cable, supply to drives | 1.5 mm^2 is adequate at 7.8 A; **2.5 mm^2** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
 | Protective earth | ESTUN specifies **3.5 mm^2**, a JIS size with no IEC equivalent — use **4 mm^2** | Green/yellow, ring-terminated to the plate |
-| Regen resistor | Take the **minimum resistance** from the drive manual — see the note below | — |
+| Regenerative resistor | **50 ohm, 60 W**, one per drive — see the note below, because 60 W depends on how it is mounted | Arcol `HS100 50R J` — RS **252-2928** |
 
 **One part instead of two.** An RCBO is an MCB and an RCD in one device, and is
 the only combination on this list worth making.
@@ -406,7 +498,6 @@ mode the section above is about.
 | --- | --- | --- | --- |
 | SPD | Type 2, 230 V, L-N and N-PE modes | Schneider `A9L20500` iPRD20 — 1P+N, 20 kA, 1.4 kV — RS **065-4748** | If the board feeding the machine already carries a Type 2 SPD, this one is a second line of defence, not the first. It also costs more than the rest of the chain together |
 | Coil suppressor | RC snubber matched to the coil | 100 ohm / 0.1 uF across the coil terminals; Schneider `LAD4RCU` for an LC1D-class coil | Only if the contactor sits well away from the encoder and EtherCAT runs. In a printer enclosure it does not, so fit it |
-| Chassis EMC filter | Single phase, 250 VAC, >= 10 A | Schaffner `FN2090Z-10-06` — RS **708-4294** | Skip it by default. It replaces the `DRF10` rather than adding to it, and only earns its 113.5 x 57.5 x 45.4 mm if the `DRF10` is bonded correctly at the drives and noise still reaches the encoder |
 
 ### Fitting it in a printer enclosure
 
@@ -422,9 +513,10 @@ always follows.
 
 Three choices save the most space:
 
-- **A DIN-rail filter rather than a chassis one.** The `FN2090` is a good
-  filter and 113.5 mm long, which is most of a small enclosure's width for one
-  part. A `DRF10` sits on the rail with everything else.
+- **The small filter, if the temperature allows it.** A `DRF10` is 100 g and
+  sits on the rail with everything else; an `FN2412-16-44` is 110 x 93 x 73 mm
+  and 600 g. The section above decides which, and the decision is thermal, not
+  spatial — an undersized filter that fits is not a saving.
 - **A modular installation contactor rather than a control contactor.** An
   `ESB20-20` is 35 mm wide and shallow; an `LC1D09` is wider, much deeper, and
   built for motor starting duty this circuit does not have.
@@ -468,26 +560,45 @@ regenerative resistor**. The manual's instruction for this band is an external
 resistor between `B1` and `B2`. (The `B2`-`B3` jumper that selects an internal
 resistor belongs to the larger `08A`-`50A` drives and does not apply.)
 
+The ProNet manual gives one figure for this whole band: for
+`ProNet-A5A`-`04A` the external resistor is customer-supplied and **60 W,
+50 ohm is recommended**. One per drive.
+
+Treat 50 ohm as a floor rather than a target. Resistance below it lets the
+braking transistor pass more current than it is rated for and destroys it —
+not a trip, a replacement drive — so a resistor a supplier happens to stock is
+not a substitute for the manual's number.
+
+**Set `Pn521.0` from `1` to `0` on both drives** when the external resistor
+goes in. The manual states this for exactly this frame band, and it is easy to
+miss because it is a footnote under a wiring table rather than a step. Without
+it the resistor is fitted and the drive does not use it.
+
+Wattage is where this goes wrong quietly, because an aluminium-housed resistor
+is rated for a heatsink it will not get in a printer. Arcol's HS series
+publishes both numbers:
+
+| | On the datasheet's heatsink | Free-standing |
+| --- | --- | --- |
+| `HS100` | 100 W | **30 W** |
+| `HS150` | 150 W | 45 W |
+| `HS300` | 300 W | 60 W |
+
+The heatsink that earns the first column is about 995 cm^2 of 3 mm plate for
+an `HS100` — roughly a 315 mm square, which no printer has spare. So either
+bolt the resistor to real metal with thermal compound and count on something
+between the two columns, or read the right-hand column and size from it: an
+`HS300 50R` free-standing meets the manual's 60 W with nothing attached.
+
 This matters on a fast gantry, which dumps real energy back on deceleration.
-The symptom of insufficient capacity is **`A.13` overvoltage**, which the manual
-notes can appear when load inertia exceeds roughly 30x the rotor inertia during
-acceleration. The EMJ-04AFD22 rotor inertia is 0.31e-4 kg.m^2. Treat a first
-`A.13` under hard decel as "fit or size up the resistor", not as a tuning
-problem.
+The symptom of insufficient capacity is **`A.13` overvoltage**, which the
+manual notes can appear when load inertia exceeds roughly 30x the rotor inertia
+during acceleration. The EMJ-04AFD22 rotor inertia is 0.31e-4 kg.m^2. Treat a
+first `A.13` under hard decel as "fit, re-mount, or size up the resistor", not
+as a tuning problem.
 
-Sizing has two independent numbers and they fail in opposite directions:
-
-- **Resistance** has a *minimum*, set by the drive's braking transistor and
-  printed in the ProNet manual for this frame. Going below it lets the
-  transistor pass more current than it is rated for, and destroys it — not a
-  trip, a replacement drive. Take this figure from the manual, not from a
-  calculation and not from a resistor a supplier happens to stock.
-- **Wattage** has a *minimum* too, but undersizing it only cooks the resistor.
-  Start at the manual's recommendation and go up if it runs hot; resistors in
-  this class are cheap next to the drive they protect.
-
-Mount it where it can dissipate — off the backplate, in free air, away from the
-encoder and EtherCAT runs. It reaches temperatures that mark cable insulation.
+Mount it away from the encoder and EtherCAT runs. It reaches temperatures that
+mark cable insulation.
 
 **Grounding** — the usual cause of intermittent encoder faults:
 
@@ -624,9 +735,11 @@ switches changing state when pressed.
 
 ## Part 9 — Drive-side EtherCAT enablement
 
-One setting lives on the drive rather than on the bus, and the bus does nothing
-until it is correct. Set it from the panel operator or ESView over the mini-USB
-cable, on **both** drives:
+One *fieldbus* setting lives on the drive rather than on the bus, and the bus
+does nothing until it is correct. Set it from the panel operator or ESView over
+the mini-USB cable, on **both** drives. (Part 5 sets a second panel parameter,
+`Pn521.0`, when the regenerative resistor goes in — nothing to do with
+EtherCAT, but reached the same way.)
 
 | Parameter | Value | Meaning |
 | --- | --- | --- |
@@ -1004,6 +1117,9 @@ Carried forward honestly. None of the following has run on real hardware:
 - The Markforged belt coupling sign (Part 12, step 5 checks it).
 - `ec_dwmac-rk`, if the CB2 is the host: it compiles and its symbols resolve,
   but it has never been loaded. A Pi 5 host avoids this one entirely.
+- Whether 60 W per drive is enough regenerative capacity for this gantry. The
+  figure is the drive manual's recommendation, not a measurement against this
+  machine's moving mass; `A.13` under hard decel is what says otherwise.
 
 ## See also
 
