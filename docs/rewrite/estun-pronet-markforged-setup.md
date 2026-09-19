@@ -1391,8 +1391,24 @@ A plain `endstop_pin` works on both axes; only the **per-motor keyed** endstop
 form is rejected on Y, because that form requires an axis reaching exactly one
 motor lane.
 
-**Verify.** `./scripts/ci.sh quick` is green on the branch and klippy parses the
-configuration.
+**Verify.** klippy starts and parses the configuration, naming any section it
+rejects.
+
+**That check runs on the printer. `./scripts/ci.sh quick` does not.** It is the
+contributor gate — ruff over the repository, the whole Rust workspace's 2483
+tests, and clippy with `-D warnings` — and it belongs on a development machine
+before pushing a branch, not on the machine running the printer. Run on a CB2 it
+is actively harmful: it is an hour of four Cortex-A55 cores, it wants a
+`rust/target` that reaches 19-25 GB against an eMMC that may be 8 or 16 GB
+in total, and if klippy is live it competes with the DC loop for the very core
+Part 2 isolated for it. A machine that passes every step and then drops frames
+under load is the failure mode the whole real-time setup exists to avoid; do not
+manufacture it with a test run.
+
+The CB2 does have to *build* — the native klippy modules and the endpoint, which
+Step 8 of the host page explains cannot be cross-compiled. That is unavoidable
+and is not this. Building links what the printer needs; `ci.sh quick` compiles
+and runs the test binaries of every crate in the workspace as well.
 
 ---
 

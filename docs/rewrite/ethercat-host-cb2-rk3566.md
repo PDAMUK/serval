@@ -328,6 +328,22 @@ Build it on the CB2 — the `hw` build compiles the IgH C shim and links
 make -f Makefile.rust ethercat-endpoint-hw     # -> rust/target/release/ethercat-rt
 ```
 
+**Budget for this before starting it.** A cargo build of this workspace is not
+a `make` on a Pi: `rust/target` reaches 19-25 GB, and the CB2's eMMC may be
+smaller than that in total. Its 2-4 GB of RAM is the other limit — four parallel
+`rustc` processes linking the larger crates will run a 2 GB board out of memory,
+so pass `-j2` or set `CARGO_BUILD_JOBS=2` rather than discovering it as a
+killed compiler. A full disk surfaces as `ld terminated with signal 7 [Bus
+error]`, which reads like a broken toolchain and is not one;
+`rust/target/debug/incremental` is the largest directory that regenerates
+freely.
+
+Build only what the printer runs. The endpoint and the klippy modules below are
+the whole list. **Do not run `./scripts/ci.sh` on this board** — it compiles and
+runs every crate's test binaries as well, which is an hour of A55 and disk this
+machine does not have spare. That gate belongs on a development machine, and
+the build guide's Part 11 says so.
+
 The staged bring-up starts with a **drive-off dry run** against the stub, which
 is a separate binary and a separate build:
 

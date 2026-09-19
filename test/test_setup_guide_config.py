@@ -581,6 +581,41 @@ def test_the_halt_button_pin_matches_the_wiring_table():
     )
 
 
+def test_the_printer_is_not_told_to_run_the_contributor_gate():
+    """Part 11's verification happens on the machine running klippy, so it has
+    to be something that machine can do. `ci.sh quick` is not: it compiles and
+    runs every crate's test binaries, wants a rust/target reaching 19-25 GB,
+    and on a CB2 competes with the DC loop for the core Part 2 isolated. The
+    gate belongs on a development machine."""
+    text = GUIDE.read_text(encoding="utf-8")
+    part = text.split("## Part 11 — Configuration")[1].split("## Part 12")[0]
+    instruction = part.split("**Verify.**")[1].split("\n\n")[0]
+    assert "ci.sh" not in instruction, (
+        f"Part 11 tells the printer to run the gate: {instruction.strip()}"
+    )
+    assert "klippy" in instruction.lower(), (
+        "Part 11's verification no longer names what the printer should do"
+    )
+
+
+def test_the_cb2_page_refuses_the_gate_on_the_printer():
+    """The CB2 must build on-device — the hw endpoint links libethercat and
+    cannot be cross-compiled — which puts a full cargo toolchain on a board
+    with 2-4 GB of RAM and an eMMC smaller than rust/target. That makes it
+    exactly the machine someone would run the test suite on by habit."""
+    cb2 = (GUIDE.parent / "ethercat-host-cb2-rk3566.md").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"[Dd]o not run[^\n]{0,40}ci\.sh", cb2), (
+        "the CB2 page no longer refuses the gate in so many words"
+    )
+    for block in re.findall(r"```sh\n(.*?)```", cb2, re.S):
+        assert "ci.sh" not in block, (
+            f"the CB2 page hands the reader a command that runs the gate on "
+            f"the printer:\n{block.strip()}"
+        )
+
+
 def test_every_switch_input_is_pulled_up():
     """A bare endstop_pin configures the STM32 input with no pull-up, so a
     switch to ground floats as soon as it opens and the axis homes against
