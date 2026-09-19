@@ -581,6 +581,48 @@ def test_the_halt_button_pin_matches_the_wiring_table():
     )
 
 
+def test_every_switch_input_is_pulled_up():
+    """A bare endstop_pin configures the STM32 input with no pull-up, so a
+    switch to ground floats as soon as it opens and the axis homes against
+    noise. BigTreeTech's own published config writes ^PF4, ^PF3 and ^PF2, and
+    the pin-name test above passes either way because "PF4" is a substring of
+    "^PF4" — which is how the prefix went missing in the first place."""
+    declared = re.findall(r"^endstop_pin: (\S+)", guide_config(), re.M)
+    assert len(declared) == 3, f"expected three endstops, found {declared}"
+    for pin in declared:
+        assert pin.startswith("^"), f"endstop_pin: {pin} has no pull-up"
+
+
+def test_the_leakage_remedy_is_not_a_delayed_device():
+    """ESTUN: "always use a fast-response type or one designed for PWM
+    inverters. Do not use a time-delay type." A delayed RCD holds a residual
+    current through the window an instantaneous one clears it in, so proposing
+    one as the answer to a nuisance trip contradicts the drive manual on the
+    protective device the rest of Part 5 is built around."""
+    section = mains_section()
+    assert "time-delay" in section or "time-delayed" in section, (
+        "the manual's prohibition is no longer stated at all"
+    )
+    for sentence in re.split(r"(?<=[.!?])\s+", section):
+        if "time-delayed" in sentence or "time-delay" in sentence:
+            assert "not" in sentence.lower() or "do not" in sentence.lower(), (
+                f"a delayed device is recommended rather than refused: "
+                f"{sentence.strip()}"
+            )
+
+
+def test_the_torque_ceiling_is_the_drives_and_not_the_config_fields():
+    """max_torque accepts 400 because that is the CiA 402 6072h ceiling, but
+    ProNet's Pn401/Pn402 run 0-300%, so anything above 300 is clamped by the
+    drive and the configured number stops describing the machine."""
+    text = GUIDE.read_text(encoding="utf-8")
+    block = text.split("The two drive limits")[1].split("\n\n")[0]
+    assert "300" in block, "the drive's own 0-300% limit is not stated"
+    assert "Pn401" in block or "Pn402" in block, (
+        "nothing names the parameter that actually does the clamping"
+    )
+
+
 def test_the_halt_input_is_wired_to_fail_safe():
     """An NC contact on a pulled-up input reads the same pressed as it does
     with the wire off, so a broken signal wire stops the machine. Inverting it

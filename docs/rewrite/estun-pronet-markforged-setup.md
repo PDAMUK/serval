@@ -234,7 +234,7 @@ per-drive chain would double every protective device and buy nothing.
 | Coil suppressor | 1, optional | RC network, 0.1 uF + 100 ohm, **Class X2**. Not needed behind the `ESB20-20N-06`, which suppresses its own coil — see Part 5. Evox-Rifa/Kemet `PMR209MC6100M100`; RS has withdrawn its listing, Farnell and CPC still carry it | — |
 | SPD | 1, optional | Schneider `A9L20500` iPRD20 | **654-748** |
 | DIN rail | 1 | 35 mm top-hat, plus two end stops | — |
-| Terminal blocks | 3 | L, N and PE feed-through with jumper links. Each drive takes main power at `L1`/`L2` **and** control power at `L1C`/`L2C` off the same pair, so one contactor pole lands on four conductors, not two | — |
+| Terminal blocks | 3 | L, N and PE feed-through with jumper links. Each drive takes main power at `L1`/`L2` **and** control power at `L1C`/`L2C`, but off opposite sides of the contactor — main through it, control from the filter output ahead of it. Both pairs come off the filter, so that is where the distribution sits | — |
 | Mains cable, supply to drives | 1 run | 3-core flexible 300/500 V; 1.5 mm^2 carries 7.83 A, 2.5 mm^2 for volt-drop margin over a couple of metres | — |
 | Mains inlet | 1 | **C20** (16 A). A C14 is rated 10 A, which the drives alone take 78% of. Schurter `EC11.0031.001`, panel mount | **870-3413** |
 | Mains lead | 1 | C19 to **BS1363**, H05VV-F 3G1.5. Its CPC is the machine's only connection to earth. Check the title says BS1363 or Type G — RS lists C19 leads with Schuko plugs under nearly the same description | **311-9315** |
@@ -492,6 +492,17 @@ bare metal rather than through a painted panel or a wire; and the **SPD's leads
 must be short**, because its clamping voltage is what it lets through plus the
 inductive kick of its own tails.
 
+**One line in the ProNet manual reads as though this whole chain were wrong,
+and it is a translation defect.** The Safety Precautions page carries, in a list
+about signal-line noise, "Never use a line filter for the power supply in the
+circuit." Chapter 3.6.1 then instructs the opposite — "install a noise filter on
+the input side of the power supply line" — and the EMC conditions in 3.7 will
+not be met without one, with the filter drawn feeding the drive directly. Two
+sections of the same manual cannot both be followed. Take 3.6.1 and 3.7, which
+are specific, worked and drawn; the page-2 line is a garbled rendering of a
+caution about filters on the *motor output* side, where one genuinely does not
+belong. Expect to meet it, and do not let it talk you out of the filter.
+
 **The contactor brings its own coil suppression, so read the suffix.** ABB's
 older `ESB20` is AC-operated with no built-in protection, and the catalogue
 scopes built-in surge protection to `ESB24` and above. The `ESB20-20N-06` in
@@ -558,10 +569,22 @@ machine.
 First, the drives have to still be powered when it arrives. `L1C`/`L2C` is
 control power and `L1`/`L2` is the main circuit, and they are separate
 terminals precisely so they can be switched separately. **Take control power
-from upstream of the contactor and switch only the main circuit.** The drive
-then stays alive with its bus collapsing, accepts the Stop, disables torque,
-holds the EtherCAT link up and reports its own state. Put both behind the
-contactor and the drive loses power mid-frame; the halt is sent into nothing.
+from between the filter and the contactor, and switch only the main circuit.**
+The drive then stays alive with its bus collapsing, accepts the Stop, disables
+torque, holds the EtherCAT link up and reports its own state. Put both behind
+the contactor and the drive loses power mid-frame; the halt is sent into
+nothing.
+
+**Between the filter and the contactor, not simply upstream of the contactor** —
+the distinction matters because the obvious tap is the wrong one. The filter
+sits at the drives while the terminal rail sits at the enclosure edge, so the
+convenient place to pick up two more conductors is back at the rail, ahead of
+the filter. ESTUN's EMC conditions in 3.7 feed `L1C`/`L2C` from the filter
+alongside `L1`/`L2`; tapping ahead of it puts the drive's own control
+electronics and their switching straight onto unfiltered mains, which is the
+conducted-emissions path the filter exists to close. One pole of the contactor
+therefore lands on two conductors, not four, and the control pair branches off
+the filter's output before it.
 
 That costs something and it has to be said plainly: **with control power
 upstream, pressing the emergency stop does not make the drive dead.** It makes
@@ -613,10 +636,19 @@ same board ever feeds anything with a three-phase rectifier, that becomes
 Type B.
 
 If the 30 mA device nuisance-trips on power-up, the answer is **not** a bigger
-threshold chosen by trial. It is either a dedicated 300 mA time-delayed device
-for the drive circuit with 30 mA kept for anything a person touches, or a
-genuine earth fault that has just been found. Measuring the standing leakage
-with a clamp meter distinguishes the two in a minute.
+threshold chosen by trial, and it is **not a time-delayed device**. ESTUN is
+explicit on that second point: "always use a fast-response type or one designed
+for PWM inverters. Do not use a time-delay type." A delayed device holds a
+residual current through the window an instantaneous one would clear it in, and
+that window is the whole protective function.
+
+So a nuisance trip leaves two answers, not three. Either the standing leakage is
+genuinely close to the trip band, in which case the fix is to reduce it — a
+lower-leakage filter, shorter screened runs, the drives on their own RCBO so
+they do not share a budget with a bed heater — or it is a real earth fault that
+has just been found. Measuring the standing leakage with a clamp meter
+distinguishes the two in a minute, which is why step 5 of the verification below
+asks for the number before anything has gone wrong.
 
 ### The filter's rating is the one that depends on where it sits
 
@@ -632,6 +664,21 @@ The machine draws **7.83 A**. At 45 C that is 84% of the filter; at 55 C it is
 99%; at 60 C the filter is rated below the load. A bay holding two drives can
 sit at 45 C without anything being wrong with it, and a bay inside a heated
 chamber goes past 55 C by design.
+
+**Past 45 C the filter stops being the only thing derating.** The drives carry
+their own limits, and they are tighter than they look: ESTUN specifies a working
+range of **0 to 55 C**, and separately an **ambient of 45 C or less "to ensure
+long-term reliability"**. So 45 C is where the drives begin trading life for
+temperature, and 55 C is where they leave specification altogether — the same
+two numbers that bracket the filter table above, which is a coincidence worth
+not misreading. A chamber bay at 60 C is not a filter problem with a bigger
+filter for an answer; it is a bay the drives should not be in.
+
+The same section sets the spacing that keeps a bay near its ambient rather than
+above it: **at least 10 mm between drives side by side, and at least 50 mm above
+and below each one**, with a fan over them if natural convection cannot hold it.
+Two ProNets shoulder to shoulder on a backplate is the arrangement this rules
+out, and it is the arrangement a printer tempts you into.
 
 So the filter choice follows the temperature where the filter is mounted:
 
@@ -776,7 +823,7 @@ Per drive:
 | Terminal | Connect |
 | --- | --- |
 | `L1`, `L2` | main circuit power (single phase; `L3` unused) |
-| `L1C`, `L2C` | control power — **upstream of the contactor**, so the drive survives an emergency stop and can be told to halt |
+| `L1C`, `L2C` | control power — **from the filter output, upstream of the contactor**, so the drive survives an emergency stop and can be told to halt |
 | `+1`, `+2` | DC reactor terminals — **leave the factory link fitted** |
 | `B1`, `B2` | external regenerative resistor — see below |
 | PE | ground plate |
@@ -828,8 +875,26 @@ during acceleration. The EMJ-04AFD22 rotor inertia is 0.31e-4 kg.m^2. Treat a
 first `A.13` under hard decel as "fit, re-mount, or size up the resistor", not
 as a tuning problem.
 
+The manual pairs `A.13` with **`A.16` regeneration error** in the same
+paragraph, and the two want different responses: `A.13` says the resistor could
+not absorb what the decel produced, while `A.16` says the regenerative circuit
+objects to the resistor that is fitted. The manual's remedies for either are to
+decrease the torque limit, decrease the deceleration, or decrease top speed —
+worth knowing as the answer when the resistor is right and the gantry is simply
+asking for more than 60 W.
+
+More wattage at 50 ohm is always safe, and only the resistance has a wrong
+answer. The drive holds no parameter describing the resistor — `Pn521.0` is a
+bare on/off — so all the braking transistor sees is the 50 ohm that sets its
+peak current. Below that value `A.23` follows; above it braking weakens and
+`A.13` follows. Two 100 ohm in parallel or two 25 ohm in series both hold
+50 ohm at double the dissipation, and on a burst duty like a gantry the
+element's thermal mass matters more than the headline continuous rating.
+
 Mount it away from the encoder and EtherCAT runs. It reaches temperatures that
-mark cable insulation.
+mark cable insulation — and whatever it dissipates lands in the same bay as the
+drives, against the 45 C they want for long-term reliability. Vent it or site it
+outside the electronics bay.
 
 **Grounding.** The supply earth is settled by the lead, as the section above
 sets out. What remains is inside the machine, and it is the usual cause of
@@ -890,7 +955,13 @@ Use 1 mm^2 conductors and bond the cable shield at the drive end.
 ### Encoder
 
 The `F` encoder is a **20-bit serial incremental** device, 1,048,576 P/R, so
-CN2 uses the serial pinout rather than the 2500 P/R quadrature one:
+CN2 uses the serial pinout rather than the 2500 P/R quadrature one. One caveat
+on where that table comes from: the manual prints the serial pinout under the
+heading "17 Bit Incremental/Absolute Encoder" and gives no separate 20-bit
+layout. The four signals below are the only serial pinout it publishes, and the
+alternative — the 2500 P/R wire-saving layout — is quadrature and plainly not
+this encoder, so the mapping is an inference from elimination rather than a
+quotation. Confirm it against the cable before crimping anything.
 
 | CN2 pin | Signal | Note |
 | --- | --- | --- |
@@ -974,9 +1045,39 @@ three endstop pins are the ones that file uses for `stepper_x`, `stepper_y` and
 build leaves empty. Check the row against that file rather than against
 another board's config before plugging anything in.
 
+**Every one of those inputs wants the `^` pull-up**, and BigTreeTech's file
+writes them that way — `^PF4`, `^PF3`, `^PF2`, and `^PF1` on the Motor4 line it
+leaves commented. Nothing supplies one by default: an `endstop_pin` without the
+prefix configures the STM32 input with no pull-up at all, so a switch wired to
+ground floats the moment it opens and the axis homes against noise. The Part 11
+config carries the prefix on all four inputs for this reason. It is three
+characters, it is invisible when wrong, and it is the kind of thing that reads
+as a flaky switch.
+
 Wire the motor coils in pairs by phase, not by wire colour. Route endstop,
 thermistor **and emergency-stop** wiring away from the servo motor cables —
 those carry PWM switching noise.
+
+**ESTUN's number for "away" is 300 mm**, stated twice: keep power and signal
+lines separated by at least 300 mm, and never run them in the same duct or
+bundle. A printer cannot give you 300 mm and this document is not going to
+pretend otherwise — the whole machine is smaller than the separation. What
+replaces the distance, in descending order of how much it buys:
+
+- **Cross at right angles where runs must meet**, never parallel. Coupling
+  falls off sharply with angle, and a crossing is nearly free.
+- **Twisted pair with the return in the same twist** for every signal, so the
+  loop area the noise couples into is small rather than the whole run.
+- **Screened cable for the signal runs**, with the screen landed at the
+  Manta end only — one end, or it becomes a ground loop between two earths.
+- **Separate looms and separate ducts.** Losing the distance is not a reason
+  to also lose the separation; the manual's "not in the same duct" costs
+  nothing in a printer and is the half of the rule you can actually keep.
+
+Be honest about what that leaves: 300 mm is what the drives were qualified
+against, and everything above is a substitute for it rather than an equivalent.
+So if an endstop or the stop input starts misbehaving once the servos are
+moving, this is the first place to look and the code is the last.
 
 The emergency-stop signal deserves the most care of the three. It is the
 longest low-voltage run on the machine, out to a button on a panel, and `^PF1`
@@ -1154,21 +1255,21 @@ sensor_pin: PB0
 sensor_type: Generic 3950
 
 [axis x]
-endstop_pin: PF4
+endstop_pin: ^PF4
 position_min: 0
 position_max: 300
 position_endstop: 0
 homing_speed: 50
 
 [axis y]
-endstop_pin: PF3
+endstop_pin: ^PF3
 position_min: 0
 position_max: 300
 position_endstop: 0
 homing_speed: 50
 
 [axis z]
-endstop_pin: PF2
+endstop_pin: ^PF2
 position_max: 250
 
 [tmc2209 motor_z]
@@ -1251,12 +1352,17 @@ starts the sampling again.
 
 **The two drive limits are the only thing standing between a wrong number and
 a bent frame.** `max_torque` is a percentage of *rated* torque, not a raw
-value, and it goes up to 400. The EMJ-04AFD22 is a 400 W motor rated about
-1.27 N·m, so at `max_torque: 300` — the motor's own peak — a 40 mm pulley pulls
-on the order of 600 N. The value here is `100` instead: full continuous torque,
-enough to move the gantry and short of anything that bends a part. Raise it
-only once the machine homes and prints, and raise it because a move stalled,
-not pre-emptively.
+value. The config field accepts up to 400, which is the CiA 402 `6072h`
+ceiling rather than anything this drive will honour: ProNet's own
+`Pn401`/`Pn402` internal torque limits run **0 to 300 %**, so a value above 300
+is clamped by the drive and the number in the config stops describing the
+machine. Treat 300 as the real ceiling. The EMJ-04AFD22 is a 400 W motor rated
+about 1.27 N·m, so at `max_torque: 300` — the motor's own peak, and the same
+3x its 2.8 A continuous to 8.4 A maximum output current implies — a 40 mm
+pulley pulls on the order of 600 N. The value here is `100` instead: full
+continuous torque, enough to move the gantry and short of anything that bends a
+part. Raise it only once the machine homes and prints, and raise it because a
+move stalled, not pre-emptively.
 
 `following_error` is in millimetres and is written to the drive's `6065h`, so
 the **drive** faults on a stall or a crash rather than continuing to push. It
@@ -1408,6 +1514,7 @@ Pn409/Pn410 (filter 2).
 | `A.13` | overvoltage | regenerative capacity — external resistor on `B1`/`B2` |
 | `A.23` | brake overcurrent | bleeder resistor too small — below the manual's 50 ohm |
 | `A.15` | bleeder resistor error | the external resistor itself: open circuit, or wired to the wrong pair |
+| `A.16` | regeneration error | the regenerative *circuit*, which the manual ties to the wrong resistor being fitted — check the value and that `Pn521.0` is `0` |
 | `A.06` | position error pulse overflow | `Pn504`; also a phase-order or tuning symptom |
 | `A.25` | motor line U overcurrent | U/V/W phase order, or mechanical seizure |
 | `A.10` / `A.22` | encoder / sensor break | CN2 wiring, shield, 5 V |
