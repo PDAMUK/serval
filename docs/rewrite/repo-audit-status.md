@@ -110,14 +110,32 @@ Not defects. Recorded so the next pass does not spend the time again.
   `MCU_buttons.handle_buttons_state` and the real `EmergencyStop` callback
   across all three wirings reproduces the guide's truth table exactly: `^PF1`
   halts on both a press and a broken wire; `^!PF1` and `~PF1` halt on a press
-  and do nothing at all with the wire off. Nothing at runtime refuses the
-  dangerous polarity — the only guard greps the guide's own example config, not
-  a user's `printer.cfg`.
+  and do nothing at all with the wire off. What the runtime does about a
+  dangerous polarity is settled below, under **Known, deliberately not
+  changed** — do not re-open it from this entry.
 - **Line citations in `beacon-fork-survey.md` and `external-probe-homing.md`**
   (48 of the 55 in `docs/`) are historical analyses pointing at upstream files,
   not references anyone configures from. Left alone deliberately.
 
 ## Known, deliberately not changed
+
+- **`[emergency_stop]` accepts an inverted or pulled-down pin without
+  complaint.** `^!PF1` and `~PF1` both halt on a press and both do nothing at
+  all with the wire off, so the wrong polarity disables the input silently and
+  `QUERY_EMERGENCY_STOP` cannot tell a severed wire from an idle button. The
+  module passes `config.get("pin")` straight to `register_debounce_button`, and
+  the only guard in the repository reads the *guide's* example config rather
+  than a user's `printer.cfg`. Refusing `!` and `~` on this section at config
+  time would fit the "fail loudly" constraint, and it was proposed on those
+  grounds.
+
+  Not doing it, by the repository owner's decision: the polarity stays a
+  configuration choice. The documented wiring is an NC contact to ground on
+  `^PF1`, `Config_Reference.md` says so, the guide's truth table shows why, and
+  `test_the_halt_input_is_wired_to_fail_safe` holds the guide to it. A machine
+  wired the documented way is unaffected either way, and the guard would close
+  off polarities another build may have a reason for. Recorded so the next pass
+  does not re-propose it — it is a decision, not an oversight.
 
 - **Five plot-rendering tests never run anywhere.**
   `test_servo_capture_analysis.py` guards five cases with
