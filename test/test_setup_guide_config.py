@@ -551,3 +551,18 @@ def test_the_suppressor_names_the_contactor_the_bill_actually_lists():
     assert part in suppressor[3], (
         f"the reason to skip it does not mention {part}: {suppressor[3]}"
     )
+
+
+def test_the_rail_budget_adds_up():
+    """Swapping a part for a wider one changes the rail length, and the total
+    is the number someone cuts metal against."""
+    section = mains_section().split("### Fitting it in a printer enclosure")[1]
+    rows = re.findall(r"^\| (.+?) \| (\**\d+\**) \|$", section, re.M)
+    assert len(rows) >= 5, rows
+    stated = int(rows[-1][1].strip("*"))
+    assert "Rail needed" in rows[-1][0], rows[-1]
+    assert sum(int(count) for _, count in rows[:-1]) == stated, rows
+    millimetres = int(re.search(r"\*\*about (\d+) mm\*\*", section)[1])
+    assert 17.5 * stated <= millimetres <= 18 * stated, (
+        f"{stated} modules is not {millimetres} mm"
+    )

@@ -216,11 +216,11 @@ per-drive chain would double every protective device and buy nothing.
 | --- | --- | --- | --- |
 | Isolator | 1 | ABB `SD202/32` | **175-5085** |
 | MCB | 1 | ABB `S201-C16` | **489-0447** |
-| RCD | 1 | ABB `F202 A-25/0.03` | **232-0339** |
+| RCD | 1 | ABB `F202 A-25/0.03` | **488-6915** |
 | EMC filter | 1 | Roxburgh/Deltron `DRF10`, or Schaffner `FN2412-16-44` if the filter's ambient reaches 50 C — Part 5 decides which | **761-5696** / **518-6389** |
 | Contactor | 1 | ABB `ESB20-20N-06` | **211-1482** |
 | Emergency stop | 1 | Schneider `XALK178` — enclosed, twist release, 1 NC, breaks the contactor coil | **795-1295** |
-| Coil suppressor | 1, optional | RC network, 0.1 uF + 100 ohm, **Class X2**. Not needed behind the `ESB20-20N-06`, which suppresses its own coil — see Part 5. Evox-Rifa/Kemet `PMR209` class | **385-360** |
+| Coil suppressor | 1, optional | RC network, 0.1 uF + 100 ohm, **Class X2**. Not needed behind the `ESB20-20N-06`, which suppresses its own coil — see Part 5. Evox-Rifa/Kemet `PMR209MC6100M100`; RS has withdrawn its listing, Farnell and CPC still carry it | — |
 | SPD | 1, optional | Schneider `A9L20500` iPRD20 | **654-748** |
 | DIN rail | 1 | 35 mm top-hat, plus two end stops | — |
 | Terminal blocks | 3 | L, N and PE feed-through with jumper links. Each drive takes main power at `L1`/`L2` **and** control power at `L1C`/`L2C` off the same pair, so one contactor pole lands on four conductors, not two | — |
@@ -583,9 +583,9 @@ enough to corrupt encoder feedback.
 
 | Item | Specification | Part, and RS stock no. |
 | --- | --- | --- |
-| Isolator | 2-pole, >= 16 A, lockable in the OFF position. On the rail behind a closed door, IP20 is enough; a through-wall rotary disconnector instead of this one would need IP65 | ABB `SD202/32` — 2-pole, 32 A, DIN, padlockable, IP20 — RS **175-5085** |
+| Isolator | 2-pole, >= 16 A, lockable in the OFF position. On the rail behind a closed door, IP20 is enough; a through-wall rotary disconnector instead of this one would need IP65 | ABB `SD202/32` — 2-pole, 32 A, 440 V, two modules at 35 mm, padlockable, IP20 — RS **175-5085** |
 | MCB | 16 A, **Type C**, 6 kA. One pole breaking line is enough here — the isolator and the RCD are both 2-pole, so the double-pole break exists | ABB `S201-C16` — 1 pole, 1 module — RS **489-0447** |
-| RCD | 2-pole, 30 mA, **Type A** | ABB `F202 A-25/0.03` — 25 A, 2 pole, 2 modules — RS **232-0339** |
+| RCD | 2-pole, 30 mA, **Type A** | ABB `F202 A-25/0.03` — 25 A, 2 pole, 2 modules — RS **488-6915** |
 | EMC filter | Single phase, 250 VAC, rated above 7.83 A **at the temperature the filter sits at** | Roxburgh/Deltron `DRF10` — DIN rail, 100 g, 1.46 mA leakage, 10 A at 40 C — RS **761-5696**. Above 45 C ambient: Schaffner `FN2412-16-44` — DIN rail, 16 A at 50 C, 110 x 93 x 73 mm, 3.4 mA leakage — RS **518-6389** |
 | Contactor | 2 pole, >= 20 A AC-1, **230 V coil**; a DC or universal control circuit rather than an AC solenoid, so the coil carries its own suppression | ABB `ESB20-20N-06` — 20 A AC-1, one module at 18 mm, control circuit DC/50/60/400 Hz — RS **211-1482** |
 | Emergency stop | Latching, twist release, at least one **NC** contact, in its own enclosure. Wired in series with the contactor coil, not in the mains path | Schneider `XALK178` — enclosed, 40 mm head, 1 NC, IP69K — RS **795-1295** |
@@ -611,7 +611,7 @@ mode the section above is about.
 
 | Item | Specification | Part, and RS stock no. | When to skip it |
 | --- | --- | --- | --- |
-| Coil suppressor | RC network, 0.1 uF + 100 ohm, rated for across-the-line use — the capacitor sits on 230 V, so **Class X2**, not a general-purpose film part | Evox-Rifa/Kemet `PMR209` class, 250 V ac, 26 x 10.5 x 19 mm — RS **385-360**. Check the X2 marking on the part; listings often omit the class | Skip it with the `ESB20-20N-06`, whose coil already carries a varistor. Fit one only behind a contactor with a plain AC solenoid and no built-in suppression |
+| Coil suppressor | RC network, 0.1 uF + 100 ohm, rated for across-the-line use — the capacitor sits on 230 V, so **Class X2**, not a general-purpose film part | Evox-Rifa/Kemet `PMR209MC6100M100`, 250 V ac, 26 x 10.5 x 19 mm. RS has withdrawn its listing; Farnell and CPC carry it. Check the X2 marking on the part, because listings often omit the class | Skip it with the `ESB20-20N-06`, whose coil already carries a varistor. Fit one only behind a contactor with a plain AC solenoid and no built-in suppression |
 | SPD | Type 2, 230 V, L-N and N-PE modes | Schneider `A9L20500` iPRD20 — 1P+N, 20 kA, 1.4 kV — RS **654-748** | If the board feeding the machine already carries a Type 2 SPD, this one is a second line of defence, not the first. It also costs more than the rest of the chain together |
 
 ### Fitting it in a printer enclosure
@@ -622,9 +622,21 @@ choosing for size deliberately rather than discovering it at assembly.
 Keep the whole chain on **one 35 mm DIN rail**. Every device above exists in a
 DIN form, and a rail costs a few millimetres over loose parts while making the
 wiring shorter, the earthing a single bonded path, and the whole assembly
-removable as a unit. Module widths run 17.5-18 mm; count modules rather than
-millimetres when planning the rail, and add one spare module because something
-always follows.
+removable as a unit. A module is 17.5-18 mm, so count modules rather than
+millimetres:
+
+| Device | Modules |
+| --- | --- |
+| Isolator `SD202/32` | 2 |
+| MCB `S201-C16` | 1 |
+| RCD `F202 A-25/0.03` | 2 |
+| Contactor `ESB20-20N-06` | 1 |
+| **Rail needed** | **6** |
+
+That is **about 105 mm**, before the filter, which is not a modular part and
+has to be measured from whichever one the temperature picks. An `A9L20500` SPD
+adds two more, and an RCBO takes one or two back. Add a spare module on top,
+because something always follows.
 
 Three choices save the most space:
 
@@ -681,15 +693,19 @@ The ProNet manual gives one figure for this whole band: for
 `ProNet-A5A`-`04A` the external resistor is customer-supplied and **60 W,
 50 ohm is recommended**. One per drive.
 
-Treat 50 ohm as a floor rather than a target. Resistance below it lets the
-braking transistor pass more current than it is rated for and destroys it —
-not a trip, a replacement drive — so a resistor a supplier happens to stock is
-not a substitute for the manual's number.
+Treat 50 ohm as a floor rather than a target: below it the braking transistor
+passes more current than it is rated for. The drive does watch for this — `A.23`
+is "brake overcurrent alarm", which the manual attributes to a bleeder resistor
+that is too small — so the first symptom is a trip rather than a dead drive.
+That is a backstop, not a licence to guess: a resistor a supplier happens to
+stock is not a substitute for the manual's number.
 
 **Set `Pn521.0` from `1` to `0` on both drives** when the external resistor
-goes in. The manual states this for exactly this frame band, and it is easy to
-miss because it is a footnote under a wiring table rather than a step. Without
-it the resistor is fitted and the drive does not use it.
+goes in. `Pn521` runs `0~1` and ships at `1`, which the manual glosses as "does
+not connect externally regenerative resistor" — so the factory setting is the
+wrong one for this build, and the instruction to change it is a footnote under
+a wiring table rather than a step. Without it the resistor is fitted and the
+drive does not use it.
 
 Wattage is where this goes wrong quietly, because an aluminium-housed resistor
 is rated for a heatsink it will not get in a printer. Arcol's HS series
@@ -1199,6 +1215,8 @@ Pn409/Pn410 (filter 2).
 | `A.71` | comms chip internal error | drive firmware or hardware |
 | `ERR` | EtherCAT init timeout | `Pn006.0 = 4`? cabling IN/OUT? |
 | `A.13` | overvoltage | regenerative capacity — external resistor on `B1`/`B2` |
+| `A.23` | brake overcurrent | bleeder resistor too small — below the manual's 50 ohm |
+| `A.15` | bleeder resistor error | the external resistor itself: open circuit, or wired to the wrong pair |
 | `A.06` | position error pulse overflow | `Pn504`; also a phase-order or tuning symptom |
 | `A.25` | motor line U overcurrent | U/V/W phase order, or mechanical seizure |
 | `A.10` / `A.22` | encoder / sensor break | CN2 wiring, shield, 5 V |
