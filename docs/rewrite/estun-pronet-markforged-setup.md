@@ -316,7 +316,7 @@ work at all.
 | 1 | **Isolator** (switch-disconnector, lockable) | The lock-off point. Everything downstream can be made dead and *proved* dead by one person holding the key | First thing inside the enclosure, on the incoming cable |
 | 2 | **MCB**, 16 A Type C | Overcurrent and short-circuit protection | Immediately after the isolator |
 | 3 | **RCD or RCBO**, 30 mA Type A | Earth-fault protection. Read the note below before buying — drives break the usual assumptions | With, or immediately after, the MCB |
-| 4 | **Surge protection device**, Type 2 | Clamps mains transients that otherwise reach the drives' rectifiers | At the panel entry, as close to the origin as the wiring allows; its own leads as short and straight as possible |
+| 4 | **Surge protection device**, Type 2 — optional, see below | Clamps mains transients that otherwise reach the drives' rectifiers | At the panel entry, as close to the origin as the wiring allows; its own leads as short and straight as possible |
 | 5 | **EMC / noise filter**, ≥ 10 A | Keeps drive switching noise off the supply, and mains noise out of the encoder feedback | **Directly beside the drives**, bolted metal-to-metal to the backplate. A filter on a long lead filters almost nothing |
 | 6 | **Contactor**, ≥ 20 A AC-1, 230 V coil | The thing an emergency stop actually opens. Without it there is no way to drop drive power except pulling the isolator by hand | Last device before the drives |
 | 7 | **Drives** | | |
@@ -329,7 +329,9 @@ inductive kick of its own tails.
 
 Fit a surge suppressor across the contactor's coil — an RC snubber for an AC
 coil. Without it the coil's collapse on de-energising is a sharp transient
-directly alongside the encoder wiring.
+directly alongside the encoder wiring. It is not structurally required, which
+is why it appears under *optional* below, but it is a component solving a
+fault that is expensive to diagnose.
 
 ### Earth leakage, and why a normal RCD is the wrong one
 
@@ -362,23 +364,49 @@ with a clamp meter distinguishes the two in a minute.
 
 ### What to buy
 
-Specifications first: those are derived from this machine's 7.8 A and hold
-whoever supplies the parts. The examples are illustrations of the right class
-of part, not a validated bill of materials — availability moves, and the drive
-manual and local wiring regulations both outrank this table.
+Specifications first: those are arithmetic from this machine's 7.8 A and hold
+whoever supplies the parts. The named parts are illustrations of the right
+class, not a validated bill of materials — availability moves, and the drive
+manual and local wiring regulations both outrank this table. RS stock numbers
+are quoted because they pin one specific part down; any distributor's
+equivalent is the same purchase.
 
-| Item | Specification | Example |
+**Needed.** Leaving any of these out makes the machine either unsafe or noisy
+enough to corrupt encoder feedback.
+
+| Item | Specification | Part, and RS stock no. |
 | --- | --- | --- |
-| Isolator | 2-pole, ≥ 20 A, lockable in the OFF position, IP65 if panel-surface | ABB `OT16F3`, or a panel-mount rotary disconnector |
-| MCB | 16 A, **Type C**, 2-pole (or 1P+N), 6 kA | Schneider Acti9 `iC60N C16`, Hager `MT216` |
-| RCBO (combines 2 and 3) | 16 A Type C, 30 mA **Type A** | Schneider Acti9 `iC60` RCBO, Hager `ADA916T` |
-| SPD | Type 2, 230 V, L-N and N-PE modes, with its own backup protection if the MCB does not cover it | Schneider `iPRD 12.5r`, Dehn `DG M TNS 275` |
-| EMC filter | Single phase, 250 VAC, **≥ 10 A** | **DIN:** Roxburgh `DRF10` (10 A, 250 V, screw terminals, 1.46 mA max leakage). **Chassis:** Schaffner `FN2090-10-06` — better attenuation, but 113.5 × 57.5 × 45.4 mm |
-| Contactor | 2 pole, ≥ 20 A AC-1, **230 VAC coil** | ABB `ESB20-20N-06` — a modular installation contactor, 35 mm wide against ~45 mm and much deeper for a `LC1D09` |
-| Coil suppressor | RC snubber matched to the coil | Schneider `LAD4RCU` for the LC1D, or a 100 Ω / 0.1 µF RC |
-| Mains cable, supply to drives | 1.5 mm² is adequate at 7.8 A; **2.5 mm²** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
-| Protective earth | ESTUN specifies **3.5 mm²**, a JIS size with no IEC equivalent — use **4 mm²** | Green/yellow, ring-terminated to the plate |
-| Regen resistor | See the note below — take the **minimum resistance** from the drive manual | — |
+| Isolator | 2-pole, >= 16 A, lockable in the OFF position; IP65 if it mounts through the enclosure wall rather than sitting on the rail behind a door | ABB `SD202/32` — 2-pole, 32 A, DIN, padlockable — RS **175-5085** |
+| MCB | 16 A, **Type C**, 6 kA. One pole breaking line is enough here — the isolator and the RCD are both 2-pole, so the double-pole break exists | ABB `S201-C16` — 1 pole, 1 module — RS **489-0447** |
+| RCD | 2-pole, 30 mA, **Type A** | ABB `F202 A-25/0.03` — 25 A, 2 pole, 2 modules — RS **232-0339** |
+| EMC filter | Single phase, 250 VAC, **>= 10 A** | Roxburgh/Deltron `DRF10` — DIN rail, screw terminals, 1.46 mA max leakage — RS **761-5696** |
+| Contactor | 2 pole, >= 20 A AC-1, **230 VAC coil** | ABB `ESB20-20N-06` — modular, 35 mm — RS **211-1482** |
+| Mains cable, supply to drives | 1.5 mm^2 is adequate at 7.8 A; **2.5 mm^2** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
+| Protective earth | ESTUN specifies **3.5 mm^2**, a JIS size with no IEC equivalent — use **4 mm^2** | Green/yellow, ring-terminated to the plate |
+| Regen resistor | Take the **minimum resistance** from the drive manual — see the note below | — |
+
+**One part instead of two.** An RCBO is an MCB and an RCD in one device, and is
+the only combination on this list worth making.
+
+| Item | Replaces | Part, and RS stock no. |
+| --- | --- | --- |
+| RCBO | the MCB **and** the RCD | ABB `DSE201 M C16 A30` — 16 A Type C curve, 30 mA Type A earth leakage, 36 mm — RS **136-7786** |
+| RCBO, narrower | the MCB **and** the RCD | Siemens `5SV1316-7KK16` — 16 A Type C curve, 30 mA Type A, 6 kA, in a single 18 mm module — RS **187-3289** |
+
+What it buys is rail width, not money: separate parts are one module for the
+MCB plus two for the RCD, about 53 mm, against 36 mm for the ABB and 18 mm for
+the Siemens. Check the earth-leakage type on the datasheet and not on the
+listing — distributors routinely print the *curve* letter (C) in the field
+meaning the *RCD* type, and a Type AC device in that slot is the one failure
+mode the section above is about.
+
+**Optional.** Each of these is defensible to leave out, for a stated reason.
+
+| Item | Specification | Part, and RS stock no. | When to skip it |
+| --- | --- | --- | --- |
+| SPD | Type 2, 230 V, L-N and N-PE modes | Schneider `A9L20500` iPRD20 — 1P+N, 20 kA, 1.4 kV — RS **065-4748** | If the board feeding the machine already carries a Type 2 SPD, this one is a second line of defence, not the first. It also costs more than the rest of the chain together |
+| Coil suppressor | RC snubber matched to the coil | 100 ohm / 0.1 uF across the coil terminals; Schneider `LAD4RCU` for an LC1D-class coil | Only if the contactor sits well away from the encoder and EtherCAT runs. In a printer enclosure it does not, so fit it |
+| Chassis EMC filter | Single phase, 250 VAC, >= 10 A | Schaffner `FN2090Z-10-06` — RS **708-4294** | Skip it by default. It replaces the `DRF10` rather than adding to it, and only earns its 113.5 x 57.5 x 45.4 mm if the `DRF10` is bonded correctly at the drives and noise still reaches the encoder |
 
 ### Fitting it in a printer enclosure
 
@@ -392,7 +420,7 @@ removable as a unit. Module widths run 17.5-18 mm; count modules rather than
 millimetres when planning the rail, and add one spare module because something
 always follows.
 
-Two choices save the most space:
+Three choices save the most space:
 
 - **A DIN-rail filter rather than a chassis one.** The `FN2090` is a good
   filter and 113.5 mm long, which is most of a small enclosure's width for one
@@ -400,6 +428,8 @@ Two choices save the most space:
 - **A modular installation contactor rather than a control contactor.** An
   `ESB20-20` is 35 mm wide and shallow; an `LC1D09` is wider, much deeper, and
   built for motor starting duty this circuit does not have.
+- **One RCBO rather than a separate MCB and RCD.** Three modules become two,
+  or one if the 18 mm device is available.
 
 The filter's placement rule still stands, and it pulls against the rail: it
 wants to be at the drives, not at the enclosure's edge. In a printer these are

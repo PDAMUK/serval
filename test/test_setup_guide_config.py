@@ -287,3 +287,65 @@ def test_parts_row_defers_to_the_specified_table():
     row = re.search(r"^\| Mains parts \|.*$", text, re.M)
     assert row, "the Part 1 mains row has gone"
     assert "Part 5" in row.group(0)
+
+
+def buy_section():
+    return (
+        mains_section()
+        .split("### What to buy")[1]
+        .split("### Fitting it in a printer enclosure")[0]
+    )
+
+
+def buy_table(heading):
+    block = buy_section().split(heading)[1].split("\n\n")
+    rows = next(part for part in block if part.lstrip().startswith("| Item |"))
+    return [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in rows.splitlines()[2:]
+    ]
+
+
+def test_every_rs_stock_code_is_well_formed():
+    """A mistyped stock number orders the wrong part silently. RS codes are
+    three digits, a hyphen, four digits — nothing else parses as one."""
+    codes = re.findall(r"RS \*\*([^*]+)\*\*", buy_section())
+    assert codes, "the buy tables carry no RS stock numbers"
+    bad = [code for code in codes if not re.fullmatch(r"\d{3}-\d{4}", code)]
+    assert not bad, f"not RS stock numbers: {bad}"
+
+
+def test_each_part_is_labelled_needed_optional_or_a_combination():
+    section = buy_section()
+    for heading in (
+        "**Needed.**",
+        "**One part instead of two.**",
+        "**Optional.**",
+    ):
+        assert heading in section, f"{heading} has gone from the buy section"
+
+
+def test_the_combination_replaces_rows_that_exist_on_their_own():
+    """The RCBO is only a substitution if the two parts it stands in for are
+    themselves listed. If either row is renamed, the claim dangles."""
+    needed = {row[0] for row in buy_table("**Needed.**")}
+    assert {"MCB", "RCD"} <= needed, needed
+    for row in buy_table("**One part instead of two.**"):
+        assert "MCB" in row[1] and "RCD" in row[1], row
+
+
+def test_every_optional_part_says_when_to_skip_it():
+    """Calling a part optional without the reason leaves the reader guessing
+    which corner they are cutting."""
+    rows = buy_table("**Optional.**")
+    assert rows, "the optional table is empty"
+    for row in rows:
+        assert len(row) == 4, row
+        assert row[3], f"{row[0]} is optional with no reason given"
+
+
+def test_the_needed_table_carries_the_whole_protective_chain():
+    """Every device the chain table numbers must be buyable from one of the
+    three tables, or the reader assembles a chain they cannot source."""
+    needed = {row[0] for row in buy_table("**Needed.**")}
+    assert {"Isolator", "EMC filter", "Contactor"} <= needed, needed
