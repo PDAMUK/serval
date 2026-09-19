@@ -1,5 +1,6 @@
 pub const ERR_PIECES_WHILE_HALTED: i32 = -315;
 pub const ERR_RESUME_STREAM_NOT_HALTED: i32 = -316;
+pub const ERR_RESUME_STREAM_WITHOUT_TORQUE: i32 = -317;
 
 /// Mirrors the MCU runtime's piece gate (`gate_pieces`/`ungate_pieces`): an
 /// endstop trip or host `Stop` halts the stream, and only `ResumeStream`

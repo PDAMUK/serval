@@ -2193,3 +2193,47 @@ fn emergency_stop_wins_a_race_with_a_park_already_scheduled() {
     );
     assert_eq!(ctx.gate.state(), TorqueState::Parked);
 }
+
+#[test]
+fn a_resume_cannot_undo_the_stop_that_precedes_a_disable() {
+    // broadcast_stop and ResumeStream run on the homing-trip-handler thread,
+    // while the emergency stop runs on the reactor. If the resume lands after
+    // the stop, the retract pieces it admits meet the pending disable as a
+    // non-empty ring, and the gate faults the endpoint out instead of
+    // disabling cleanly.
+    let transitions = Arc::new(TransitionCounts {
+        enable: AtomicUsize::new(0),
+        disable: AtomicUsize::new(0),
+    });
+    let mut ctx = test_ctx_with_drive(
+        "estop-vs-resume",
+        RecordingDrive::new(Arc::clone(&transitions)),
+    );
+
+    push_all(&mut ctx, piece(1_000_000, 10.0, &[2.5, 2.5]));
+    run_cycles(&mut ctx, 1_000_000, 3_000_000);
+
+    super::commands::stop_motion(&mut ctx);
+    super::commands::handle_set_torque(
+        &mut ctx,
+        1,
+        SetTorque {
+            value: 0,
+            execute_at_ns: 0,
+        },
+    );
+
+    assert!(ctx.gate.disable_is_pending());
+    assert!(ctx.stream_halt.is_halted(), "the stop left the stream open");
+
+    super::commands::handle_resume_stream(&mut ctx, 9);
+
+    assert!(
+        ctx.stream_halt.is_halted(),
+        "a resume reopened the stream while a disable was pending"
+    );
+
+    let all_rings_empty = ctx.rings.iter().all(|r| r.is_empty());
+    super::cycle::apply_tick_action(&mut ctx, 3_250_000, all_rings_empty);
+    assert_eq!(transitions.disable.load(Ordering::SeqCst), 1);
+}

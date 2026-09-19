@@ -149,24 +149,9 @@ pub(super) fn dispatch_commands(ctx: &mut EndpointCtx) -> ControlFlow<()> {
                 let pending = ctx.capture.stop_async();
                 ctx.pending_stops.push((correlation_id, pending));
             }
-            Command::ResumeStream { correlation_id } => match ctx.stream_halt.resume() {
-                Ok(()) => {
-                    discard_motion(ctx);
-                    for s in &mut ctx.suppressed {
-                        *s = false;
-                    }
-                    crate::rt_eprintln!("ec-rt: ResumeStream — stream reopened");
-                    ctx.server
-                        .respond(&resume_stream_response_frame(correlation_id, 0));
-                }
-                Err(code) => {
-                    crate::rt_eprintln!(
-                        "ec-rt: ResumeStream rejected code={code} — stream was not halted"
-                    );
-                    ctx.server
-                        .respond(&resume_stream_response_frame(correlation_id, code));
-                }
-            },
+            Command::ResumeStream { correlation_id } => {
+                handle_resume_stream(ctx, correlation_id);
+            }
             Command::StepperSuppress {
                 correlation_id,
                 msg,
@@ -343,6 +328,41 @@ fn handle_push_pieces(
 /// The whole of what a `Stop` does to motion: the rings are emptied and the
 /// stream is closed, so the torque disable that follows sees an empty ring
 /// instead of faulting on pieces it cannot execute.
+/// The homing-trip handler halts the stream on its own thread and reopens it
+/// a few steps later. An emergency stop halting the stream from the reactor in
+/// that window would be undone by that resume, and the retract pieces it let
+/// through would meet the pending disable as a non-empty ring — a torque-gate
+/// fault instead of a clean stop. Torque on its way out is the one state a
+/// resume can never be right in.
+pub(super) fn handle_resume_stream(ctx: &mut EndpointCtx, correlation_id: u32) {
+    if ctx.gate.disable_is_pending() || ctx.gate.state() == TorqueState::Parked {
+        crate::rt_eprintln!(
+            "ec-rt: ResumeStream refused — torque is parked or a disable is pending"
+        );
+        ctx.server.respond(&resume_stream_response_frame(
+            correlation_id,
+            crate::stream_halt::ERR_RESUME_STREAM_WITHOUT_TORQUE,
+        ));
+        return;
+    }
+    match ctx.stream_halt.resume() {
+        Ok(()) => {
+            discard_motion(ctx);
+            for s in &mut ctx.suppressed {
+                *s = false;
+            }
+            crate::rt_eprintln!("ec-rt: ResumeStream — stream reopened");
+            ctx.server
+                .respond(&resume_stream_response_frame(correlation_id, 0));
+        }
+        Err(code) => {
+            crate::rt_eprintln!("ec-rt: ResumeStream rejected code={code} — stream was not halted");
+            ctx.server
+                .respond(&resume_stream_response_frame(correlation_id, code));
+        }
+    }
+}
+
 pub(super) fn stop_motion(ctx: &mut EndpointCtx) {
     discard_motion(ctx);
     ctx.stream_halt.halt();

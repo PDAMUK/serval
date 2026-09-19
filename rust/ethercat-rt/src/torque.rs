@@ -67,6 +67,11 @@ impl TorqueGate {
         }
     }
 
+    #[must_use]
+    pub fn disable_is_pending(&self) -> bool {
+        self.pending_disable_at.is_some()
+    }
+
     pub fn on_drive_fault(&mut self) {
         self.state = TorqueState::Faulted;
         self.pending_disable_at = None;
