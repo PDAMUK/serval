@@ -608,3 +608,15 @@ def test_the_guide_names_the_controlword_the_endpoint_actually_writes():
     section = mains_section()
     assert "`0x0006`" in section
     assert "Pn004.0" in section
+
+
+def test_dead_is_reserved_for_the_electrical_sense():
+    """ "Dead" is the safe-isolation term of art — made dead, proved dead — and
+    the document says so once and then relies on it. A drive that has failed is
+    destroyed or faulted. Letting one word carry both states is how "the stop
+    does not make the drive dead" comes to read as "the stop does not break
+    the drive", which is the opposite of the warning intended."""
+    text = GUIDE.read_text(encoding="utf-8")
+    assert '**"Dead" in this document means electrically dead**' in text
+    broken = re.findall(r"\bdead (drive|endpoint|motor|board|module)s?\b", text)
+    assert not broken, f"'dead' used of a broken component: {broken}"

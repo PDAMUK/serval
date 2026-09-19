@@ -170,10 +170,14 @@ Markforged lane assignment, which everything downstream depends on:
 
 - The drive's bus capacitor stays charged after power is removed. **Wait 5
   minutes** and confirm the `CHARGE` lamp is out before touching terminals.
-- **The emergency stop does not make the machine dead.** It drops the motors by
+- **"Dead" in this document means electrically dead** — not live, no dangerous
+  voltage, in the sense of "made dead and proved dead" before working on
+  something. A drive that has failed is a *destroyed* or *faulted* drive, never
+  a dead one.
+- **The emergency stop does not make the machine dead.** It removes torque by
   opening the contactor, and control power stays on so the drives can be halted
-  cleanly — see Part 5. Only the isolator, locked off, makes the enclosure safe
-  to work in.
+  cleanly — see Part 5. Only the isolator, locked off and proved, makes the
+  enclosure safe to work in.
 - Never plug or unplug a drive connector with power applied.
 - Power sequencing: control power (`L1C`/`L2C`) **on first**, main circuit
   (`L1`/`L2`) on second; reverse on shutdown.
@@ -554,13 +558,15 @@ terminals precisely so they can be switched separately. **Take control power
 from upstream of the contactor and switch only the main circuit.** The drive
 then stays alive with its bus collapsing, accepts the Stop, disables torque,
 holds the EtherCAT link up and reports its own state. Put both behind the
-contactor and the drive dies mid-frame; the halt is sent into nothing.
+contactor and the drive loses power mid-frame; the halt is sent into nothing.
 
 That costs something and it has to be said plainly: **with control power
-upstream, pressing the emergency stop no longer makes the drive dead.** The
-motor is dead, because the bus is gone. The drive's electronics are still on
-230 V. The isolator remains the only lock-off point, and everything in
-**Before anything else** still applies — the stop is not a substitute for it.
+upstream, pressing the emergency stop does not make the drive dead.** It makes
+the motor safe to be near — no torque, nothing held, because the DC bus is
+gone — while the drive's own electronics stay live at 230 V. Those are
+different states and the stop only reaches the first. The isolator remains the
+only lock-off point, and everything in **Before anything else** still applies:
+the stop is not a substitute for it.
 
 Second, the halt is **best effort and is not a protective measure**. The NC and
 NO contacts of one button change over at the same instant, with no ordering
@@ -769,7 +775,8 @@ The ProNet manual gives one figure for this whole band: for
 Treat 50 ohm as a floor rather than a target: below it the braking transistor
 passes more current than it is rated for. The drive does watch for this — `A.23`
 is "brake overcurrent alarm", which the manual attributes to a bleeder resistor
-that is too small — so the first symptom is a trip rather than a dead drive.
+that is too small — so the first symptom is a trip rather than a destroyed
+drive.
 That is a backstop, not a licence to guess: a resistor a supplier happens to
 stock is not a substitute for the manual's number.
 
@@ -838,7 +845,7 @@ intermittent encoder faults:
    down. It is the baseline every future nuisance trip gets compared against,
    and it takes a minute now against an afternoon later.
 6. Open the contactor — by the emergency stop, not by the isolator. `CHARGE`
-   goes out on both drives and the motors go dead, while `POWER` stays lit,
+   goes out on both drives and the motors lose torque, while `POWER` stays lit,
    because control power is upstream. This is the one test that proves the
    stop does anything. If `POWER` drops too, control power is on the wrong
    side of the contactor and the halt in Part 11 will never arrive.
