@@ -41,6 +41,8 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 24 | Six gaps a first-time builder hits: no mains-safety warning, a wrong part reference, no tuning syntax, an `endpoint:` line Part 12 needs but the config lacked, no statement of where the config goes, and a See also missing this build's own host page | `3393b4a` |
 | 25 | Six more on the CB2 host page, the worst an SSH lockout warned about only after the step that causes it, plus a missing udev rule, systemd unit, NetworkManager override and MAC format | `3e6f4db` |
 | 26 | The bench checklist's worked example for this machine contradicted the guide on torque and following error, and showed a drive identity klippy accepts but no drive matches | `f9660dd` |
+| 27 | Part 11 declared all three axis endstops bare, with no `^` pull-up; the inputs float when a switch opens, and the guard only checked the pin *name*, which `^PF4` contains | `cbbde86` |
+| 28 | Seven guide statements against the ProNet V2.19 manual: a time-delayed RCD the manual forbids, the drives' own 0-55 C / 45 C limits and their 10/50 mm spacing absent, the 300 mm power-signal separation unstated, the manual's self-contradiction on filters unflagged, control power not located relative to the filter, `A.16` missing from the fault table, and `max_torque`'s 400 not distinguished from Pn401/Pn402's 0-300% | `cbbde86` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -82,6 +84,35 @@ Not defects. Recorded so the next pass does not spend the time again.
   workspace suite, and a leaf is what it should look like.
 - **`klippy/parsedump.py`** is referenced nowhere but still imports and runs. A
   standalone serial-dump utility, not dead code.
+- **The guide's drive facts, read back out of ProNet V2.19 end to end.** All
+  confirmed and not worth re-deriving: 0.9 kVA for the `04A` (so 7.83 A for the
+  pair), `24V`/`GND` scoped to `10D-70D` so the `04A` has no 24 V control input,
+  60 W / 50 ohm customer-supplied on `B1`/`B2` with the `B2`-`B3` short belonging
+  to the larger frames, `Pn521` 0~1 shipping at `1`, `Pn004.0 = 0` as DB-then-
+  release and factory, the DB-degradation warning, `Pn006.0`'s bus types
+  stopping at `[3] CANopen`, the alarm table running `A.01`-`A.69`, `A.13`'s
+  30x-inertia note, the CN2 serial pins 7/8/9/19 and 17/18, `F` as incremental
+  1048576 P/R against `S` as absolute 131072, U/V/W to A(1)/B(2)/C(3),
+  `Pn704` as the CANopen address, the 3.5 mm^2 grounding, and every `Pn` in
+  Part 13 with its unit and range.
+- **`A.21` on every emergency stop has no parameter escape.** `Pn000.3` looks
+  like one and is not: the factory `0` already means "one period, no alarm",
+  `A.21` is defined as power off for *more* than one period, and setting it to
+  `1` only makes the drive stricter. So the latch on each press stands, and the
+  clearing routes are the panel `ENTER`, `/ALM-RST`, or a main-circuit power
+  cycle (5.1.2). `/ALM-RST` is `CN1-39` on the base 50-pin connector, and the
+  `-EC`'s `CN1` is 20-pin with 5 sequence inputs, so whether it can be allocated
+  there is open. The likely answer is CiA 402 fault reset over the bus, which
+  needs the EtherCAT manual nobody has yet.
+- **The emergency-stop chain, traced end to end.** Button callback ->
+  `invoke_shutdown` -> `klippy:shutdown` -> `ethercat_node._handle_shutdown` ->
+  `engine.stop_node` -> `Stop` then `SetTorque(false, 0)`. Driving the real
+  `MCU_buttons.handle_buttons_state` and the real `EmergencyStop` callback
+  across all three wirings reproduces the guide's truth table exactly: `^PF1`
+  halts on both a press and a broken wire; `^!PF1` and `~PF1` halt on a press
+  and do nothing at all with the wire off. Nothing at runtime refuses the
+  dangerous polarity — the only guard greps the guide's own example config, not
+  a user's `printer.cfg`.
 - **Line citations in `beacon-fork-survey.md` and `external-probe-homing.md`**
   (48 of the 55 in `docs/`) are historical analyses pointing at upstream files,
   not references anyone configures from. Left alone deliberately.
