@@ -295,7 +295,7 @@ def bom_group(heading):
 
 
 def stock_codes(text):
-    return re.findall(r"\*\*(\d{3}-\d{4})\*\*", text)
+    return re.findall(r"\*\*(\d{3}-\d{3,4})\*\*", text)
 
 
 def test_every_buyable_part_is_counted_in_the_bill_of_materials():
@@ -347,9 +347,12 @@ def test_the_shared_chain_is_counted_once():
 def test_the_substitution_says_what_it_removes():
     section = bom_section()
     table = section.split("### Substitutions, and what each one removes")[1]
-    row = next(line for line in table.splitlines() if line.startswith("| RCBO"))
-    assert "MCB" in row and "RCD" in row, row
-    assert "one" in row, f"no net count stated: {row}"
+    table = table.split("\n### ")[0]
+    rows = [line for line in table.splitlines() if line.startswith("| ")][2:]
+    assert len(rows) >= 2, rows
+    for row in rows:
+        assert "**and**" in row, f"does not say what it replaces: {row}"
+        assert " one" in row, f"no net count stated: {row}"
 
 
 def buy_section():
@@ -371,10 +374,10 @@ def buy_table(heading):
 
 def test_every_rs_stock_code_is_well_formed():
     """A mistyped stock number orders the wrong part silently. RS codes are
-    three digits, a hyphen, four digits — nothing else parses as one."""
+    three digits, a hyphen, then three or four — nothing else parses as one."""
     codes = re.findall(r"RS \*\*([^*]+)\*\*", buy_section())
     assert codes, "the buy tables carry no RS stock numbers"
-    bad = [code for code in codes if not re.fullmatch(r"\d{3}-\d{4}", code)]
+    bad = [code for code in codes if not re.fullmatch(r"\d{3}-\d{3,4}", code)]
     assert not bad, f"not RS stock numbers: {bad}"
 
 
@@ -389,12 +392,18 @@ def test_each_part_is_labelled_needed_optional_or_a_combination():
 
 
 def test_the_combination_replaces_rows_that_exist_on_their_own():
-    """The RCBO is only a substitution if the two parts it stands in for are
-    themselves listed. If either row is renamed, the claim dangles."""
-    needed = {row[0] for row in buy_table("**Needed.**")}
-    assert {"MCB", "RCD"} <= needed, needed
-    for row in buy_table("**One part instead of two.**"):
-        assert "MCB" in row[1] and "RCD" in row[1], row
+    """A combination is only a substitution if both parts it stands in for are
+    themselves listed. If either is renamed, the claim dangles."""
+    needed = {row[0].lower() for row in buy_table("**Needed.**")}
+    combinations = buy_table("**One part instead of two.**")
+    assert combinations, "the combination table is empty"
+    for row in combinations:
+        replaced = re.findall(r"the ([\w ]+?) \*\*and\*\* the ([\w ]+)", row[1])
+        assert replaced, f"does not name two parts: {row[1]}"
+        for name in replaced[0]:
+            assert name.strip().lower() in needed, (
+                f"{name!r} is not a needed row"
+            )
 
 
 def test_every_optional_part_says_when_to_skip_it():
@@ -463,3 +472,32 @@ def test_numbered_lists_run_in_order():
                 bad.append(run)
             run = []
     assert not bad, f"out-of-order numbered lists: {bad}"
+
+
+def test_no_stock_code_is_a_split_six_digit_one():
+    """RS has both six- and seven-digit codes, and a product URL pads the six
+    to seven with a leading zero. Splitting 0654748 as 065-4748 rather than
+    654-748 orders a different part and reads as plausible either way. A real
+    seven-digit code never starts with a zero, so one that does is the slip."""
+    text = GUIDE.read_text(encoding="utf-8")
+    bad = [c for c in stock_codes(text) if re.fullmatch(r"0\d\d-\d{4}", c)]
+    assert not bad, f"six-digit codes split in the wrong place: {bad}"
+
+
+def test_the_load_figure_is_stated_once_and_derives_from_the_rating():
+    """Every sizing decision in the guide is made against one number — the
+    inlet, the filter derating, the cable, the headroom under a 13 A plug. A
+    second rounding of it appearing anywhere is how two sections stop
+    agreeing, and a stale one outlives the rating it came from."""
+    text = GUIDE.read_text(encoding="utf-8")
+    prose = "\n".join(
+        line for line in text.splitlines() if "ampacity" not in line
+    )
+    stated = set(re.findall(r"\b(7\.\d+) A\b", prose))
+    assert stated == {"7.83"}, f"more than one rounding in use: {stated}"
+
+    kva = float(re.search(r"\*\*([\d.]+) kVA per drive\*\*", text)[1])
+    volts = int(re.search(r"(\d+) V the supply sits at the top", text)[1])
+    assert abs(7.83 - 2 * kva * 1000 / volts) < 0.005, (
+        f"{kva} kVA per drive at {volts} V is not 7.83 A for the pair"
+    )

@@ -15,7 +15,8 @@ control, Z and the extruder on TMC steppers, all axes homing, drives tuned.
 These drives run on **230 VAC mains**, and their DC bus stays charged after the
 supply is removed. Every drive has a `CHARGE` lamp for exactly this reason.
 
-- Isolate at the breaker before touching drive terminals or motor leads.
+- Unplug the machine — every cord, if it has more than one — and lock the
+  isolator off before touching drive terminals or motor leads.
 - After powering down, **wait five minutes and confirm `CHARGE` is out** before
   working. The lamp, not the clock, is the authority.
 - Wire motors with the drives isolated. Part 5 ends powered down for that
@@ -219,8 +220,8 @@ per-drive chain would double every protective device and buy nothing.
 | EMC filter | 1 | Roxburgh/Deltron `DRF10`, or Schaffner `FN2412-16-44` if the filter's ambient reaches 50 C — Part 5 decides which | **761-5696** / **518-6389** |
 | Contactor | 1 | ABB `ESB20-20N-06` | **211-1482** |
 | Emergency stop | 1 | Schneider `XALK178` — enclosed, twist release, 1 NC, breaks the contactor coil | **795-1295** |
-| Coil suppressor | 1 | RC snubber, 100 ohm / 0.1 uF across the contactor coil | — |
-| SPD | 1, optional | Schneider `A9L20500` iPRD20 | **065-4748** |
+| Coil suppressor | 1 | RC network, 0.1 uF + 100 ohm, **Class X2**, across the contactor coil. Evox-Rifa/Kemet `PMR209` class | **385-360** |
+| SPD | 1, optional | Schneider `A9L20500` iPRD20 | **654-748** |
 | DIN rail | 1 | 35 mm top-hat, plus two end stops | — |
 | Terminal blocks | 3 | L, N and PE feed-through with jumper links. Each drive takes main power at `L1`/`L2` **and** control power at `L1C`/`L2C` off the same pair, so one contactor pole lands on four conductors, not two | — |
 | Mains cable, supply to drives | 1 run | 3-core flexible 300/500 V; 1.5 mm^2 carries 7.83 A, 2.5 mm^2 for volt-drop margin over a couple of metres | — |
@@ -239,8 +240,9 @@ per-drive chain would double every protective device and buy nothing.
 | Fit this | Instead of | Net |
 | --- | --- | --- |
 | RCBO — ABB `DSE201 M C16 A30` (**136-7786**) or Siemens `5SV1316-7KK16` (**187-3289**) | the MCB **and** the RCD | Two line items become one, and 53 mm of rail becomes 36 mm, or 18 mm with the Siemens |
+| Contactor — ABB `ESB24-40-230AC/DC` (**183-3661**) | the `ESB20-20N-06` **and** the coil suppressor | Two line items become one, at the same two modules of rail. The `ESB24` has a DC solenoid with integrated overvoltage protection to 5 kV, so there is no coil circuit left to snub. It is 4 NO poles where two are needed |
 
-That is the only substitution on this list. The savings that look like
+Those are the only two substitutions on this list. The savings that look like
 substitutions elsewhere are not: one filter and one contactor serve both
 drives because they sit on a shared supply, which is the count above rather
 than a reduction from it.
@@ -365,7 +367,8 @@ inputs are still used** — the servo axes home on them.
 
 Each ProNet-04AEG-EC takes single-phase **200-230 VAC +10% / -15%, 50/60 Hz**.
 At 230 V the supply sits at the top of nominal with headroom to 253 V. Budget
-**0.9 kVA per drive** — about 8 A at 230 V for the pair.
+**0.9 kVA per drive** — 7.83 A at 230 V for the pair, which is the figure
+every sizing decision below is made against.
 
 ### Where the supply arrives, and what "earth" means at each point
 
@@ -433,13 +436,13 @@ conductors are redundancy rather than a hazard. The problem is isolation.
 EN 60204-1 requires **a disconnecting device for each incoming supply**, and a
 permanent warning label at each one where opening the other leaves circuits
 energised. A machine with two cords and one isolator has no lock-off point,
-which removes the premise the whole chain above is built on: Part 5 step 1
-proves the machine dead by locking one switch, and it cannot.
+which removes the premise the whole chain below is built on: the verification
+at the end of this part proves the machine dead by locking one switch, and with
+two cords it cannot.
 
 If two cords are unavoidable:
 
-- Both plugs into the **same socket**, so both are on one circuit, one RCD and
-  one 32 A ring. Splitting them across two RCDs halves the measured leakage
+- Both plugs into the **same socket**, so both are on one circuit and one RCD. Splitting them across two RCDs halves the measured leakage
   and hides the problem the leakage section exists to surface.
 - The isolator breaks **both**, or there are two isolators and a label on each
   saying so.
@@ -456,7 +459,7 @@ milliseconds is a handful of A^2s against a 13 A fuse's pre-arcing energy.
 
 ### The chain, in order
 
-Seven things between the wall and the drives. The order is not arbitrary —
+Six devices between the wall and the drives. The order is not arbitrary —
 each one either protects what follows it or has to sit somewhere specific to
 work at all.
 
@@ -466,7 +469,7 @@ work at all.
 | 2 | **MCB**, 16 A Type C | Overcurrent and short-circuit protection | Immediately after the isolator |
 | 3 | **RCD or RCBO**, 30 mA Type A | Earth-fault protection. Read the note below before buying — drives break the usual assumptions | With, or immediately after, the MCB |
 | 4 | **Surge protection device**, Type 2 — optional, see below | Clamps mains transients that otherwise reach the drives' rectifiers | At the panel entry, as close to the origin as the wiring allows; its own leads as short and straight as possible |
-| 5 | **EMC / noise filter**, ≥ 10 A | Keeps drive switching noise off the supply, and mains noise out of the encoder feedback | **Directly beside the drives**, bolted metal-to-metal to the backplate. A filter on a long lead filters almost nothing |
+| 5 | **EMC / noise filter**, sized for its own ambient rather than for the load alone — see below | Keeps drive switching noise off the supply, and mains noise out of the encoder feedback | **Directly beside the drives**, bolted metal-to-metal to the backplate. A filter on a long lead filters almost nothing |
 | 6 | **Contactor**, ≥ 20 A AC-1, 230 V coil | The thing an emergency stop actually opens. Without it there is no way to drop drive power except pulling the isolator by hand | Last device before the drives |
 | 7 | **Drives** | | |
 
@@ -476,11 +479,27 @@ bare metal rather than through a painted panel or a wire; and the **SPD's leads
 must be short**, because its clamping voltage is what it lets through plus the
 inductive kick of its own tails.
 
-Fit a surge suppressor across the contactor's coil — an RC snubber for an AC
-coil. Without it the coil's collapse on de-energising is a sharp transient
-directly alongside the encoder wiring. It is not structurally required, which
-is why it appears under *optional* below, but it is a component solving a
-fault that is expensive to diagnose.
+Fit an RC snubber across the contactor's **coil**. Without it the coil's
+collapse on de-energising is a sharp transient directly alongside the encoder
+wiring. The `ESB20` needs one: ABB builds surge protection into the `ESB24`
+and above, and says so in the catalogue, but the `ESB20` is the AC-coil model
+and has none.
+
+**Where the coil is fed from.** The contactor coil takes its supply from the
+**load side of the RCD**, with the emergency stop's NC contact in series with
+it. Fed from upstream of the RCD the coil circuit sits outside the earth-fault
+protection covering everything else in the enclosure, and a fault in the thin
+wiring going out to a button on the machine's outside is exactly what that
+protection is for.
+
+**Across the coil, never across the emergency stop's contact.** The part is
+sold as a contact suppressor and that is the wrong place for it here. A 0.1 uF
+capacitor is 31.8 kohm at 50 Hz, and the `ESB20` coil draws 3.2 VA holding,
+which at 230 V is 13.9 mA — about 16.5 kohm. Those are the same order of
+magnitude, so a snubber bridging the open contact leaves a large fraction of
+the coil voltage standing. The `ESB20` drop-out band is **20 to 75% of Uc**,
+which means the honest statement is that the contactor might drop out. An
+emergency stop that might work is not one.
 
 ### Earth leakage, and why a normal RCD is the wrong one
 
@@ -544,7 +563,7 @@ for this.
 
 ### What to buy
 
-Specifications first: those are arithmetic from this machine's 7.8 A and hold
+Specifications first: those are arithmetic from this machine's 7.83 A and hold
 whoever supplies the parts. The named parts are illustrations of the right
 class, not a validated bill of materials — availability moves, and the drive
 manual and local wiring regulations both outrank this table. RS stock numbers
@@ -556,23 +575,24 @@ enough to corrupt encoder feedback.
 
 | Item | Specification | Part, and RS stock no. |
 | --- | --- | --- |
-| Isolator | 2-pole, >= 16 A, lockable in the OFF position; IP65 if it mounts through the enclosure wall rather than sitting on the rail behind a door | ABB `SD202/32` — 2-pole, 32 A, DIN, padlockable — RS **175-5085** |
+| Isolator | 2-pole, >= 16 A, lockable in the OFF position. On the rail behind a closed door, IP20 is enough; a through-wall rotary disconnector instead of this one would need IP65 | ABB `SD202/32` — 2-pole, 32 A, DIN, padlockable, IP20 — RS **175-5085** |
 | MCB | 16 A, **Type C**, 6 kA. One pole breaking line is enough here — the isolator and the RCD are both 2-pole, so the double-pole break exists | ABB `S201-C16` — 1 pole, 1 module — RS **489-0447** |
 | RCD | 2-pole, 30 mA, **Type A** | ABB `F202 A-25/0.03` — 25 A, 2 pole, 2 modules — RS **232-0339** |
 | EMC filter | Single phase, 250 VAC, rated above 7.83 A **at the temperature the filter sits at** | Roxburgh/Deltron `DRF10` — DIN rail, 100 g, 1.46 mA leakage, 10 A at 40 C — RS **761-5696**. Above 45 C ambient: Schaffner `FN2412-16-44` — DIN rail, 16 A at 50 C, 110 x 93 x 73 mm, 3.4 mA leakage — RS **518-6389** |
 | Contactor | 2 pole, >= 20 A AC-1, **230 VAC coil** | ABB `ESB20-20N-06` — modular, 35 mm — RS **211-1482** |
+| Coil suppressor | RC network, 0.1 uF + 100 ohm, rated for across-the-line use — the capacitor sits on 230 V, so **Class X2**, not a general-purpose film part | Evox-Rifa/Kemet `PMR209` class, 0.1 uF + 100 ohm, 250 V ac, 26 x 10.5 x 19 mm — RS **385-360**. Check the X2 marking on the part itself; distributor listings often omit the class |
 | Emergency stop | Latching, twist release, at least one **NC** contact, in its own enclosure. Wired in series with the contactor coil, not in the mains path | Schneider `XALK178` — enclosed, 40 mm head, 1 NC, IP69K — RS **795-1295** |
-| Mains cable, supply to drives | 1.5 mm^2 is adequate at 7.8 A; **2.5 mm^2** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
+| Mains cable, supply to drives | 1.5 mm^2 is adequate at 7.83 A; **2.5 mm^2** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
 | Protective earth | ESTUN specifies **3.5 mm^2**, a JIS size with no IEC equivalent — use **4 mm^2** | Green/yellow, ring-terminated to the plate |
 | Regenerative resistor | **50 ohm, 60 W**, one per drive — see the note below, because 60 W depends on how it is mounted | Arcol `HS100 50R J` — RS **252-2928** |
 
-**One part instead of two.** An RCBO is an MCB and an RCD in one device, and is
-the only combination on this list worth making.
+**One part instead of two.** Two combinations on this list are worth making.
 
 | Item | Replaces | Part, and RS stock no. |
 | --- | --- | --- |
 | RCBO | the MCB **and** the RCD | ABB `DSE201 M C16 A30` — 16 A Type C curve, 30 mA Type A earth leakage, 36 mm — RS **136-7786** |
 | RCBO, narrower | the MCB **and** the RCD | Siemens `5SV1316-7KK16` — 16 A Type C curve, 30 mA Type A, 6 kA, in a single 18 mm module — RS **187-3289** |
+| Protected contactor | the contactor **and** the coil suppressor | ABB `ESB24-40-230AC/DC` — DC solenoid, integrated overvoltage protection to 5 kV, 2 modules, 4 NO — RS **183-3661** |
 
 What it buys is rail width, not money: separate parts are one module for the
 MCB plus two for the RCD, about 53 mm, against 36 mm for the ABB and 18 mm for
@@ -585,8 +605,7 @@ mode the section above is about.
 
 | Item | Specification | Part, and RS stock no. | When to skip it |
 | --- | --- | --- | --- |
-| SPD | Type 2, 230 V, L-N and N-PE modes | Schneider `A9L20500` iPRD20 — 1P+N, 20 kA, 1.4 kV — RS **065-4748** | If the board feeding the machine already carries a Type 2 SPD, this one is a second line of defence, not the first. It also costs more than the rest of the chain together |
-| Coil suppressor | RC snubber matched to the coil | 100 ohm / 0.1 uF across the coil terminals; Schneider `LAD4RCU` for an LC1D-class coil | Only if the contactor sits well away from the encoder and EtherCAT runs. In a printer enclosure it does not, so fit it |
+| SPD | Type 2, 230 V, L-N and N-PE modes | Schneider `A9L20500` iPRD20 — 1P+N, 20 kA, 1.4 kV — RS **654-748** | If the board feeding the machine already carries a Type 2 SPD, this one is a second line of defence, not the first. It also costs more than the rest of the chain together |
 
 ### Fitting it in a printer enclosure
 
@@ -607,8 +626,8 @@ Three choices save the most space:
   and 600 g. The section above decides which, and the decision is thermal, not
   spatial — an undersized filter that fits is not a saving.
 - **A modular installation contactor rather than a control contactor.** An
-  `ESB20-20` is 35 mm wide and shallow; an `LC1D09` is wider, much deeper, and
-  built for motor starting duty this circuit does not have.
+  `ESB20` or `ESB24` is two modules and shallow; an `LC1D09` is wider, much
+  deeper, and built for motor starting duty this circuit does not have.
 - **One RCBO rather than a separate MCB and RCD.** Three modules become two,
   or one if the 18 mm device is available.
 
@@ -626,13 +645,14 @@ welded pole. An industrial machine would use a safety relay and a contactor
 with mirror contacts, and a printer on a bench generally does not. That is a
 defensible choice, but it should be a choice.
 
-**The 16 A rating is not about the 7.8 A load.** At 16 A the drives sit at
+**The 16 A rating is not about the 7.83 A load.** At 16 A the drives sit at
 under half the breaker's rating, which looks generous until the inrush is
 considered: energising two DC buses charges their capacitors through the
 rectifiers, and that transient is tens of amps for a few milliseconds. Type C
 trips instantaneously at 5-10× rating, so a 16 A Type C tolerates 80-160 A for
 that instant. A 10 A Type B would trip on the *first* power-up, every time, and
-look like a fault in the drives.
+look like a fault in the drives. The plug's 13 A fuse sits above all of this
+and rides the same inrush, for the reason given under **One plug or two**.
 
 Per drive:
 
