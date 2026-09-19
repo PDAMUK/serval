@@ -416,3 +416,54 @@ def test_both_halves_supplied_is_accepted():
 
 def test_a_profile_with_a_built_in_identity_needs_nothing():
     assert _missing("a6ec", 0, 0) == []
+
+
+class _StopRecordingEngine:
+    def __init__(self):
+        self.stopped = []
+
+    def stop_node(self, handle):
+        self.stopped.append(handle)
+
+
+def _claimed_node(handle):
+    engine = _StopRecordingEngine()
+    printer = types.SimpleNamespace(
+        lookup_object=lambda name: {"motion_engine": engine}[name]
+    )
+    node = types.SimpleNamespace(
+        name="node_x", printer=printer, engine_handle=handle
+    )
+    return node, engine
+
+
+def test_shutdown_stops_the_claimed_node():
+    """The emergency stop reaches the drives through this handler and nothing
+    else. It is registered on klippy:shutdown, so a button callback calling
+    invoke_shutdown lands here, and stop_node is what sends the drives their
+    Stop and torque disable."""
+    node, engine = _claimed_node(handle=7)
+
+    ethercat_node.EtherCatNode._handle_shutdown(node)
+
+    assert engine.stopped == [7]
+
+
+def test_shutdown_before_the_node_is_claimed_is_a_no_op():
+    """A shutdown can arrive before mcu_identify ever ran — a config error, or
+    a stop pressed during startup. There is no handle to stop and looking one
+    up would raise inside a shutdown handler."""
+    node, engine = _claimed_node(handle=None)
+
+    ethercat_node.EtherCatNode._handle_shutdown(node)
+
+    assert engine.stopped == []
+
+
+def test_the_shutdown_handler_is_registered_on_the_klippy_event():
+    """If this stops being wired to klippy:shutdown, every test above still
+    passes and the emergency stop silently stops reaching the drives."""
+    source = ethercat_node.__file__.replace(".pyc", ".py")
+    with open(source, encoding="utf-8") as handle:
+        text = handle.read()
+    assert '"klippy:shutdown", self._handle_shutdown' in text

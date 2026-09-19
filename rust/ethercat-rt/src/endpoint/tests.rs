@@ -37,7 +37,7 @@ use crate::sdo::SdoBus;
 use crate::sensorless::SensorlessBank;
 use crate::server::FrameServer;
 use crate::stream_halt::StreamHalt;
-use crate::torque::{TorqueGate, TorqueState};
+use crate::torque::{TickAction, TorqueGate, TorqueState, ERR_PIECES_WHILE_PARKED};
 use crate::trim::DiffTrimBank;
 
 const NUM_SLAVES: usize = 2;
@@ -2057,4 +2057,90 @@ fn suppress_maps_stepper_index_within_a_shared_axis() {
         vec![false, true],
         "an unknown stepper index must be rejected, not clamped"
     );
+}
+
+/// The emergency stop, traced end to end from a moving machine.
+///
+/// `stop_node` sends `Stop` then `SetTorque(false, 0)`. The ordering is
+/// load-bearing and nothing in either call states why: a scheduled disable
+/// that reaches its tick with pieces still in the rings does not disable, it
+/// faults and exits the endpoint, leaving the drives holding their last
+/// command. These tests hold that composition together.
+#[test]
+fn emergency_stop_mid_move_disables_every_drive() {
+    let transitions = Arc::new(TransitionCounts {
+        enable: AtomicUsize::new(0),
+        disable: AtomicUsize::new(0),
+    });
+    let mut ctx = test_ctx_with_drive(
+        "estop-mid-move",
+        RecordingDrive::new(Arc::clone(&transitions)),
+    );
+
+    push_all(&mut ctx, piece(1_000_000, 10.0, &[2.5, 2.5]));
+    run_cycles(&mut ctx, 1_000_000, 3_000_000);
+    assert!(
+        !ctx.rings.iter().all(|r| r.is_empty()),
+        "the machine has to be genuinely mid-move for this to prove anything"
+    );
+    assert_eq!(ctx.gate.state(), TorqueState::Enabled);
+
+    super::commands::stop_motion(&mut ctx);
+    super::commands::handle_set_torque(
+        &mut ctx,
+        1,
+        SetTorque {
+            value: 0,
+            execute_at_ns: 0,
+        },
+    );
+
+    let all_rings_empty = ctx.rings.iter().all(|r| r.is_empty());
+    super::cycle::apply_tick_action(&mut ctx, 3_250_000, all_rings_empty);
+
+    assert_eq!(
+        transitions.disable.load(Ordering::SeqCst),
+        1,
+        "the drives were never told to disable"
+    );
+    assert_eq!(ctx.gate.state(), TorqueState::Parked);
+    assert!(ctx.stream_halt.is_halted(), "the stream is still open");
+    for s in 0..NUM_SLAVES {
+        assert!(ctx.cmaps[s].is_none(), "slot {s}: anchor survived the stop");
+    }
+}
+
+#[test]
+fn a_disable_without_the_stop_faults_instead_of_disabling() {
+    let transitions = Arc::new(TransitionCounts {
+        enable: AtomicUsize::new(0),
+        disable: AtomicUsize::new(0),
+    });
+    let mut ctx = test_ctx_with_drive(
+        "estop-no-stop",
+        RecordingDrive::new(Arc::clone(&transitions)),
+    );
+
+    push_all(&mut ctx, piece(1_000_000, 10.0, &[2.5, 2.5]));
+    run_cycles(&mut ctx, 1_000_000, 3_000_000);
+
+    super::commands::handle_set_torque(
+        &mut ctx,
+        1,
+        SetTorque {
+            value: 0,
+            execute_at_ns: 0,
+        },
+    );
+
+    let all_rings_empty = ctx.rings.iter().all(|r| r.is_empty());
+    assert!(!all_rings_empty);
+    assert_eq!(
+        ctx.gate.on_tick(3_250_000, all_rings_empty),
+        TickAction::Fault {
+            code: ERR_PIECES_WHILE_PARKED
+        },
+        "skipping the Stop has to fault rather than quietly disable"
+    );
+    assert_eq!(transitions.disable.load(Ordering::SeqCst), 0);
 }

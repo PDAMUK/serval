@@ -132,8 +132,7 @@ pub(super) fn dispatch_commands(ctx: &mut EndpointCtx) -> ControlFlow<()> {
             }
             Command::Stop { correlation_id } => {
                 let now_ns = monotonic_ns();
-                discard_motion(ctx);
-                ctx.stream_halt.halt();
+                stop_motion(ctx);
                 crate::rt_eprintln!(
                     "ec-rt: Stop — rings discarded, stream halted, discard_clock={now_ns}"
                 );
@@ -339,6 +338,14 @@ fn handle_push_pieces(
         copy_ns: (respond_start - copy_start).as_nanos() as i64,
         respond_ns: respond_start.elapsed().as_nanos() as i64,
     }
+}
+
+/// The whole of what a `Stop` does to motion: the rings are emptied and the
+/// stream is closed, so the torque disable that follows sees an empty ring
+/// instead of faulting on pieces it cannot execute.
+pub(super) fn stop_motion(ctx: &mut EndpointCtx) {
+    discard_motion(ctx);
+    ctx.stream_halt.halt();
 }
 
 pub(super) fn handle_set_torque(ctx: &mut EndpointCtx, correlation_id: u32, msg: SetTorque) {
