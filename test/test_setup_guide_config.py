@@ -349,7 +349,7 @@ def test_the_substitution_says_what_it_removes():
     table = section.split("### Substitutions, and what each one removes")[1]
     table = table.split("\n### ")[0]
     rows = [line for line in table.splitlines() if line.startswith("| ")][2:]
-    assert len(rows) >= 2, rows
+    assert rows, "the substitution table is empty"
     for row in rows:
         assert "**and**" in row, f"does not say what it replaces: {row}"
         assert " one" in row, f"no net count stated: {row}"
@@ -534,3 +534,20 @@ def test_ec_only_drive_values_are_recorded_as_unverified():
     unverified = text.split("## Still unverified on hardware")[1]
     for value in ("Pn006.0 = 4", "A.70", "A.71"):
         assert value in unverified, f"{value} is asserted but never qualified"
+
+
+def test_the_suppressor_names_the_contactor_the_bill_actually_lists():
+    """Whether a coil suppressor is needed depends on the contactor in front of
+    it — ABB's plain ESB20 has no built-in protection and the ESB20-20N-06
+    does. If the contactor row changes and the reason under the suppressor does
+    not, the guide keeps arguing about a part nobody is buying."""
+    contactor = next(
+        row for row in buy_table("**Needed.**") if row[0] == "Contactor"
+    )
+    part = re.search(r"`([\w.-]+)`", contactor[2])[1]
+    suppressor = next(
+        row for row in buy_table("**Optional.**") if row[0] == "Coil suppressor"
+    )
+    assert part in suppressor[3], (
+        f"the reason to skip it does not mention {part}: {suppressor[3]}"
+    )

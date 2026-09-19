@@ -220,7 +220,7 @@ per-drive chain would double every protective device and buy nothing.
 | EMC filter | 1 | Roxburgh/Deltron `DRF10`, or Schaffner `FN2412-16-44` if the filter's ambient reaches 50 C — Part 5 decides which | **761-5696** / **518-6389** |
 | Contactor | 1 | ABB `ESB20-20N-06` | **211-1482** |
 | Emergency stop | 1 | Schneider `XALK178` — enclosed, twist release, 1 NC, breaks the contactor coil | **795-1295** |
-| Coil suppressor | 1 | RC network, 0.1 uF + 100 ohm, **Class X2**, across the contactor coil. Evox-Rifa/Kemet `PMR209` class | **385-360** |
+| Coil suppressor | 1, optional | RC network, 0.1 uF + 100 ohm, **Class X2**. Not needed behind the `ESB20-20N-06`, which suppresses its own coil — see Part 5. Evox-Rifa/Kemet `PMR209` class | **385-360** |
 | SPD | 1, optional | Schneider `A9L20500` iPRD20 | **654-748** |
 | DIN rail | 1 | 35 mm top-hat, plus two end stops | — |
 | Terminal blocks | 3 | L, N and PE feed-through with jumper links. Each drive takes main power at `L1`/`L2` **and** control power at `L1C`/`L2C` off the same pair, so one contactor pole lands on four conductors, not two | — |
@@ -240,9 +240,11 @@ per-drive chain would double every protective device and buy nothing.
 | Fit this | Instead of | Net |
 | --- | --- | --- |
 | RCBO — ABB `DSE201 M C16 A30` (**136-7786**) or Siemens `5SV1316-7KK16` (**187-3289**) | the MCB **and** the RCD | Two line items become one, and 53 mm of rail becomes 36 mm, or 18 mm with the Siemens |
-| Contactor — ABB `ESB24-40-230AC/DC` (**183-3661**) | the `ESB20-20N-06` **and** the coil suppressor | Two line items become one, at the same two modules of rail. The `ESB24` has a DC solenoid with integrated overvoltage protection to 5 kV, so there is no coil circuit left to snub. It is 4 NO poles where two are needed |
 
-Those are the only two substitutions on this list. The savings that look like
+That is the only substitution on this list. An `ESB24` was listed here as a
+second one, on the reading that it brought coil suppression the `ESB20` lacked.
+It does not: the `ESB20-20N-06` already has it, and the `ESB24` is two modules
+against one. The savings that look like
 substitutions elsewhere are not: one filter and one contactor serve both
 drives because they sit on a shared supply, which is the count above rather
 than a reduction from it.
@@ -479,11 +481,15 @@ bare metal rather than through a painted panel or a wire; and the **SPD's leads
 must be short**, because its clamping voltage is what it lets through plus the
 inductive kick of its own tails.
 
-Fit an RC snubber across the contactor's **coil**. Without it the coil's
-collapse on de-energising is a sharp transient directly alongside the encoder
-wiring. The `ESB20` needs one: ABB builds surge protection into the `ESB24`
-and above, and says so in the catalogue, but the `ESB20` is the AC-coil model
-and has none.
+**The contactor brings its own coil suppression, so read the suffix.** ABB's
+older `ESB20` is AC-operated with no built-in protection, and the catalogue
+scopes built-in surge protection to `ESB24` and above. The `ESB20-20N-06` in
+the bill is not that part: the `..N` generation has a DC control circuit — its
+datasheet lists the control circuit as DC as well as 50/60/400 Hz — and ABB
+describes the family as hum-free with an incorporated varistor protecting the
+coil to 5 kV and limiting the solenoid's own interference peaks. On that part
+an external RC snubber is redundant, which is why it sits under *optional*
+below rather than in the chain.
 
 **Where the coil is fed from.** The contactor coil takes its supply from the
 **load side of the RCD**, with the emergency stop's NC contact in series with
@@ -492,14 +498,16 @@ protection covering everything else in the enclosure, and a fault in the thin
 wiring going out to a button on the machine's outside is exactly what that
 protection is for.
 
-**Across the coil, never across the emergency stop's contact.** The part is
-sold as a contact suppressor and that is the wrong place for it here. A 0.1 uF
-capacitor is 31.8 kohm at 50 Hz, and the `ESB20` coil draws 3.2 VA holding,
-which at 230 V is 13.9 mA — about 16.5 kohm. Those are the same order of
-magnitude, so a snubber bridging the open contact leaves a large fraction of
-the coil voltage standing. The `ESB20` drop-out band is **20 to 75% of Uc**,
-which means the honest statement is that the contactor might drop out. An
-emergency stop that might work is not one.
+If a snubber does go in — behind some other contactor, or out of caution —
+**it goes across the coil, never across the emergency stop's contact.** The
+part is sold as a contact suppressor, and that is the wrong place for it in
+this circuit. A 0.1 uF capacitor is 31.8 kohm at 50 Hz. ABB's AC-operated
+`ESB20` draws 3.2 VA holding, 13.9 mA at 230 V, about 16.5 kohm — the same
+order of magnitude, so a snubber bridging the open contact leaves a large
+fraction of the coil voltage standing, and that contactor's drop-out band is
+**20 to 75% of Uc**. The honest statement is that it might drop out. An
+emergency stop that might work is not one. Coil impedances in this class are
+all near enough that the arithmetic lands the same way.
 
 ### Earth leakage, and why a normal RCD is the wrong one
 
@@ -579,20 +587,18 @@ enough to corrupt encoder feedback.
 | MCB | 16 A, **Type C**, 6 kA. One pole breaking line is enough here — the isolator and the RCD are both 2-pole, so the double-pole break exists | ABB `S201-C16` — 1 pole, 1 module — RS **489-0447** |
 | RCD | 2-pole, 30 mA, **Type A** | ABB `F202 A-25/0.03` — 25 A, 2 pole, 2 modules — RS **232-0339** |
 | EMC filter | Single phase, 250 VAC, rated above 7.83 A **at the temperature the filter sits at** | Roxburgh/Deltron `DRF10` — DIN rail, 100 g, 1.46 mA leakage, 10 A at 40 C — RS **761-5696**. Above 45 C ambient: Schaffner `FN2412-16-44` — DIN rail, 16 A at 50 C, 110 x 93 x 73 mm, 3.4 mA leakage — RS **518-6389** |
-| Contactor | 2 pole, >= 20 A AC-1, **230 VAC coil** | ABB `ESB20-20N-06` — modular, 35 mm — RS **211-1482** |
-| Coil suppressor | RC network, 0.1 uF + 100 ohm, rated for across-the-line use — the capacitor sits on 230 V, so **Class X2**, not a general-purpose film part | Evox-Rifa/Kemet `PMR209` class, 0.1 uF + 100 ohm, 250 V ac, 26 x 10.5 x 19 mm — RS **385-360**. Check the X2 marking on the part itself; distributor listings often omit the class |
+| Contactor | 2 pole, >= 20 A AC-1, **230 V coil**; a DC or universal control circuit rather than an AC solenoid, so the coil carries its own suppression | ABB `ESB20-20N-06` — 20 A AC-1, one module at 18 mm, control circuit DC/50/60/400 Hz — RS **211-1482** |
 | Emergency stop | Latching, twist release, at least one **NC** contact, in its own enclosure. Wired in series with the contactor coil, not in the mains path | Schneider `XALK178` — enclosed, 40 mm head, 1 NC, IP69K — RS **795-1295** |
 | Mains cable, supply to drives | 1.5 mm^2 is adequate at 7.83 A; **2.5 mm^2** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
 | Protective earth | ESTUN specifies **3.5 mm^2**, a JIS size with no IEC equivalent — use **4 mm^2** | Green/yellow, ring-terminated to the plate |
 | Regenerative resistor | **50 ohm, 60 W**, one per drive — see the note below, because 60 W depends on how it is mounted | Arcol `HS100 50R J` — RS **252-2928** |
 
-**One part instead of two.** Two combinations on this list are worth making.
+**One part instead of two.** One combination on this list is worth making.
 
 | Item | Replaces | Part, and RS stock no. |
 | --- | --- | --- |
 | RCBO | the MCB **and** the RCD | ABB `DSE201 M C16 A30` — 16 A Type C curve, 30 mA Type A earth leakage, 36 mm — RS **136-7786** |
 | RCBO, narrower | the MCB **and** the RCD | Siemens `5SV1316-7KK16` — 16 A Type C curve, 30 mA Type A, 6 kA, in a single 18 mm module — RS **187-3289** |
-| Protected contactor | the contactor **and** the coil suppressor | ABB `ESB24-40-230AC/DC` — DC solenoid, integrated overvoltage protection to 5 kV, 2 modules, 4 NO — RS **183-3661** |
 
 What it buys is rail width, not money: separate parts are one module for the
 MCB plus two for the RCD, about 53 mm, against 36 mm for the ABB and 18 mm for
@@ -605,6 +611,7 @@ mode the section above is about.
 
 | Item | Specification | Part, and RS stock no. | When to skip it |
 | --- | --- | --- | --- |
+| Coil suppressor | RC network, 0.1 uF + 100 ohm, rated for across-the-line use — the capacitor sits on 230 V, so **Class X2**, not a general-purpose film part | Evox-Rifa/Kemet `PMR209` class, 250 V ac, 26 x 10.5 x 19 mm — RS **385-360**. Check the X2 marking on the part; listings often omit the class | Skip it with the `ESB20-20N-06`, whose coil already carries a varistor. Fit one only behind a contactor with a plain AC solenoid and no built-in suppression |
 | SPD | Type 2, 230 V, L-N and N-PE modes | Schneider `A9L20500` iPRD20 — 1P+N, 20 kA, 1.4 kV — RS **654-748** | If the board feeding the machine already carries a Type 2 SPD, this one is a second line of defence, not the first. It also costs more than the rest of the chain together |
 
 ### Fitting it in a printer enclosure
@@ -626,8 +633,9 @@ Three choices save the most space:
   and 600 g. The section above decides which, and the decision is thermal, not
   spatial — an undersized filter that fits is not a saving.
 - **A modular installation contactor rather than a control contactor.** An
-  `ESB20` or `ESB24` is two modules and shallow; an `LC1D09` is wider, much
-  deeper, and built for motor starting duty this circuit does not have.
+  `ESB20-20N-06` is one module — 18 x 85 x 65 mm, 140 g — against an `LC1D09`
+  at 45 mm and far deeper, built for motor starting duty this circuit does not
+  have.
 - **One RCBO rather than a separate MCB and RCD.** Three modules become two,
   or one if the 18 mm device is available.
 
