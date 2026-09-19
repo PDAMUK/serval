@@ -512,8 +512,39 @@ drive faults rather than "the stop was pressed".
 
 A second contact on the button drives an input on the Manta, and the
 `klippy:shutdown` it raises reaches `ethercat_node`, which calls `stop_node` on
-each node: a CiA 402 **Stop** to every drive, then **torque disable**. Part 11
-wires it up, and explains why it is not a `[gcode_button]` running `M112`.
+each node. Part 11 wires it up and explains why it is not a `[gcode_button]`
+running `M112`.
+
+**What `stop_node` actually does**, because the two halves are not what their
+names suggest:
+
+| Step | Where it acts |
+| --- | --- |
+| `Stop` | **Host only.** Discards the motion rings and halts the stream. Nothing goes on the EtherCAT wire |
+| `SetTorque(false)` | Schedules a disable, which the next RT tick executes once the rings are empty — hence the ordering. It writes CiA 402 controlword **`0x0006`** to every drive, holding target position at the measured actual, for 100 cycles |
+
+`0x0006` is **Shutdown**, not Quick Stop. It takes the drive from Operation
+Enabled to Ready to Switch On — servo off. It does *not* command a ramp; there
+is no `6084h` deceleration involved anywhere in this path.
+
+What the machine then does is the drive's decision, and it is set by a
+parameter rather than by anything the host sends. On `Pn004.0 = 0`, which is
+the factory value, servo off means **stop by dynamic brake** — the motor
+windings are shorted — and then coast. That is real braking and it needs no bus
+voltage, which is why it still works with the contactor already open. Set
+`Pn004.0 = 1` and the same command leaves a fast gantry coasting on friction
+alone. Part 9 checks it.
+
+So the honest description of what the second contact buys: the gantry is
+dynamically braked rather than freewheeling, the queued motion is thrown away
+so nothing resumes mid-move when power comes back, and the planner ends in a
+clean shutdown instead of an endpoint death. It is **not** a profiled stop, and
+the stopping distance is set by inertia, friction and the dynamic brake, not by
+anything that can be tuned.
+
+The manual is worth heeding on one point: repeated dynamic braking degrades the
+drive's internal elements. The emergency stop is not a routine way to stop the
+machine.
 
 **Two things have to be true for that halt to land.**
 
@@ -935,6 +966,13 @@ EtherCAT, but reached the same way.)
 | Parameter | Value | Meaning |
 | --- | --- | --- |
 | `Pn006.0` | `4` | select EtherCAT communication mode |
+| `Pn004.0` | `0` | stop by dynamic brake on servo off — the factory value, worth confirming rather than assuming |
+
+`Pn004.0` is what the emergency stop in Part 5 relies on. The host writes
+controlword `0x0006`, and this parameter decides whether the drive answers that
+by shorting the motor windings or by letting the gantry coast. Both `Pn004` and
+`Pn006` take effect **after restart**, and `Pn004` wants main *and* control
+power cycled.
 
 `Pn006.0` is the bus-mode nibble on every ProNet, but the value `4` comes from
 the `-EC` variant rather than from the base manual, whose whole `Pn006` range

@@ -592,3 +592,19 @@ def test_the_halt_input_is_wired_to_fail_safe():
     assert "[gcode_button estop]" not in text, (
         "the halt is back on the G-Code queue"
     )
+
+
+def test_the_guide_names_the_controlword_the_endpoint_actually_writes():
+    """The guide tells the reader the emergency stop ends in CiA 402 Shutdown,
+    0x0006, and that Pn004.0 decides whether the drive answers that with the
+    dynamic brake. Changing the endpoint's disable path to Quick Stop or
+    anything else would make that account wrong without touching the guide."""
+    source = (
+        GUIDE.parents[2] / "rust" / "ethercat-rt" / "csrc" / "libecrt_igh.c"
+    ).read_text(encoding="utf-8")
+    body = source.split("void ec_rt_disable_all(void)")[1].split("\n}")[0]
+    written = set(re.findall(r"controlword = (0x[0-9A-Fa-f]+)", body))
+    assert written == {"0x0006"}, f"disable_all now writes {written}"
+    section = mains_section()
+    assert "`0x0006`" in section
+    assert "Pn004.0" in section
