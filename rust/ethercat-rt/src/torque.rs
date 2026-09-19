@@ -54,12 +54,15 @@ impl TorqueGate {
             self.pending_disable_at = None;
             CommandAction::Enable
         } else {
-            if self.pending_disable_at.is_some() {
-                return CommandAction::Reject {
-                    code: ERR_BAD_TORQUE_STATE,
-                };
-            }
-            self.pending_disable_at = Some(not_before_ns);
+            // A disable asked for while one is already pending is not a host
+            // bug: an emergency stop races every park the planner schedules,
+            // and a park is scheduled at a print_time well ahead of now. The
+            // earlier request wins, so "disable at 0" cannot be refused
+            // because "disable at print_time" got there first.
+            self.pending_disable_at = Some(match self.pending_disable_at {
+                Some(pending) => pending.min(not_before_ns),
+                None => not_before_ns,
+            });
             CommandAction::ScheduleDisable
         }
     }

@@ -2063,9 +2063,11 @@ fn suppress_maps_stepper_index_within_a_shared_axis() {
 ///
 /// `stop_node` sends `Stop` then `SetTorque(false, 0)`. The ordering is
 /// load-bearing and nothing in either call states why: a scheduled disable
-/// that reaches its tick with pieces still in the rings does not disable, it
-/// faults and exits the endpoint, leaving the drives holding their last
-/// command. These tests hold that composition together.
+/// that reaches its tick with pieces still in the rings takes the fault arm
+/// instead of the disable arm, which exits the endpoint. The drives do come
+/// down with it, because `shutdown_and_exit` disables before exiting — but
+/// the machine loses its endpoint over an ordering mistake that costs
+/// nothing to avoid. These tests hold that composition together.
 #[test]
 fn emergency_stop_mid_move_disables_every_drive() {
     let transitions = Arc::new(TransitionCounts {
@@ -2143,4 +2145,51 @@ fn a_disable_without_the_stop_faults_instead_of_disabling() {
         "skipping the Stop has to fault rather than quietly disable"
     );
     assert_eq!(transitions.disable.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn emergency_stop_wins_a_race_with_a_park_already_scheduled() {
+    // set_motor_torque(False, print_time) schedules the disable at a
+    // print_time hundreds of milliseconds ahead of now, so the window where a
+    // disable is pending is wide and an operator lands in it easily. The stop
+    // must not be refused for arriving second.
+    let transitions = Arc::new(TransitionCounts {
+        enable: AtomicUsize::new(0),
+        disable: AtomicUsize::new(0),
+    });
+    let mut ctx = test_ctx_with_drive(
+        "estop-vs-park",
+        RecordingDrive::new(Arc::clone(&transitions)),
+    );
+
+    push_all(&mut ctx, piece(1_000_000, 10.0, &[2.5, 2.5]));
+    run_cycles(&mut ctx, 1_000_000, 3_000_000);
+    super::commands::handle_set_torque(
+        &mut ctx,
+        1,
+        SetTorque {
+            value: 0,
+            execute_at_ns: 500_000_000,
+        },
+    );
+
+    super::commands::stop_motion(&mut ctx);
+    super::commands::handle_set_torque(
+        &mut ctx,
+        2,
+        SetTorque {
+            value: 0,
+            execute_at_ns: 0,
+        },
+    );
+
+    let all_rings_empty = ctx.rings.iter().all(|r| r.is_empty());
+    super::cycle::apply_tick_action(&mut ctx, 3_250_000, all_rings_empty);
+
+    assert_eq!(
+        transitions.disable.load(Ordering::SeqCst),
+        1,
+        "the stop was refused because a park was already scheduled"
+    );
+    assert_eq!(ctx.gate.state(), TorqueState::Parked);
 }

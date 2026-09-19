@@ -384,10 +384,11 @@ class EtherCatNode:
             )
         elif fault == TORQUE_GATE_FAULT_CODE:
             msg = (
-                "EtherCAT torque-gate fault on node %s: a torque disable "
-                "came due with motion still queued, so the endpoint exited "
-                "**without** disabling. The drives were not parked — they "
-                "hold their last command until power goes" % (self.name,)
+                "EtherCAT torque-gate fault on node %s: a torque disable came "
+                "due with motion still queued. This is the endpoint refusing "
+                "an inconsistent state, not a drive alarm — the drives were "
+                "disabled on the way out, but the endpoint is gone and a "
+                "restart is needed" % (self.name,)
             )
         else:
             msg = (

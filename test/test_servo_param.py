@@ -324,17 +324,18 @@ def test_fault_poll_shuts_down_on_endpoint_death():
 
 
 def test_torque_gate_fault_does_not_claim_the_drives_were_parked():
-    """0xFEC7 is the one fault that means the endpoint exited without
-    disabling. The generic message says the drives were parked by the
-    endpoint, which is the opposite of what happened and would send someone
-    looking in the wrong place."""
+    """0xFEC7 is the endpoint refusing an inconsistent state, not a drive
+    alarm. The generic arm calls every unmapped code a drive fault, which
+    sends someone looking at the drive for a problem that is in the ordering
+    of two host commands."""
     engine = FakeEngine(take_drive_fault=[ethercat_node.TORQUE_GATE_FAULT_CODE])
     node = make_node_for_fault_poll(engine)
 
     node._poll_drive_fault(7.0)
 
     msg = node.printer.shutdown_reasons[0]
-    assert "without" in msg and "disabling" in msg
+    assert "not a drive alarm" in msg
+    assert "disabled on the way out" in msg
     assert "parked by the realtime endpoint" not in msg
 
 

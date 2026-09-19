@@ -75,17 +75,34 @@ fn disable_in_past_executes_on_next_tick() {
 }
 
 #[test]
-fn double_disable_rejected() {
+fn a_second_disable_brings_the_time_forward_and_never_backward() {
     let mut g = TorqueGate::new();
     let _ = g.on_set_torque(true, T0);
     g.enable_finished(true);
     let _ = g.on_set_torque(false, T0 + 500);
+
+    // Later than the pending one: the pending one still governs.
     assert_eq!(
         g.on_set_torque(false, T0 + 600),
-        CommandAction::Reject {
-            code: ERR_BAD_TORQUE_STATE
-        }
+        CommandAction::ScheduleDisable
     );
+    assert_eq!(g.on_tick(T0 + 499, true), TickAction::None);
+    assert_eq!(g.on_tick(T0 + 500, true), TickAction::ExecuteDisable);
+}
+
+#[test]
+fn an_emergency_disable_outranks_a_park_already_scheduled() {
+    // The park is scheduled at a print_time hundreds of milliseconds ahead;
+    // the stop asks for 0. Refusing the stop because the park got there first
+    // exits the endpoint instead of disabling, with the drives still holding
+    // their last command.
+    let mut g = TorqueGate::new();
+    let _ = g.on_set_torque(true, T0);
+    g.enable_finished(true);
+    let _ = g.on_set_torque(false, T0 + 500_000_000);
+
+    assert_eq!(g.on_set_torque(false, 0), CommandAction::ScheduleDisable);
+    assert_eq!(g.on_tick(T0 + 1, true), TickAction::ExecuteDisable);
 }
 
 #[test]
