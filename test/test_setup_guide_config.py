@@ -501,3 +501,36 @@ def test_the_load_figure_is_stated_once_and_derives_from_the_rating():
     assert abs(7.83 - 2 * kva * 1000 / volts) < 0.005, (
         f"{kva} kVA per drive at {volts} V is not 7.83 A for the pair"
     )
+
+
+def test_the_native_nic_driver_is_named_consistently():
+    """`ec_dwmac` and `ec_dwmac-rk` are not the same module name, and a reader
+    following the host page looks for whichever spelling they were given."""
+    text = GUIDE.read_text(encoding="utf-8")
+    spellings = set(re.findall(r"ec_dwmac[\w-]*", text))
+    assert spellings == {"ec_dwmac-rk"}, spellings
+
+
+def test_the_belt_warning_points_at_the_part_that_couples_them():
+    """The safety note defers the belts to a numbered part. When a part is
+    inserted or the step moves, the number silently stops matching."""
+    text = GUIDE.read_text(encoding="utf-8")
+    deferred = int(re.search(r"Keep belts uncoupled until Part (\d+)", text)[1])
+    couples = [
+        int(re.match(r"## Part (\d+)", section)[1])
+        for section in re.split(r"(?=^## Part )", text, flags=re.M)
+        if section.startswith("## Part ") and "Couple the belts" in section
+    ]
+    assert couples == [deferred], (
+        f"belts are coupled in {couples}, not {deferred}"
+    )
+
+
+def test_ec_only_drive_values_are_recorded_as_unverified():
+    """These come from the -EC variant and the base ProNet manual contradicts
+    or omits them. Stating them without saying so is how a guess hardens into
+    a fact nobody rechecks."""
+    text = GUIDE.read_text(encoding="utf-8")
+    unverified = text.split("## Still unverified on hardware")[1]
+    for value in ("Pn006.0 = 4", "A.70", "A.71"):
+        assert value in unverified, f"{value} is asserted but never qualified"

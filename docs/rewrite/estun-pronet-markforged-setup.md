@@ -173,7 +173,7 @@ Markforged lane assignment, which everything downstream depends on:
 - Never plug or unplug a drive connector with power applied.
 - Power sequencing: control power (`L1C`/`L2C`) **on first**, main circuit
   (`L1`/`L2`) on second; reverse on shutdown.
-- Keep belts uncoupled until Part 11 says otherwise. A servo with a wrong
+- Keep belts uncoupled until Part 12 says otherwise. A servo with a wrong
   parameter moves faster and harder than a stepper.
 
 ---
@@ -260,7 +260,7 @@ than a reduction from it.
 
 Whichever machine runs the endpoint needs a PREEMPT_RT kernel, the IgH master,
 and a **native** NIC driver for its own Ethernet controller — `ec_macb` on a
-Pi 5, `ec_dwmac` on the CB2.
+Pi 5, `ec_dwmac-rk` on the CB2.
 
 Follow the document matching the host **before wiring anything**:
 
@@ -865,12 +865,23 @@ EtherCAT, but reached the same way.)
 | --- | --- | --- |
 | `Pn006.0` | `4` | select EtherCAT communication mode |
 
-**Leave `Pn704` (station alias) at its default 0.** The endpoint addresses
-slaves by *ring position* — it passes alias 0 to `ecrt_master_slave_config`, and
-with alias 0 the position argument is the absolute position on the wire.
-`ethercat_chain_index` is that position. Physical cable order is therefore the
-single source of truth, and configuring aliases only adds a second one that can
-disagree.
+`Pn006.0` is the bus-mode nibble on every ProNet, but the value `4` comes from
+the `-EC` variant rather than from the base manual, whose whole `Pn006` range
+stops at `0x2133` — so a non-`EC` drive rejects `4` as out of range. It is
+listed under **Still unverified on hardware** for that reason.
+
+**Leave the drives' station alias alone.** This half is checkable: the endpoint
+passes alias `0` to `ecrt_master_slave_config` — `SLAVE_ALIAS` in
+[`rust/ethercat-rt/csrc/libecrt_igh.c`](https://github.com/PDAMUK/serval/blob/main/rust/ethercat-rt/csrc/libecrt_igh.c)
+— and with alias 0 the master reads the position argument as the absolute
+position on the wire. `ethercat_chain_index` is that position. Physical cable
+order is therefore the single source of truth, and configuring an alias only
+adds a second one that can disagree.
+
+Do not assume `Pn704` holds that alias. In the base manual `Pn704` is the
+CANopen node address, range `1~127`, default `1`, and an EtherCAT station alias
+normally lives in the slave's EEPROM rather than in a drive parameter. If the
+`-EC` drive exposes one at all, leave it as it ships.
 
 ---
 
@@ -901,7 +912,8 @@ host's native driver — `ec_macb` on a Pi 5, `ec_dwmac-rk` on the CB2.
 ## Part 11 — Configuration
 
 This is the machine's `printer.cfg`, which klippy reads from
-`~/printer_data/config/` on the CB2. Replace the file's contents rather than
+`~/printer_data/config/` on whichever machine runs it — the Pi 5 on the path
+Part 2 recommends, the CB2 if the endpoint ended up there. Replace the file's contents rather than
 appending: the classic `[stepper_x]` and `[printer] kinematics:` sections this
 fork rejects will stop it starting. Coming from a mainline Klipper
 configuration, [`Config_Migration.md`](../Config_Migration.md) covers the
@@ -1240,6 +1252,13 @@ Carried forward honestly. None of the following has run on real hardware:
 - Whether 60 W per drive is enough regenerative capacity for this gantry. The
   figure is the drive manual's recommendation, not a measurement against this
   machine's moving mass; `A.13` under hard decel is what says otherwise.
+- Three values that belong to the `-EC` variant and cannot be confirmed against
+  the base ProNet manual: `Pn006.0 = 4` (that manual's `Pn006` range stops at
+  `0x2133`), and the alarm codes **`A.70`** and **`A.71`** (its alarm table runs
+  `A.00` to `A.69`). Every other drive value in this document — the `A.06`,
+  `A.10`, `A.13`, `A.22` and `A.25` meanings, the CN2 pinout, the U/V/W to
+  A/B/C mapping, the encoder resolutions, and every `Pn` in Part 13 with its
+  unit and range — was read back out of that manual and matches.
 
 ## See also
 
