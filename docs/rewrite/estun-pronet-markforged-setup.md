@@ -23,7 +23,7 @@ supply is removed. Every drive has a `CHARGE` lamp for exactly this reason.
 - Nothing in this guide needs a drive opened. If a step seems to, stop.
 
 Mains wiring is notifiable work in some jurisdictions. This document describes
-what to connect, not whether you are the right person to connect it.
+what to connect, not who is competent to connect it.
 
 ## Hardware this targets
 
@@ -186,7 +186,7 @@ Markforged lane assignment, which everything downstream depends on:
 | Motor power cable | PDM-GD12-XX, or 1 mm^2 self-made | 1 mm^2 covers the 0.05-1 kW band |
 | EtherCAT cable | 2x shielded Cat5 or better | 100BASE-TX |
 | Drive debug cable | **mini-USB**, double shielded with ferrites | the `-EC` variant uses mini-USB, not the base drive's RS-485 |
-| Mains parts | breaker, surge protector, noise filter, contactor | plus a surge suppressor for the contactor coil |
+| Mains parts | isolator, MCB, RCBO, SPD, EMC filter, contactor, coil snubber | specified with ratings and examples in **Part 5** — buy from that table, not this row |
 | Regen resistor | external, sized to the gantry | see Part 5 — this frame size has no internal resistor |
 | Endstop switches | 3x (X, Y, Z) | wired to the Manta |
 
@@ -305,9 +305,81 @@ Each ProNet-04AEG-EC takes single-phase **200-230 VAC +10% / -15%, 50/60 Hz**.
 At 230 V the supply sits at the top of nominal with headroom to 253 V. Budget
 **0.9 kVA per drive** — about 8 A at 230 V for the pair.
 
-Feed order from the supply: **breaker -> surge protector -> noise filter ->
-contactor -> drives.** Fit a surge suppressor across the contactor's excitation
-coil.
+### The chain, in order
+
+Seven things between the wall and the drives. The order is not arbitrary —
+each one either protects what follows it or has to sit somewhere specific to
+work at all.
+
+| # | Device | Why it is there | Where it must sit |
+| --- | --- | --- | --- |
+| 1 | **Isolator** (switch-disconnector, lockable) | The lock-off point. Everything downstream can be made dead and *proved* dead by one person holding the key | First thing inside the enclosure, on the incoming cable |
+| 2 | **MCB**, 16 A Type C | Overcurrent and short-circuit protection | Immediately after the isolator |
+| 3 | **RCD or RCBO**, 30 mA Type A | Earth-fault protection. Read the note below before buying — drives break the usual assumptions | With, or immediately after, the MCB |
+| 4 | **Surge protection device**, Type 2 | Clamps mains transients that otherwise reach the drives' rectifiers | At the panel entry, as close to the origin as the wiring allows; its own leads as short and straight as possible |
+| 5 | **EMC / noise filter**, ≥ 10 A | Keeps drive switching noise off the supply, and mains noise out of the encoder feedback | **Directly beside the drives**, bolted metal-to-metal to the backplate. A filter on a long lead filters almost nothing |
+| 6 | **Contactor**, ≥ 20 A AC-1, 230 V coil | The thing an emergency stop actually opens. Without it there is no way to drop drive power except pulling the isolator by hand | Last device before the drives |
+| 7 | **Drives** | | |
+
+Two placement rules carry most of the benefit and are the two most often got
+wrong: the **filter belongs at the drives, not at the panel entry**, bonded to
+bare metal rather than through a painted panel or a wire; and the **SPD's leads
+must be short**, because its clamping voltage is what it lets through plus the
+inductive kick of its own tails.
+
+Fit a surge suppressor across the contactor's coil — an RC snubber for an AC
+coil. Without it the coil's collapse on de-energising is a sharp transient
+directly alongside the encoder wiring.
+
+### Earth leakage, and why a normal RCD is the wrong one
+
+Servo drives leak current to earth by design. The EMC filter's Y-capacitors
+connect line to earth, and that path carries a few milliamps per drive
+continuously, before any fault. Two drives plus a filter can sit at a third or
+more of a 30 mA RCD's trip threshold with the machine idle and behaving.
+
+Worse, the leakage is not a clean sine wave. A rectifier ahead of the DC bus
+gives it a DC component, and a **Type AC RCD cannot see DC residual current at
+all** — it can be blinded by exactly the fault it is fitted to catch.
+
+For single-phase drives like these, **Type A is the minimum** and what IEC
+61800-5-1 expects of a two-pulse rectifier. Type AC is not acceptable. If the
+same board ever feeds anything with a three-phase rectifier, that becomes
+Type B.
+
+If the 30 mA device nuisance-trips on power-up, the answer is **not** a bigger
+threshold chosen by trial. It is either a dedicated 300 mA time-delayed device
+for the drive circuit with 30 mA kept for anything a person touches, or a
+genuine earth fault that has just been found. Measuring the standing leakage
+with a clamp meter distinguishes the two in a minute.
+
+### What to buy
+
+Specifications first: those are derived from this machine's 7.8 A and hold
+whoever supplies the parts. The examples are illustrations of the right class
+of part, not a validated bill of materials — availability moves, and the drive
+manual and local wiring regulations both outrank this table.
+
+| Item | Specification | Example |
+| --- | --- | --- |
+| Isolator | 2-pole, ≥ 20 A, lockable in the OFF position, IP65 if panel-surface | ABB `OT16F3`, or a panel-mount rotary disconnector |
+| MCB | 16 A, **Type C**, 2-pole (or 1P+N), 6 kA | Schneider Acti9 `iC60N C16`, Hager `MT216` |
+| RCBO (combines 2 and 3) | 16 A Type C, 30 mA **Type A** | Schneider Acti9 `iC60` RCBO, Hager `ADA916T` |
+| SPD | Type 2, 230 V, L-N and N-PE modes, with its own backup protection if the MCB does not cover it | Schneider `iPRD 12.5r`, Dehn `DG M TNS 275` |
+| EMC filter | Single phase, 250 VAC, **≥ 10 A**, chassis-mount with a bonding face | Schaffner `FN2090-10-06`, Roxburgh `RES10` |
+| Contactor | 2 or 4 pole, ≥ 20 A AC-1, **230 VAC coil** | Schneider `LC1D09P7`, ABB `ESB20-20` |
+| Coil suppressor | RC snubber matched to the coil | Schneider `LAD4RCU` for the LC1D, or a 100 Ω / 0.1 µF RC |
+| Mains cable, supply to drives | 1.5 mm² is adequate at 7.8 A; **2.5 mm²** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
+| Protective earth | ESTUN specifies **3.5 mm²**, a JIS size with no IEC equivalent — use **4 mm²** | Green/yellow, ring-terminated to the plate |
+| Regen resistor | See the note below — take the **minimum resistance** from the drive manual | — |
+
+**The 16 A rating is not about the 7.8 A load.** At 16 A the drives sit at
+under half the breaker's rating, which looks generous until the inrush is
+considered: energising two DC buses charges their capacitors through the
+rectifiers, and that transient is tens of amps for a few milliseconds. Type C
+trips instantaneously at 5-10× rating, so a 16 A Type C tolerates 80-160 A for
+that instant. A 10 A Type B would trip on the *first* power-up, every time, and
+look like a fault in the drives.
 
 Per drive:
 
@@ -331,6 +403,20 @@ acceleration. The EMJ-04AFD22 rotor inertia is 0.31e-4 kg.m^2. Treat a first
 `A.13` under hard decel as "fit or size up the resistor", not as a tuning
 problem.
 
+Sizing has two independent numbers and they fail in opposite directions:
+
+- **Resistance** has a *minimum*, set by the drive's braking transistor and
+  printed in the ProNet manual for this frame. Going below it lets the
+  transistor pass more current than it is rated for, and destroys it — not a
+  trip, a replacement drive. Take this figure from the manual, not from a
+  calculation and not from a resistor a supplier happens to stock.
+- **Wattage** has a *minimum* too, but undersizing it only cooks the resistor.
+  Start at the manual's recommendation and go up if it runs hot; resistors in
+  this class are cheap next to the drive they protect.
+
+Mount it where it can dissipate — off the backplate, in free air, away from the
+encoder and EtherCAT runs. It reaches temperatures that mark cable insulation.
+
 **Grounding** — the usual cause of intermittent encoder faults:
 
 - Single-point grounding for drives and motors, **<= 100 ohm**.
@@ -340,9 +426,20 @@ problem.
   lines.
 - Separate high- and low-voltage runs. Keep cables short.
 
-**Verify (no motor connected).** Energise. `POWER` (green) lights on both
-drives and the panel shows a status rather than an alarm. `CHARGE` (red) lights
-with main power. Power down, wait 5 minutes, confirm `CHARGE` is out.
+**Verify (no motor connected).**
+
+1. Before energising: the isolator locks OFF with the key out, and a meter
+   across `L1`/`L2` at a drive reads zero with it locked.
+2. Energise. `POWER` (green) lights on both drives and the panel shows a status
+   rather than an alarm. `CHARGE` (red) lights with main power.
+3. The RCD holds. A trip here is the leakage question above, not a reason to
+   fit a larger one.
+4. Clamp the standing earth leakage with the drives idle and write the number
+   down. It is the baseline every future nuisance trip gets compared against,
+   and it takes a minute now against an afternoon later.
+5. Open the contactor — by the emergency stop, not by the isolator. Both drives
+   must drop out. This is the one test that proves the E-stop does anything.
+6. Power down, wait 5 minutes, confirm `CHARGE` is out.
 
 ---
 
@@ -534,7 +631,7 @@ cycle_us: 250
 #endpoint: /home/biqu/serval/rust/target/release/ethercat-rt
 #   Optional. Defaults to rust/target/release/ethercat-rt inside the
 #   repository. Part 12 step 1 switches this to ethercat-rt-stub for the
-#   drive-off dry run, so uncomment it when you get there.
+#   drive-off dry run, so uncomment it at that point.
 
 [motor motor_x]
 drive: servo

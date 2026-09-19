@@ -246,3 +246,44 @@ def test_guide_servo_param_examples_name_a_motor_the_config_declares():
     assert used <= names, (
         f"{used - names} is not a [motor] in the guide's config"
     )
+
+
+def mains_section():
+    text = GUIDE.read_text(encoding="utf-8")
+    return text.split("## Part 5 — Mains and drive power")[1].split(
+        "## Part 6"
+    )[0]
+
+
+def test_breaker_rating_carries_the_stated_load():
+    """The MCB is sized for inrush, not for the 7.8 A the drives draw.
+
+    Two 0.9 kVA drives at 230 V is 7.8 A continuous, so the rating must exceed
+    it with room for the rectifier inrush that a correctly-curved breaker has
+    to ride through. A rating at or below the load would trip under normal
+    running; the curve letter is what makes the inrush survivable.
+    """
+    section = mains_section()
+    rating = int(re.search(r"(\d+) A, \*\*Type C\*\*", section)[1])
+    load_amps = 2 * 0.9 * 1000 / 230
+    assert rating > load_amps * 1.5, (
+        f"{rating} A leaves no margin over {load_amps:.1f} A of load"
+    )
+    assert "Type C" in section and "Type B would trip" in section
+
+
+def test_rcd_type_rules_out_the_one_that_cannot_see_dc():
+    """Type AC is blinded by the DC residual a rectifier produces, which is the
+    whole hazard. The section must name Type A as the floor and say so."""
+    section = mains_section()
+    assert "Type AC is not acceptable" in section
+    assert "Type A is the minimum" in section
+
+
+def test_parts_row_defers_to_the_specified_table():
+    """Part 1 listed mains parts independently and fell behind Part 5's chain.
+    It now points at the table rather than repeating it."""
+    text = GUIDE.read_text(encoding="utf-8")
+    row = re.search(r"^\| Mains parts \|.*$", text, re.M)
+    assert row, "the Part 1 mains row has gone"
+    assert "Part 5" in row.group(0)
