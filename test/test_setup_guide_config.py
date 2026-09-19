@@ -566,3 +566,27 @@ def test_the_rail_budget_adds_up():
     assert 17.5 * stated <= millimetres <= 18 * stated, (
         f"{stated} modules is not {millimetres} mm"
     )
+
+
+def test_the_halt_button_pin_matches_the_wiring_table():
+    """The pin appears in Part 8's table and again in the config. Changing one
+    leaves the halt wired to whatever else is on the other pin."""
+    text = GUIDE.read_text(encoding="utf-8")
+    row = re.search(r"^\| Emergency stop signal \| `(\w+)` \|", text, re.M)
+    assert row, "Part 8 no longer assigns a pin to the emergency stop"
+    configured = re.search(r"\[gcode_button estop\]\npin: ([^\n]+)", text)
+    assert configured, "the config no longer carries the estop button"
+    assert configured[1].lstrip("^") == row[1], (
+        f"{configured[1]} is not the {row[1]} the wiring table gives"
+    )
+
+
+def test_the_halt_input_is_wired_to_fail_safe():
+    """An NC contact on a pulled-up input reads the same pressed as it does
+    with the wire off, so a broken signal wire stops the machine. Inverting it
+    for an NO contact makes that same fault silent."""
+    text = GUIDE.read_text(encoding="utf-8")
+    pin = re.search(r"\[gcode_button estop\]\npin: ([^\n]+)", text)[1]
+    assert pin.startswith("^"), f"{pin} has no pull-up"
+    assert "!" not in pin, f"{pin} is inverted, which is the NO wiring"
+    assert "press_gcode: M112" in text

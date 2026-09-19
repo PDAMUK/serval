@@ -170,6 +170,10 @@ Markforged lane assignment, which everything downstream depends on:
 
 - The drive's bus capacitor stays charged after power is removed. **Wait 5
   minutes** and confirm the `CHARGE` lamp is out before touching terminals.
+- **The emergency stop does not make the machine dead.** It drops the motors by
+  opening the contactor, and control power stays on so the drives can be halted
+  cleanly — see Part 5. Only the isolator, locked off, makes the enclosure safe
+  to work in.
 - Never plug or unplug a drive connector with power applied.
 - Power sequencing: control power (`L1C`/`L2C`) **on first**, main circuit
   (`L1`/`L2`) on second; reverse on shutdown.
@@ -219,14 +223,14 @@ per-drive chain would double every protective device and buy nothing.
 | RCD | 1 | ABB `F202 A-25/0.03` | **488-6915** |
 | EMC filter | 1 | Roxburgh/Deltron `DRF10`, or Schaffner `FN2412-16-44` if the filter's ambient reaches 50 C — Part 5 decides which | **761-5696** / **518-6389** |
 | Contactor | 1 | ABB `ESB20-20N-06` | **211-1482** |
-| Emergency stop | 1 | Schneider `XALK178` — enclosed, twist release, 1 NC, breaks the contactor coil | **795-1295** |
+| Emergency stop | 1 | **Two NC contacts** — one breaks the contactor coil, one signals `PF1`. RS PRO key release, through hole, 1 NC/1 NC, IP65 | **139-972** |
 | Coil suppressor | 1, optional | RC network, 0.1 uF + 100 ohm, **Class X2**. Not needed behind the `ESB20-20N-06`, which suppresses its own coil — see Part 5. Evox-Rifa/Kemet `PMR209MC6100M100`; RS has withdrawn its listing, Farnell and CPC still carry it | — |
 | SPD | 1, optional | Schneider `A9L20500` iPRD20 | **654-748** |
 | DIN rail | 1 | 35 mm top-hat, plus two end stops | — |
 | Terminal blocks | 3 | L, N and PE feed-through with jumper links. Each drive takes main power at `L1`/`L2` **and** control power at `L1C`/`L2C` off the same pair, so one contactor pole lands on four conductors, not two | — |
 | Mains cable, supply to drives | 1 run | 3-core flexible 300/500 V; 1.5 mm^2 carries 7.83 A, 2.5 mm^2 for volt-drop margin over a couple of metres | — |
-| Mains inlet | 1 | **C20** (16 A). A C14 is rated 10 A, which the drives alone take 78% of | — |
-| Mains lead | 1 | C19 to 13 A BS 1363 plug. Its CPC is the machine's only connection to earth | — |
+| Mains inlet | 1 | **C20** (16 A). A C14 is rated 10 A, which the drives alone take 78% of. Schurter `EC11.0031.001`, panel mount | **870-3413** |
+| Mains lead | 1 | C19 to **BS1363**, H05VV-F 3G1.5. Its CPC is the machine's only connection to earth. Check the title says BS1363 or Type G — RS lists C19 leads with Schuko plugs under nearly the same description | **311-9315** |
 | Protective bonding | 1 run | 4 mm^2 green/yellow, main earth terminal to ground plate, ring-terminated. This is internal bonding, **not** the supply earth — see Part 5 | — |
 
 ### One for the machine
@@ -498,6 +502,42 @@ protection covering everything else in the enclosure, and a fault in the thin
 wiring going out to a button on the machine's outside is exactly what that
 protection is for.
 
+### Halting the drives as the stop is pressed
+
+The contactor dropping main power is the safety function and nothing below
+changes it. What the second contact adds is that the host finds out. Without
+it, klippy keeps streaming cyclic position targets into a bus that has just
+gone dark, and the first thing anyone sees is an endpoint death and a spread of
+drive faults rather than "the stop was pressed".
+
+The path already exists in this fork. A second contact on the button drives an
+input on the Manta, `M112` runs on the edge, and the `klippy:shutdown` that
+follows reaches `ethercat_node`, which calls `stop_node` on each node: a CiA
+402 **Stop** to every drive, then **torque disable**. Part 11 wires it up.
+
+**Two things have to be true for that halt to land.**
+
+First, the drives have to still be powered when it arrives. `L1C`/`L2C` is
+control power and `L1`/`L2` is the main circuit, and they are separate
+terminals precisely so they can be switched separately. **Take control power
+from upstream of the contactor and switch only the main circuit.** The drive
+then stays alive with its bus collapsing, accepts the Stop, disables torque,
+holds the EtherCAT link up and reports its own state. Put both behind the
+contactor and the drive dies mid-frame; the halt is sent into nothing.
+
+That costs something and it has to be said plainly: **with control power
+upstream, pressing the emergency stop no longer makes the drive dead.** The
+motor is dead, because the bus is gone. The drive's electronics are still on
+230 V. The isolator remains the only lock-off point, and everything in
+**Before anything else** still applies — the stop is not a substitute for it.
+
+Second, the halt is **best effort and is not a protective measure**. The NC and
+NO contacts of one button change over at the same instant, with no ordering
+between them, and the Stop travels over a fieldbus at a 250 microsecond cycle
+while the contactor takes tens of milliseconds to open. It usually wins. It is
+not required to, and nothing should be built on the assumption that it does.
+The reason to fit it is a clean stop and a readable log, not safety.
+
 If a snubber does go in — behind some other contactor, or out of caution —
 **it goes across the coil, never across the emergency stop's contact.** The
 part is sold as a contact suppressor, and that is the wrong place for it in
@@ -588,7 +628,9 @@ enough to corrupt encoder feedback.
 | RCD | 2-pole, 30 mA, **Type A** | ABB `F202 A-25/0.03` — 25 A, 2 pole, 2 modules — RS **488-6915** |
 | EMC filter | Single phase, 250 VAC, rated above 7.83 A **at the temperature the filter sits at** | Roxburgh/Deltron `DRF10` — DIN rail, 100 g, 1.46 mA leakage, 10 A at 40 C — RS **761-5696**. Above 45 C ambient: Schaffner `FN2412-16-44` — DIN rail, 16 A at 50 C, 110 x 93 x 73 mm, 3.4 mA leakage — RS **518-6389** |
 | Contactor | 2 pole, >= 20 A AC-1, **230 V coil**; a DC or universal control circuit rather than an AC solenoid, so the coil carries its own suppression | ABB `ESB20-20N-06` — 20 A AC-1, one module at 18 mm, control circuit DC/50/60/400 Hz — RS **211-1482** |
-| Emergency stop | Latching, twist release, at least one **NC** contact, in its own enclosure. Wired in series with the contactor coil, not in the mains path | Schneider `XALK178` — enclosed, 40 mm head, 1 NC, IP69K — RS **795-1295** |
+| Emergency stop | Latching, with **two NC contacts**: one in series with the contactor coil, one to the host input that triggers the halt. Not in the mains path | RS PRO key release, 1 NC/1 NC, IP65, through-hole so it needs a panel to sit in — RS **139-972**. The same family runs to a 2 NC + 1 NO variant, deliberately not given a code here because the NO contact is the one this circuit should not use |
+| Mains inlet | 16 A appliance coupler, panel mounting. A C14 is rated 10 A and the drives alone take 78% of it | Schurter `EC11.0031.001` C20 — RS **870-3413** |
+| Mains lead | C19 to **BS1363**, 13 A. RS lists C19 leads with Schuko plugs under nearly the same description, so check the title names BS1363 or Type G | RS PRO, 2 m, H05VV-F 3G1.5 — RS **311-9315** |
 | Mains cable, supply to drives | 1.5 mm^2 is adequate at 7.83 A; **2.5 mm^2** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
 | Protective earth | ESTUN specifies **3.5 mm^2**, a JIS size with no IEC equivalent — use **4 mm^2** | Green/yellow, ring-terminated to the plate |
 | Regenerative resistor | **50 ohm, 60 W**, one per drive — see the note below, because 60 W depends on how it is mounted | Arcol `HS100 50R J` — RS **252-2928** |
@@ -679,7 +721,7 @@ Per drive:
 | Terminal | Connect |
 | --- | --- |
 | `L1`, `L2` | main circuit power (single phase; `L3` unused) |
-| `L1C`, `L2C` | control power, same supply |
+| `L1C`, `L2C` | control power — **upstream of the contactor**, so the drive survives an emergency stop and can be told to halt |
 | `+1`, `+2` | DC reactor terminals — **leave the factory link fitted** |
 | `B1`, `B2` | external regenerative resistor — see below |
 | PE | ground plate |
@@ -764,8 +806,11 @@ intermittent encoder faults:
 5. Clamp the standing earth leakage with the drives idle and write the number
    down. It is the baseline every future nuisance trip gets compared against,
    and it takes a minute now against an afternoon later.
-6. Open the contactor — by the emergency stop, not by the isolator. Both drives
-   must drop out. This is the one test that proves the E-stop does anything.
+6. Open the contactor — by the emergency stop, not by the isolator. `CHARGE`
+   goes out on both drives and the motors go dead, while `POWER` stays lit,
+   because control power is upstream. This is the one test that proves the
+   stop does anything. If `POWER` drops too, control power is on the wrong
+   side of the contactor and the halt in Part 11 will never arrive.
 7. Power down, wait 5 minutes, confirm `CHARGE` is out.
 
 ---
@@ -850,6 +895,7 @@ and Y endstops serve servo axes.
 | X endstop | `PF4` | serves the X **servo** axis |
 | Y endstop | `PF3` | serves the Y **servo** axis |
 | Z endstop | `PF2` | |
+| Emergency stop signal | `PF1` | Motor4's endstop input, free in this build |
 | Hotend heater / thermistor | `PA0` (HE0) / `PB0` (T0) | |
 | Bed heater / thermistor | `PF5` / `PB1` (TB) | |
 | Part cooling fan | `PF7` (Fan0) | |
@@ -864,7 +910,8 @@ Every row above is taken from BigTreeTech's own published configuration,
 the slot numbers, which **start at Motor1, not Motor0**. `PB8` is Motor3 there,
 not Motor2; counting from zero puts every stepper in the wrong socket. The
 three endstop pins are the ones that file uses for `stepper_x`, `stepper_y` and
-`stepper_z` respectively. Check the row against that file rather than against
+`stepper_z` respectively, and `PF1` is the one it gives Motor4, which this
+build leaves empty. Check the row against that file rather than against
 another board's config before plugging anything in.
 
 Wire the motor coils in pairs by phase, not by wire colour. Route endstop and
@@ -1067,7 +1114,33 @@ sensor_type: ATC Semitec 104GT-2
 
 [fan]
 pin: PF7
+
+[gcode_button estop]
+pin: ^PF1
+press_gcode: M112
 ```
+
+**`[gcode_button estop]` is the halt.** `M112` shuts klippy down, and the
+shutdown reaches `ethercat_node`, which sends every drive a Stop and then
+disables its torque.
+
+The pin polarity is the whole of the wiring, and it is worth being slow about.
+`^PF1` pulls the input up, so the button's contact goes between `PF1` and
+ground:
+
+| Contact | Not pressed | Pressed | Wire pulled off |
+| --- | --- | --- | --- |
+| **NC** — `pin: ^PF1` | closed, reads 0 | open, reads 1 — **halts** | open, reads 1 — **halts** |
+| NO — `pin: ^!PF1` | open, reads 1 | closed, reads 0 — halts | open, reads 1 — nothing |
+
+Use an **NC** contact. A broken signal wire then looks exactly like a pressed
+button and the machine stops; on an NO contact the same fault is silent, and
+the failure is discovered by pressing the stop and watching nothing happen. A
+button with two NC contacts does this job with no NO contact anywhere: one for
+the contactor coil, one for `PF1`.
+
+There is no `release_gcode`. A shutdown latches, and clearing it is a
+`FIRMWARE_RESTART` once the stop has been released deliberately.
 
 **The two drive limits are the only thing standing between a wrong number and
 a bent frame.** `max_torque` is a percentage of *rated* torque, not a raw
