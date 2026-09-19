@@ -224,7 +224,9 @@ per-drive chain would double every protective device and buy nothing.
 | DIN rail | 1 | 35 mm top-hat, plus two end stops | — |
 | Terminal blocks | 3 | L, N and PE feed-through with jumper links. Each drive takes main power at `L1`/`L2` **and** control power at `L1C`/`L2C` off the same pair, so one contactor pole lands on four conductors, not two | — |
 | Mains cable, supply to drives | 1 run | 3-core flexible 300/500 V; 1.5 mm^2 carries 7.83 A, 2.5 mm^2 for volt-drop margin over a couple of metres | — |
-| Protective earth | 1 run | 4 mm^2 green/yellow, ring-terminated to the plate | — |
+| Mains inlet | 1 | **C20** (16 A). A C14 is rated 10 A, which the drives alone take 78% of | — |
+| Mains lead | 1 | C19 to 13 A BS 1363 plug. Its CPC is the machine's only connection to earth | — |
+| Protective bonding | 1 run | 4 mm^2 green/yellow, main earth terminal to ground plate, ring-terminated. This is internal bonding, **not** the supply earth — see Part 5 | — |
 
 ### One for the machine
 
@@ -365,6 +367,93 @@ Each ProNet-04AEG-EC takes single-phase **200-230 VAC +10% / -15%, 50/60 Hz**.
 At 230 V the supply sits at the top of nominal with headroom to 253 V. Budget
 **0.9 kVA per drive** — about 8 A at 230 V for the pair.
 
+### Where the supply arrives, and what "earth" means at each point
+
+A plug-connected machine in a UK house has three different conductors that
+all get called earth, and they are sized and tested by different rules.
+Collapsing them into one line is how a machine ends up with a 4 mm^2 strap
+bolted to a chassis whose actual connection to earth is a 13 A plug.
+
+| | What it is | Sized by | Tested by |
+| --- | --- | --- | --- |
+| **Supply PE** | The CPC in the mains lead, from the plug's earth pin to the machine's main earth terminal | The cord. A 13 A UK lead is 1.25 or 1.5 mm^2, and nothing inside the machine changes that | Continuity, plug pin to chassis, **under 0.1 ohm** |
+| **Protective bonding** | Main earth terminal to the ground plate, and from the plate to every exposed metal part: drives, motors, filter body, enclosure panels | ESTUN's **3.5 mm^2** minimum, taken up to 4 mm^2 | Continuity to the same 0.1 ohm |
+| **Functional earth** | Cable shields, the filter's earth wire, the ground plate itself as a reference | EMC, not fault current | Nothing. It either quietens the encoder or it does not |
+
+The 4 mm^2 is a drive-maker's figure for a low-impedance bonding path, not a
+fault-current calculation. A 1.5 mm^2 supply cord would take a 1.5 mm^2
+protective conductor under the wiring regulations; 4 mm^2 is far above that,
+and it buys noise performance rather than safety margin. It applies from the
+main earth terminal inwards. It cannot be applied to the lead, because the
+lead is a bought item.
+
+**The ESTUN manual's grounding instruction does not transfer to a UK house.**
+It says to ground "to an independent ground, use ground resistor 100 ohm max",
+and that single point grounding is required "grounding resistance 100 ohm or
+below". That is a JIS Class D earth: a local electrode, measured against true
+earth, which is how the drive's home market earths machinery.
+
+A UK domestic supply already provides the earth, as TN-C-S (PME) in most
+houses or TN-S in older ones, and it arrives at the socket. The declared
+maximum external loop impedance is **0.35 ohm for TN-C-S and 0.8 ohm for
+TN-S** — two orders of magnitude inside ESTUN's 100 ohm, which is therefore
+satisfied by plugging the machine in, with nothing to measure and nothing to
+install.
+
+Driving an earth rod and bonding the machine to it is the wrong reading, and
+under PME it is actively dangerous: the machine would sit between the supply's
+combined neutral-earth and a local electrode, giving diverted neutral current a
+path through the chassis. **There is one earth, and it comes in on the lead.**
+
+### One plug or two
+
+The drives alone draw **7.83 A**. That number decides the inlet before it
+decides anything else.
+
+A **C13/C14 coupler is rated 10 A**. The drives take 78% of it with the bed,
+hotend, PSU, host and fans still to be fed, so a C14 inlet cannot carry this
+machine. The connector, not the circuit, is the limit. **C19/C20 is rated
+16 A** and moves the limit back to where it belongs: the plug's 13 A fuse.
+
+So the order of preference is:
+
+1. **One cord.** A 13 A BS 1363 plug into a C19/C20 inlet. The 13 A fuse
+   leaves 5.17 A — about 1.2 kW — for everything that is not a servo drive,
+   which a 300 mm bed at 600 W fits inside with room. One plug, one fuse, one
+   RCD, one thing to pull.
+2. **A dedicated circuit,** if the total goes past 13 A: a 16 A radial to a
+   BS EN 60309 socket, still one cord. Past 13 A the machine has outgrown a
+   domestic socket, and the answer is a bigger circuit rather than more plugs.
+3. **Two cords, reluctantly.** EN 60204-1 asks for a single incoming supply
+   where practicable, and this is why.
+
+Two cords are not primarily an earthing problem — each lead brings its own
+CPC, both land on the same main earth terminal, and two parallel protective
+conductors are redundancy rather than a hazard. The problem is isolation.
+EN 60204-1 requires **a disconnecting device for each incoming supply**, and a
+permanent warning label at each one where opening the other leaves circuits
+energised. A machine with two cords and one isolator has no lock-off point,
+which removes the premise the whole chain above is built on: Part 5 step 1
+proves the machine dead by locking one switch, and it cannot.
+
+If two cords are unavoidable:
+
+- Both plugs into the **same socket**, so both are on one circuit, one RCD and
+  one 32 A ring. Splitting them across two RCDs halves the measured leakage
+  and hides the problem the leakage section exists to surface.
+- The isolator breaks **both**, or there are two isolators and a label on each
+  saying so.
+- Both CPCs land on the one main earth terminal, not on separate studs.
+- Label each inlet with what it feeds.
+
+**The plug fuse is the overcurrent device, not the MCB.** A 13 A BS 1362 fuse
+upstream of a 16 A MCB clears first on any overload the MCB would eventually
+see, so the internal breaker is a local isolating and short-circuit device
+rather than the thing protecting the flex. It is still worth fitting — it is
+half of the RCBO, and it switches — but the coordination runs from the plug.
+The fuse rides the rectifier inrush without trouble: tens of amps for a few
+milliseconds is a handful of A^2s against a 13 A fuse's pre-arcing energy.
+
 ### The chain, in order
 
 Seven things between the wall and the drives. The order is not arbitrary —
@@ -373,7 +462,7 @@ work at all.
 
 | # | Device | Why it is there | Where it must sit |
 | --- | --- | --- | --- |
-| 1 | **Isolator** (switch-disconnector, lockable) | The lock-off point. Everything downstream can be made dead and *proved* dead by one person holding the key | First thing inside the enclosure, on the incoming cable |
+| 1 | **Isolator** (switch-disconnector, lockable) | The lock-off point. Everything downstream can be made dead and *proved* dead by one person holding the key — which requires it to break **every** incoming cord, not one of two | First thing inside the enclosure, on the incoming cable |
 | 2 | **MCB**, 16 A Type C | Overcurrent and short-circuit protection | Immediately after the isolator |
 | 3 | **RCD or RCBO**, 30 mA Type A | Earth-fault protection. Read the note below before buying — drives break the usual assumptions | With, or immediately after, the MCB |
 | 4 | **Surge protection device**, Type 2 — optional, see below | Clamps mains transients that otherwise reach the drives' rectifiers | At the panel entry, as close to the origin as the wiring allows; its own leads as short and straight as possible |
@@ -450,8 +539,8 @@ The step up is not free, and the cost is leakage rather than money. The
 its datasheet notes that an interrupted neutral can double that. Against the
 15 mA a 30 mA RCD may trip at, a 3.4 mA standing leak is most of a quarter of
 the budget before the drives have contributed anything. Measure the standing
-leakage after fitting either one — step 4 of the verification below exists for
-this.
+leakage after fitting either one — step 5 of the verification below exists
+for this.
 
 ### What to buy
 
@@ -600,29 +689,40 @@ as a tuning problem.
 Mount it away from the encoder and EtherCAT runs. It reaches temperatures that
 mark cable insulation.
 
-**Grounding** — the usual cause of intermittent encoder faults:
+**Grounding.** The supply earth is settled by the lead, as the section above
+sets out. What remains is inside the machine, and it is the usual cause of
+intermittent encoder faults:
 
-- Single-point grounding for drives and motors, **<= 100 ohm**.
-- Ground-plate wires at least **3.5 mm^2**.
+- **One star point.** The main earth terminal is it. Drives, motors, filter
+  body and enclosure panels each get their own conductor back to the ground
+  plate, and the plate gets one conductor to the main earth terminal. ESTUN's
+  "single point grounding" means this, not a local electrode.
+- **Ground-plate wires at least 3.5 mm^2**, taken up to 4 mm^2.
 - The noise filter's ground wire runs straight to the ground plate, never
   daisy-chained through another device, and stays separate from its output
   lines.
 - Separate high- and low-voltage runs. Keep cables short.
+- Paint is an insulator. Every bond that matters is to bare metal, with a
+  serrated washer or a scraped landing.
 
 **Verify (no motor connected).**
 
-1. Before energising: the isolator locks OFF with the key out, and a meter
-   across `L1`/`L2` at a drive reads zero with it locked.
-2. Energise. `POWER` (green) lights on both drives and the panel shows a status
+1. Before energising: continuity from the plug's earth pin to the ground
+   plate, to a drive's PE stud and to the enclosure reads **under 0.1 ohm**.
+   A reading in ohms rather than milliohms is a bond onto paint.
+2. Before energising: the isolator locks OFF with the key out, and a meter
+   across `L1`/`L2` at a drive reads zero with it locked. With two cords, that
+   has to hold with either one plugged in alone.
+3. Energise. `POWER` (green) lights on both drives and the panel shows a status
    rather than an alarm. `CHARGE` (red) lights with main power.
-3. The RCD holds. A trip here is the leakage question above, not a reason to
+4. The RCD holds. A trip here is the leakage question above, not a reason to
    fit a larger one.
-4. Clamp the standing earth leakage with the drives idle and write the number
+5. Clamp the standing earth leakage with the drives idle and write the number
    down. It is the baseline every future nuisance trip gets compared against,
    and it takes a minute now against an afternoon later.
-5. Open the contactor — by the emergency stop, not by the isolator. Both drives
+6. Open the contactor — by the emergency stop, not by the isolator. Both drives
    must drop out. This is the one test that proves the E-stop does anything.
-6. Power down, wait 5 minutes, confirm `CHARGE` is out.
+7. Power down, wait 5 minutes, confirm `CHARGE` is out.
 
 ---
 

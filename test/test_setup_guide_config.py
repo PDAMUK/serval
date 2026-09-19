@@ -412,3 +412,54 @@ def test_the_needed_table_carries_the_whole_protective_chain():
     three tables, or the reader assembles a chain they cannot source."""
     needed = {row[0] for row in buy_table("**Needed.**")}
     assert {"Isolator", "EMC filter", "Contactor"} <= needed, needed
+
+
+def earth_section():
+    return (
+        mains_section()
+        .split("### Where the supply arrives")[1]
+        .split("### The chain, in order")[0]
+    )
+
+
+def test_the_inlet_is_rated_above_what_the_drives_draw():
+    """A C14 coupler is rated 10 A and the drives take 7.83 A of it, so the
+    connector runs out before the circuit does. The bill has to name the
+    bigger one and say why."""
+    row = re.search(r"^\| Mains inlet \|.*$", bom_section(), re.M)
+    assert row, "the inlet row has gone from the bill of materials"
+    assert "C20" in row.group(0), row.group(0)
+    assert "10 A" in row.group(0), "the C14 rating is what makes C20 the answer"
+
+
+def test_the_drive_manuals_earthing_instruction_is_refused():
+    """ESTUN specifies a local electrode, which is a JIS Class D earth. Followed
+    literally on a PME supply that is dangerous, so the guide has to say so
+    rather than repeat the manual."""
+    section = earth_section()
+    assert "independent ground" in section, "the manual's wording is not quoted"
+    assert "PME" in section
+    assert "100 ohm" in section, "the figure being overridden is not stated"
+
+
+def test_earth_continuity_is_tested_at_the_right_order_of_magnitude():
+    """100 ohm is the manual's electrode figure. Using it as a continuity
+    limit would pass a bond made onto paint."""
+    steps = mains_section().split("**Verify (no motor connected).**")[1]
+    assert "0.1 ohm" in steps, "no continuity figure in the verification"
+    assert "100 ohm" not in steps
+
+
+def test_numbered_lists_run_in_order():
+    """A step inserted by hand renumbers everything after it, and markdown
+    renders the list correctly either way, so nothing else catches this."""
+    run, bad = [], []
+    for line in GUIDE.read_text(encoding="utf-8").splitlines() + [""]:
+        found = re.match(r"^(\d+)\. ", line)
+        if found:
+            run.append(int(found[1]))
+        elif line.strip() and not line.startswith("   ") and run:
+            if run != list(range(1, len(run) + 1)):
+                bad.append(run)
+            run = []
+    assert not bad, f"out-of-order numbered lists: {bad}"
