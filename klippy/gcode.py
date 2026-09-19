@@ -233,14 +233,18 @@ class GCodeDispatch:
             self.gcode_help[cmd] = desc
         self._build_status_commands()
 
-    def register_mux_command(self, cmd, key, value, func, desc=None):
+    def register_mux_command(
+        self, cmd, key, value, func, desc=None, when_not_ready=False
+    ):
         prev = self.mux_commands.get(cmd)
         if prev is None:
 
             def handler(gcmd):
                 return self._cmd_mux(cmd, gcmd)
 
-            self.register_command(cmd, handler, desc=desc)
+            self.register_command(
+                cmd, handler, when_not_ready=when_not_ready, desc=desc
+            )
             self.mux_commands[cmd] = prev = (key, {})
         prev_key, prev_values = prev
         if prev_key != key:

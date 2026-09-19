@@ -336,7 +336,17 @@ class EtherCatNode:
         if self.engine_handle is None:
             return
         engine = self.printer.lookup_object("motion_engine")
-        engine.stop_node(self.engine_handle)
+        try:
+            engine.stop_node(self.engine_handle)
+        except Exception:
+            logging.exception(
+                "ethercat_node %s: THE DRIVES WERE NOT STOPPED — stop_node "
+                "failed on handle=%s. The contactor is what removes power; "
+                "this path is what tells the drives about it, and it did not.",
+                self.name,
+                self.engine_handle,
+            )
+            return
         logging.info(
             "ethercat_node %s: servo motion discarded on shutdown (handle=%s)",
             self.name,

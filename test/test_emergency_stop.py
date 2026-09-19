@@ -17,8 +17,10 @@ class RecordingGCode:
         self.mux_commands = []
         self.responses = []
 
-    def register_mux_command(self, cmd, key, value, func, desc=None):
-        self.mux_commands.append((cmd, key, value, func))
+    def register_mux_command(
+        self, cmd, key, value, func, desc=None, when_not_ready=False
+    ):
+        self.mux_commands.append((cmd, key, value, func, when_not_ready))
 
     def respond_info(self, msg):
         self.responses.append(msg)
@@ -117,3 +119,16 @@ def test_a_missing_pin_is_refused():
 
     with pytest.raises(Exception):
         EmergencyStop(config)
+
+
+def test_the_query_survives_the_shutdown_the_stop_causes():
+    """Pressing the stop shuts klippy down, and a shutdown drops every command
+    that is not registered when_not_ready. Without this the query can only ever
+    be run in the clear state — it could never report the press that is the
+    whole reason to ask, nor confirm the button is still held."""
+    _stop, _printer, _buttons, gcode = build()
+
+    (cmd, key, _value, _func, when_not_ready) = gcode.mux_commands[0]
+
+    assert (cmd, key) == ("QUERY_EMERGENCY_STOP", "STOP")
+    assert when_not_ready is True

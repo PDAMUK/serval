@@ -133,10 +133,17 @@ pub(super) fn apply_tick_action(ctx: &mut EndpointCtx, apply_time: u64, all_ring
             }
         }
         TickAction::Fault { code } => {
+            let fault_code_u16 = (code as u32 & 0xFFFF) as u16;
             eprintln!(
                 "ec-rt: torque-gate fault code={code} — pieces present without torque, exiting"
             );
-            respond_fault_heartbeat(ctx, ENGINE_STATE_FAULT, 0);
+            tracing::error!(
+                subsystem = "ethercat",
+                event = "torque_gate_fault",
+                fault_code = code,
+                "pieces present without torque — notifying host via heartbeat and exiting"
+            );
+            respond_fault_heartbeat(ctx, ENGINE_STATE_FAULT, fault_code_u16);
             ctx.drive.shutdown_and_exit();
         }
     }

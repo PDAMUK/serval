@@ -21,6 +21,7 @@ class EmergencyStop:
             self.name,
             self.cmd_QUERY_EMERGENCY_STOP,
             desc=self.cmd_QUERY_EMERGENCY_STOP_help,
+            when_not_ready=True,
         )
 
     def _handle_state(self, eventtime, state):

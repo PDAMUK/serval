@@ -467,3 +467,26 @@ def test_the_shutdown_handler_is_registered_on_the_klippy_event():
     with open(source, encoding="utf-8") as handle:
         text = handle.read()
     assert '"klippy:shutdown", self._handle_shutdown' in text
+
+
+class _FailingEngine:
+    def stop_node(self, handle):
+        raise RuntimeError("endpoint rejected Stop: result -6")
+
+
+def test_a_failed_stop_says_so_instead_of_reading_as_a_clean_shutdown(caplog):
+    """invoke_shutdown catches whatever a handler raises and logs it as a
+    generic handler exception. On this path that reads as an ordinary
+    shutdown, when what actually happened is that the emergency stop did not
+    reach the drives."""
+    printer = types.SimpleNamespace(
+        lookup_object=lambda name: {"motion_engine": _FailingEngine()}[name]
+    )
+    node = types.SimpleNamespace(
+        name="node_x", printer=printer, engine_handle=3
+    )
+
+    ethercat_node.EtherCatNode._handle_shutdown(node)
+
+    assert "THE DRIVES WERE NOT STOPPED" in caplog.text
+    assert "node_x" in caplog.text

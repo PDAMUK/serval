@@ -849,7 +849,14 @@ intermittent encoder faults:
    because control power is upstream. This is the one test that proves the
    stop does anything. If `POWER` drops too, control power is on the wrong
    side of the contactor and the halt in Part 11 will never arrive.
-7. Power down, wait 5 minutes, confirm `CHARGE` is out.
+7. Test the halt, which is a separate thing from step 6 and fails separately.
+   With klippy ready, `QUERY_EMERGENCY_STOP STOP=estop` reports `clear`. Press
+   the stop: klippy shuts down naming the stop, and the same query — which
+   still answers during a shutdown — reports `ASSERTED`. Release, then
+   `FIRMWARE_RESTART`. A query that answers `clear` with the button held means
+   the second contact is not wired to `PF1`; a klippy that does not shut down
+   at all means the contact is NO where the config expects NC.
+8. Power down, wait 5 minutes, confirm `CHARGE` is out.
 
 ---
 
@@ -1189,10 +1196,17 @@ The pin polarity is the whole of the wiring, and it is worth being slow about.
 `^PF1` pulls the input up, so the button's contact goes between `PF1` and
 ground:
 
-| Contact | Not pressed | Pressed | Wire pulled off |
-| --- | --- | --- | --- |
-| **NC** — `pin: ^PF1` | closed, reads 0 | open, reads 1 — **halts** | open, reads 1 — **halts** |
-| NO — `pin: ^!PF1` | open, reads 1 | closed, reads 0 — halts | open, reads 1 — nothing |
+Two things get called "reads 1" and they are not the same: the voltage at the
+pin, and the state `[emergency_stop]` acts on. `!` inverts the second and not
+the first, so for an NO contact they disagree. The **asserted** column is the
+one that decides whether the machine halts.
+
+| Contact | | Not pressed | Pressed | Wire pulled off |
+| --- | --- | --- | --- | --- |
+| **NC** — `pin: ^PF1` | pin | low | high | high |
+| | asserted | no | **yes — halts** | **yes — halts** |
+| NO — `pin: ^!PF1` | pin | high | low | high |
+| | asserted | no | yes — halts | no — **nothing** |
 
 Use an **NC** contact. A broken signal wire then looks exactly like a pressed
 button and the machine stops; on an NO contact the same fault is silent, and
