@@ -334,9 +334,16 @@ directly alongside the encoder wiring.
 ### Earth leakage, and why a normal RCD is the wrong one
 
 Servo drives leak current to earth by design. The EMC filter's Y-capacitors
-connect line to earth, and that path carries a few milliamps per drive
-continuously, before any fault. Two drives plus a filter can sit at a third or
-more of a 30 mA RCD's trip threshold with the machine idle and behaving.
+connect line to earth, and that path carries current continuously, before any
+fault.
+
+This is not a vague caution — filter datasheets state it. A Roxburgh `DRF10`
+is specified at **1.46 mA maximum leakage**. That is the filter alone, and the
+drives carry their own internal filters on top. A 30 mA RCD is required to trip
+between 15 and 30 mA, so the usable budget is 15 mA, and a few milliamps of
+standing leakage before the machine has done anything is a real fraction of it.
+Add a PSU, a bed heater and anything else sharing the circuit and the margin is
+smaller than it looks.
 
 Worse, the leakage is not a clean sine wave. A rectifier ahead of the DC bus
 gives it a DC component, and a **Type AC RCD cannot see DC residual current at
@@ -366,12 +373,47 @@ manual and local wiring regulations both outrank this table.
 | MCB | 16 A, **Type C**, 2-pole (or 1P+N), 6 kA | Schneider Acti9 `iC60N C16`, Hager `MT216` |
 | RCBO (combines 2 and 3) | 16 A Type C, 30 mA **Type A** | Schneider Acti9 `iC60` RCBO, Hager `ADA916T` |
 | SPD | Type 2, 230 V, L-N and N-PE modes, with its own backup protection if the MCB does not cover it | Schneider `iPRD 12.5r`, Dehn `DG M TNS 275` |
-| EMC filter | Single phase, 250 VAC, **≥ 10 A**, chassis-mount with a bonding face | Schaffner `FN2090-10-06`, Roxburgh `RES10` |
-| Contactor | 2 or 4 pole, ≥ 20 A AC-1, **230 VAC coil** | Schneider `LC1D09P7`, ABB `ESB20-20` |
+| EMC filter | Single phase, 250 VAC, **≥ 10 A** | **DIN:** Roxburgh `DRF10` (10 A, 250 V, screw terminals, 1.46 mA max leakage). **Chassis:** Schaffner `FN2090-10-06` — better attenuation, but 113.5 × 57.5 × 45.4 mm |
+| Contactor | 2 pole, ≥ 20 A AC-1, **230 VAC coil** | ABB `ESB20-20N-06` — a modular installation contactor, 35 mm wide against ~45 mm and much deeper for a `LC1D09` |
 | Coil suppressor | RC snubber matched to the coil | Schneider `LAD4RCU` for the LC1D, or a 100 Ω / 0.1 µF RC |
 | Mains cable, supply to drives | 1.5 mm² is adequate at 7.8 A; **2.5 mm²** for volt-drop margin on a run over a couple of metres | 3-core flexible, 300/500 V |
 | Protective earth | ESTUN specifies **3.5 mm²**, a JIS size with no IEC equivalent — use **4 mm²** | Green/yellow, ring-terminated to the plate |
 | Regen resistor | See the note below — take the **minimum resistance** from the drive manual | — |
+
+### Fitting it in a printer enclosure
+
+An industrial panel has room to spare and a printer does not, so it is worth
+choosing for size deliberately rather than discovering it at assembly.
+
+Keep the whole chain on **one 35 mm DIN rail**. Every device above exists in a
+DIN form, and a rail costs a few millimetres over loose parts while making the
+wiring shorter, the earthing a single bonded path, and the whole assembly
+removable as a unit. Module widths run 17.5-18 mm; count modules rather than
+millimetres when planning the rail, and add one spare module because something
+always follows.
+
+Two choices save the most space:
+
+- **A DIN-rail filter rather than a chassis one.** The `FN2090` is a good
+  filter and 113.5 mm long, which is most of a small enclosure's width for one
+  part. A `DRF10` sits on the rail with everything else.
+- **A modular installation contactor rather than a control contactor.** An
+  `ESB20-20` is 35 mm wide and shallow; an `LC1D09` is wider, much deeper, and
+  built for motor starting duty this circuit does not have.
+
+The filter's placement rule still stands, and it pulls against the rail: it
+wants to be at the drives, not at the enclosure's edge. In a printer these are
+usually within a few hundred millimetres of each other, so a rail sited near
+the drives satisfies both. What must not happen is a filter at the incoming
+gland with a metre of unfiltered cable running past the encoder leads to reach
+the drives.
+
+One trade-off to make knowingly. A modular contactor drops power when the
+emergency stop opens its coil, which is what this circuit needs. It is not a
+safety contactor: no mirrored contacts, no monitoring, nothing that detects a
+welded pole. An industrial machine would use a safety relay and a contactor
+with mirror contacts, and a printer on a bench generally does not. That is a
+defensible choice, but it should be a choice.
 
 **The 16 A rating is not about the 7.8 A load.** At 16 A the drives sit at
 under half the breaker's rating, which looks generous until the inrush is
