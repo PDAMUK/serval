@@ -562,9 +562,43 @@ clean shutdown instead of an endpoint death. It is **not** a profiled stop, and
 the stopping distance is set by inertia, friction and the dynamic brake, not by
 anything that can be tuned.
 
+**In the language of EN 60204-1 this is a Stop Category 0 with dynamic
+braking, and it is not Category 1.** Category 1 means a *controlled* stop with
+power kept on to the machine actuators until it has stopped, then removed.
+These drives cannot do that: on servo off, `Pn004.0` offers dynamic brake or
+coast and nothing else, there is no `6084h` ramp anywhere in this path, and the
+contactor removes the DC bus the moment the button opens its coil. Power is
+removed immediately and the gantry stops because the windings are shorted, not
+because anything is controlling it.
+
+That is a deliberate choice for this machine rather than an omission, and it
+follows from the hardware: **these drives have no STO** — no safety function of
+any kind appears in the ProNet manual — so there is no safe torque-off to
+sequence a controlled ramp against. The honest description is a Category 0
+stop, with dynamic braking making it a better Category 0 than a coast, and with
+no monitoring, no mirrored contacts and no safety relay anywhere in the chain.
+
 The manual is worth heeding on one point: repeated dynamic braking degrades the
 drive's internal elements. The emergency stop is not a routine way to stop the
 machine.
+
+**Every stop press latches an alarm, and clearing it is friction on every
+single press.** Opening the contactor removes main power for longer than one AC
+period, so the drives latch **`A.21`** (main power off for more than one
+period) and/or **`A.14`**, and they will not run again until the alarm is
+cleared.
+
+`Pn000.3` looks like an escape and is not: the factory `0` already means "one
+period, no alarm", `A.21` is *defined* as power off for more than one period,
+and setting it to `1` only makes the drive stricter. So the clearing routes are
+the panel **`ENTER`**, **`/ALM-RST`**, or a **main-circuit power cycle**
+(manual §5.1.2).
+
+Note what that leaves open: `/ALM-RST` is `CN1-39` on the base 50-pin
+connector, and the `-EC` variant's `CN1` is 20-pin with 5 sequence inputs, so
+whether it can be allocated there is unknown. The likely answer is a CiA 402
+fault reset over the bus, which needs the EtherCAT manual nobody has yet.
+Budget a panel reach or a power cycle after every press.
 
 **Two things have to be true for that halt to land.**
 

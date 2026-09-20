@@ -74,6 +74,11 @@ general web research are fine and have been used freely.
 
 Work lands on `claude/ethercat-support-ke49we`.
 
+Sessions are sometimes given a different branch in their own instructions —
+`claude/documentation-review-q1yne9` carried the documentation audit, findings
+27-52. Where the two disagree, the session instruction wins and this line is
+the stale one; do not move work between them without asking.
+
 # If you are picking this up with fresh eyes
 
 Read this section, then `docs/rewrite/repo-audit-status.md`, then stop and ask
@@ -105,12 +110,16 @@ errors in prose about behaviour than in behaviour.
 
 **Open threads, in rough priority order.**
 
-- The emergency stop is `Stop Category 0` with dynamic braking, not Category 1.
-  That is a deliberate and defensible choice for this machine, but the build
-  document does not yet say so in those terms, and it should.
-- Every stop press removes main power for longer than one AC period, so the
-  drives latch `A.21` and/or `A.14` and need an alarm clear before the machine
-  runs again. Not documented, and it is friction on every single press.
+- ~~The emergency stop is `Stop Category 0`, not Category 1~~ — **done.** Both
+  build documents now say so in those terms, and say why Category 1 is
+  unavailable (no STO; `Pn004.0` offers brake or coast, never a ramp).
+- ~~Every stop press latches `A.21`/`A.14`~~ — **done.** Both documents carry
+  the latch, the three clearing routes, and why `Pn000.3` is not an escape.
+- **Nothing has run on hardware.** Six items in the build guide's *Still
+  unverified on hardware*, and the CB2 host path has never been loaded — it
+  compiles and its symbols resolve. The Pi 5 path is the only one exercised,
+  and it is the best oracle the repository has: findings 48-50 all came from
+  asking what the CB2 route says that the Pi 5 route does not.
 - `docs/rewrite/repo-audit-status.md` lists what has never been audited: the
   planner itself (`motion-core`, the pipeline stages), `klippy/extras/` beyond
   the servo path, and `tools/sim` beyond its unit subset.

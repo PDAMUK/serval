@@ -257,3 +257,49 @@ def test_the_endstop_check_does_not_claim_to_prove_the_pull_up(doc):
         "%s does not say to re-check with the servos running, which is when "
         "the noise is there to be picked up" % doc.stem
     )
+
+
+@pytest.mark.parametrize("doc", [GUIDE, COLLATED], ids=lambda p: p.stem)
+def test_both_guides_name_the_stop_category_and_the_alarm_it_latches(doc):
+    """Two things a builder meets on the first press and on every press after.
+
+    The stop is Category 0 with dynamic braking, not Category 1 — these drives
+    have no STO and `Pn004.0` offers brake or coast, never a ramp, so there is
+    nothing to sequence a controlled stop against. Calling it anything else
+    overstates what the chain does.
+
+    And opening the contactor removes main power for longer than one AC
+    period, so the drives latch A.21 and/or A.14 every time. `Pn000.3` is not
+    an escape: the factory 0 already means one period, and A.21 is defined as
+    longer than that. A guide that omits it leaves friction on every press
+    looking like a fault."""
+    text = doc.read_text(encoding="utf-8")
+    # Scoped to the passage that explains the halt. A.21 also appears in the
+    # fault quick reference, so a whole-file search passes after the halting
+    # section stops naming it — which is where a reader meets it first.
+    # Scoped per document to the passage that explains the halt; the two
+    # organise it differently.
+    marker, end = (
+        ("Halting the drives as the stop is pressed", "### Earth leakage")
+        if doc is GUIDE
+        else ("## E7 — What the stop actually does", "## E9 —")
+    )
+    assert marker in text, "%s no longer explains the halt" % doc.stem
+    section = text.split(marker)[1].split(end)[0]
+    flat = re.sub(r"\s+", " ", section)
+    assert "Stop Category 0" in flat, (
+        "%s does not name the stop category, which decides what a reader "
+        "expects the chain to do" % doc.stem
+    )
+    assert "not Category 1" in flat or "is not Category 1" in flat
+    assert "no STO" in flat, (
+        "%s does not say why Category 1 is unavailable" % doc.stem
+    )
+    assert "A.21" in flat and "A.14" in flat, (
+        "%s does not say the drives latch an alarm on every stop press"
+        % doc.stem
+    )
+    assert "Pn000.3" in flat, (
+        "%s does not close off Pn000.3, which reads like an escape and is not"
+        % doc.stem
+    )
