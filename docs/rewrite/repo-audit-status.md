@@ -260,6 +260,55 @@ code. Every behavioural change against `14f6296` was walked for equivalence:
 | `from_doc.rs` roles | purely additive |
 | EtherCAT endpoint args, FFI, `libecrt.h` | additive; the `a6ec` default resolves to the same identity, PDO map and SDOs as base, and a test pins that no identity flags are passed |
 
+### Re-checked against upstream directly, not from this table
+
+The table above was written from the branch side. A later pass cloned
+`dderg/serval` and diffed against it: upstream `main` is `14f6296`, so the base
+named here *is* upstream, and every row could be verified rather than trusted.
+All of them hold. What the diff adds:
+
+- **Only 37 files under `rust/` differ at all**, most of them tests.
+  `motion-core` is byte-identical to upstream apart from `kinematics.rs` and
+  `motion_history.rs`, and **`bridge/servo.rs` — the host-to-endpoint servo
+  seam — is byte-identical**. The planner, fitter, lowerer, shaper, ingress and
+  pump are upstream's, which the snapshot gate independently confirms at
+  51 ok / 0 changed.
+- **`resonance_buzz`, `homing.py` and `homing_api` were verified by computing
+  their predicates for every (kinematics, axis) pair** rather than by reading:
+  identical to upstream across cartesian and corexy on all three axes, in all
+  three files. Markforged is new ground with no upstream counterpart — upstream
+  carries no markforged at all.
+- **`motion_history.rs`'s `AT_REST` substitution is safe by construction**: a
+  lane `lanes_feeding_axis` marks false has weight `0.0` in that same
+  `motor_to_axis` row, so the stand-in cannot reach the reconstructed axis.
+  Cartesian's one-motor-missing corner behaves as upstream did.
+- **The `a6ec` bring-up SDOs survive exactly.** `0x6060=8` and `0x6066=0` are
+  still written unconditionally, then `a6ec_cfg_sdos` supplies
+  `0x2001:14=5, :15=0, :17=5, :18=0` — upstream's six writes, same order, same
+  values, alongside the same identity, DC word, `60F4h` mapping and `6072h`
+  limit. The `#define`s became a table; the numbers did not move. The branch
+  additionally checks the SDO calls' return values, which upstream ignored.
+
+**One correction to this table's reasoning, not its verdicts.** The
+`servo_axis.corexy_fit_layout` row says the old `coupled_xy()` test "wrongly
+allowed markforged". Upstream's `coupled_xy()` is literally
+`return self.kind == "corexy"`, so it would have rejected markforged too. What
+happened is the reverse: *this branch* widened `coupled_xy()` to mean "x and y
+share lanes", which would newly admit markforged, and the call site was pinned
+to `kind != "corexy"` to hold upstream's behaviour. Right change, wrong reason
+recorded.
+
+**Three deliberate behavioural differences from upstream**, all toward safety,
+all in the emergency-stop path — worth knowing before anyone calls this branch
+"upstream plus markforged":
+
+| Where | Upstream | Here |
+| --- | --- | --- |
+| `torque.rs` | a disable while one is pending is rejected, and `handle_set_torque` answers a reject by exiting the endpoint | takes the earlier of the two times, so a stop can always bring a disable forward |
+| `endpoint/commands.rs` | `ResumeStream` always honoured | refused while torque is parked or a disable is pending, closing the homing-thread race |
+| `ethercat_node.py` | a `stop_node` exception propagates out of the shutdown handler | logged loudly and swallowed, so the remaining `klippy:shutdown` handlers still run |
+| `endpoint/cycle.rs` | torque-gate fault reported to the host as code `0` | reports the real truncated code (`0xFEC7`) and logs it |
+
 ## Where this stopped
 
 Rounds went 6, 6, 4 and the character of the fourth changed: one theme rather
