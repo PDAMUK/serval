@@ -48,6 +48,8 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 31 | `docker_image()`'s failure is invisible inside `$( )`, so a failed build became `docker run ""` — the real error buried under "invalid reference format", carrying docker run's exit code | `3a7df85` |
 | 32 | `Dockerfile-build` piped the rustup installer into `sh`, where a failed download still exits 0 — a cargo-less image failing three layers later as `cargo: not found` | `3a7df85` |
 | 33 | `MCU_bus_digital_out` reused the protocol lookup's `%c` format under Python's `%`, emitting `oid=\x05 value=\x01` where every sibling and `mcu_pins.py` write `%d` | `bfc9235` |
+| 34 | The PDO map was two fixed arrays, so an object a drive family cannot accept could only be dropped by editing C and rebuilding — the worst shape for a failure that arrives as a bare `rc=-6` at first contact. Two of its groups were also dead on every profile: `tx.touch_probe` and `tx.phys_outputs` are written to the wire every cycle and assigned nowhere, and `60B9h`/`60BAh`/`60BCh`/`60FDh` are registered with not one `EC_READ` between them — 20 of 50 bytes per drive per cycle, at 4 kHz, for objects nothing consumes | `bc220d3` |
+| 35 | Part 12 step 1 — stub endpoint, drives off, klippy must reach ready — was the one bring-up step no test stood behind. Both sides of that seam were covered (six Rust integration files spawn the stub, `ethercat_node`'s validation has unit tests with fakes) and the join where klippy spawns the binary and completes the claim had nothing | `8d2f1e6`, `c9421b5` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -186,6 +188,28 @@ Not defects. Recorded so the next pass does not spend the time again.
 - **Line citations in `beacon-fork-survey.md` and `external-probe-homing.md`**
   (48 of the 55 in `docs/`) are historical analyses pointing at upstream files,
   not references anyone configures from. Left alone deliberately.
+- **What this branch actually is, counted rather than estimated.** Against
+  `dderg/serval` at `14f6296`: 1874 tracked files here, 76 of which differ from
+  upstream's copy of the same path, and 23 that upstream does not have at all.
+  Of the 76, 48 are code — 11 under `klippy/`, 37 under `rust/` — and the rest
+  are documents, scripts and CI. All 48 have now been read. That is the honest
+  boundary of this audit: what is left is upstream's code running on upstream's
+  hardware, which is a different job (see **Not yet audited**).
+- **The seven `runtime/` files never opened by name during the sweeps.**
+  `fault_helpers.rs`, `dispatch_stepper.rs`, `log_codes.rs`, `segment.rs`,
+  `mcu_log.rs`, `lib.rs` and `build.rs` read as a hole in the coverage and are
+  not one: what this branch changed in them is findings 12, 14 and 15 — fixed,
+  tested, and listed above — plus additive markforged wiring. Nothing in them is
+  both branch-specific and unexamined.
+- **The vendored MCU SDKs upstream carries and this fork does not.** All 1115
+  files present upstream and absent here are under `lib/`: `pico-sdk`, the
+  SAM/SAMD/SAME families, `hc32f460`. Not damage, and not this branch's doing —
+  no commit in the history this checkout carries touches `lib/`. What remains is
+  `stm32f1`, `stm32f4`, `stm32g0` and `stm32h7`, exactly the set `ci.sh`'s four
+  `rust-mcu-*` jobs build, and `stm32h7` is the one this machine needs: the
+  Manta M8P V2 is an STM32H723. Worth knowing before anyone plans an RP2040 or
+  SAMD toolboard on this fork — `lib/rp2040_flash` is still here, the SDK it
+  flashes is not.
 
 ## Known, deliberately not changed
 
@@ -337,22 +361,51 @@ all in the emergency-stop path — worth knowing before anyone calls this branch
 
 Rounds went 6, 6, 4 and the character of the fourth changed: one theme rather
 than several independent gaps, and more checks confirming things were sound
-than finding faults. That is the point to stop rather than manufacture another
-pass. What remains unexamined is listed below and is genuinely unexamined, not
-quietly skipped.
+than finding faults. That reads like the place to stop rather than manufacture
+another pass — and it was not, which is the more useful lesson.
 
-Every gate this repository has was run green at that point: the eighteen
-`ci.sh` jobs a container without Docker can execute, the Python suite at 979,
-nine doc tests, the piece-sink sanitizer fuzz, and all thirteen workflows
+Seven more followed (29-35), and not one of them came from re-reading the servo
+path. Finding 29 came from asking what the CB2 runs that it need not. Findings
+30-32 came from reading the gates themselves instead of their output — a gate
+that reports a pass it did not run is the one defect no amount of running it
+will surface. Finding 33 came from pointing a bug-focused lint at `klippy/`,
+where 161 hits contained exactly one real bug. Findings 34 and 35 came out of
+building what the owner asked for: the PDO map turned out to have two dead
+groups on the way to making it configurable, and giving the simulator an
+EtherCAT world is what exposed that the claim seam had no test.
+
+So the pattern worth keeping is not "look harder", it is *change what is being
+looked at*. A converged sweep is converged; the next finding is in a place
+nobody has framed as a place yet — the harness, the gates, the host's idle
+work, the thing you are about to build.
+
+As of `c9421b5`, every gate that can run in this container runs green:
+`ci.sh quick` at 5 pass, the Rust suite 2488 passed / 5 skipped, the Python
+suite 1046 passed / 5 skipped, nine doc tests, and all thirteen workflows
 parsing. Snapshots read 51 ok / 0 changed, which is the load-bearing one: the
-planner's output is byte-identical to base.
+planner's output is byte-identical to base. The five Python skips are the
+matplotlib plot tests recorded above under **Known, deliberately not changed**.
+
+Three gates are **not** green here, and none of the three is red for a reason
+in this repository — say so plainly rather than let the tally imply otherwise:
+
+- `deny` and `fuzz-piece-sink` **skip**: `cargo-deny` is not installed and the
+  sanitizer runtime cannot be linked. Since finding 30 they report that as SKIP
+  instead of counting themselves as passes, which is the whole point of that
+  fix — an absent tool now looks like an absent tool.
+- `py`, `sim` and `sim-e2e` **fail at image build**: the container's outbound
+  HTTPS goes through a MITM proxy and the Docker build has none of its CA, so
+  `curl` inside the image exits 60. Not worked around, because the only
+  workarounds weaken TLS. Finding 31 did improve what it looks like — it is now
+  `FAIL (1)` at the line that failed rather than `FAIL (125)` with docker's
+  "invalid reference format" on top.
 
 ## Not yet audited
 
 Rescoped once the upstream diff made it clear what is actually this branch's
 code. `motion-core` is byte-identical to upstream apart from `kinematics.rs`
-and `motion_history.rs`, both now verified, and only six files under
-`klippy/extras/` differ at all — so most of what this list used to name is
+and `motion_history.rs`, both now verified, and eight of the 163 files under
+`klippy/extras/` are touched at all — so most of what this list used to name is
 upstream's code, running on upstream's hardware, and auditing it is a different
 job from auditing this branch.
 
@@ -362,12 +415,25 @@ job from auditing this branch.
   `motion-pipeline`. Unexamined here, and deliberately so: a change there moves
   motion output and needs a regenerated baseline, which is the owner's call,
   not an auditor's.
-- `klippy/extras/` beyond the servo path — the 138 files identical to upstream.
-  A bug found there is upstream's, not this branch's.
-- `tools/sim` beyond confirming its unit subset now runs in CI, and beyond the
-  EtherCAT world since added. That world, plus `test_ethercat_claim_stub.py`,
-  closes what used to be listed here: the seam where klippy spawns the endpoint
-  and completes the claim is no longer exercised only by hand at Part 12 step 1.
+- `klippy/extras/` beyond the servo path — the 155 files byte-identical to
+  upstream. A bug found there is upstream's, not this branch's. The eight that
+  are not are `emergency_stop.py` (new here) and `bus.py`, `ethercat_node.py`,
+  `homing.py`, `log_observability.py`, `resonance_buzz.py`, `servo_axis.py`,
+  `servo_strain_comp.py`, all read on this branch.
+- `tools/sim` beyond its unit subset and the EtherCAT world added here. That
+  world, plus `test_ethercat_claim_stub.py`, closes what used to be listed:
+  the seam where klippy spawns the endpoint and completes the claim is no
+  longer exercised only by hand at Part 12 step 1. The world itself is only
+  half-run, though — its four `sim_unit` cases run in the ordinary suite, its
+  two `needs_elf` cases need the sim image, and Docker cannot build that image
+  in this container for want of the proxy's CA. Those two were checked against
+  the harness they call, not against a run.
+- **The five items in the guide's "Still unverified on hardware".** A drive on
+  the bench settles them and nothing else does: the ESTUN vendor ID and product
+  code, the Markforged belt-coupling sign, `ec_dwmac-rk` actually loading on the
+  CB2, whether 60 W per drive is enough regenerative capacity for this gantry,
+  and the three `-EC`-only values (`Pn006.0 = 4`, `A.70`, `A.71`) the base
+  ProNet manual cannot confirm.
 
 ## Resuming on a fresh container
 
@@ -378,17 +444,25 @@ carrying over but the build artifacts, which are regenerated:
 scripts/build-native.sh          # klippy/_*.so — klippy will not start without them
 cargo install cargo-nextest --locked   # if absent; the Rust suite needs it
 ./scripts/ci.sh quick            # expect 5 pass
-uv run pytest test/ -q           # expect 823 passed, 5 skipped
+uv run pytest test/ -q           # expect 1046 passed, 5 skipped
 ```
+
+`test_ethercat_claim_stub.py` and `test_pdo_map.py` need artifacts the first
+line does not build: the stub endpoint (`make -f Makefile.rust ethercat-stub`)
+and a C compiler. Both skip cleanly when they are absent, so a short count
+there means a missing artifact, not a regression.
 
 Use `uv run`, not ad-hoc `pip install` — every dependency is already declared
 in `pyproject.toml`.
 
 Two environment notes, neither a repo defect:
 
-- **Docker** gates (`py`, `sim`, `sim-e2e`) need a daemon. Without one, run the
-  Python suite directly as above; `ci.sh py` will not fall back, because the
-  docker binary exists and only the daemon is missing.
+- **Docker** gates (`py`, `sim`, `sim-e2e`) need a daemon *and* a way to build
+  the image. Without a daemon, run the Python suite directly as above; `ci.sh
+  py` will not fall back, because the docker binary exists and only the daemon
+  is missing. With a daemon but behind a MITM proxy, the build dies at `curl`
+  exit 60 instead — the image has no copy of the proxy's CA. Give the build the
+  CA; do not disable TLS verification to get past it.
 - **Disk.** `rust/target` reaches ~19–25 GB. A full volume shows up as
   `ld terminated with signal 7 [Bus error]` during linking, which reads like a
   toolchain fault and is not one. `rust/target/debug/incremental` is the
