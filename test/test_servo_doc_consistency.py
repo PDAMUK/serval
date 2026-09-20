@@ -18,6 +18,11 @@ import pytest
 DOCS = pathlib.Path(__file__).resolve().parents[1] / "docs" / "rewrite"
 GUIDE = DOCS / "estun-pronet-markforged-setup.md"
 BENCH = DOCS / "ethercat-bench-bringup.md"
+MOTION_REF = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / "docs"
+    / "Config_Reference_Motion.md"
+)
 
 BENCH_TORQUE_CEILING_PCT = 150.0
 
@@ -80,7 +85,9 @@ def registered_gcode_commands():
     return found
 
 
-@pytest.mark.parametrize("doc", [GUIDE, BENCH], ids=lambda p: p.stem)
+@pytest.mark.parametrize(
+    "doc", [GUIDE, BENCH, MOTION_REF], ids=lambda p: p.stem
+)
 def test_a_doc_naming_a_dashboard_macro_says_it_is_one(doc):
     """`SERVO_CAPTURE_START` ships here; `SERVO_FIT_DYNAMICS` is a
     serval-dashboard macro. The bench page described both under one heading,

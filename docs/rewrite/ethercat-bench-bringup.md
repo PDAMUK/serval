@@ -63,8 +63,8 @@ path — the actual bench target — is unaffected and streams cleanly.
 
 **Building a real (non-sim) Linux MCU:** `make` with `CONFIG_MACH_LINUX=y` and
 `CONFIG_MCU_SIM` **unset** drives real `/dev/gpiochip` / `/dev/spidev`
-(`test/configs/linux.config`). `CONFIG_MCU_SIM=y` (`.config.linux`,
-used by `tools/sim_klippy`) selects the in-memory sim shims. The Rust `mcu-linux`
+(`test/configs/linux.config`). `CONFIG_MCU_SIM=y` (`.config.linux`, and the
+firmware configs the simulator builds from in `tools/sim/configs/`) selects the in-memory sim shims. The Rust `mcu-linux`
 feature carries the f64 host numeric profile plus the real-firmware marker that
 links the C step/SPI FFI. Note: raw STEP/DIR GPIO pulse emission on a Linux MCU
 is a follow-on; TMC phase-stepping over SPI is the supported real-hardware
@@ -536,4 +536,4 @@ on the drive's retained state. A failure to write that remap is `rc=-6`
 ## If something's off
 - Re-run `cargo test -p ethercat-rt -p motion-engine` on the Pi — these are the host-path regression tests.
 - The stub-level path (step 2) isolates host bugs from drive/EtherCAT bugs — always confirm it green before blaming the drive.
-- Per-piece dispatch projection diagnostics (`[dispatch-margin]` and `[project]`) are emitted at **trace** level to avoid flooding production logs. Enable them with `RUST_LOG=trace` (or a targeted filter such as `RUST_LOG=motion_engine=trace,host_rt=trace`). `RUST_LOG` is read by the `EnvFilter` in `rust/motion-engine/src/logging/mod.rs` at bridge startup.
+- Per-piece dispatch projection diagnostics (`[dispatch-margin]` and `[project]`) are emitted at **trace** level to avoid flooding production logs. Enable them with `RUST_LOG=trace` (or a targeted filter such as `RUST_LOG=motion_engine=trace,host_rt=trace`). `RUST_LOG` is read by the `EnvFilter` in `rust/motion-services/src/logging/mod.rs` at bridge startup.

@@ -111,8 +111,11 @@ the drag the gantry imposes as it moves in Y: `x_lane = x + y`, `y_lane = y`.
 
 That asymmetry is visible in configuration. A Y move drives *both* motors, so Y
 cannot take a per-motor `endstop_pin`; an X move drives only the X motor, so X
-can. The `SERVO_FIT_DYNAMICS` CoreXY belt-pair fit and the servo strain-compensation
-map are CoreXY-specific and reject a Markforged machine rather than mapping it
+can. The `SERVO_FIT_DYNAMICS` CoreXY belt-pair fit — a
+[serval-dashboard](https://github.com/dderg/serval-dashboard) macro rather than
+a command this repository registers, so a console answering "Unknown command"
+for it is missing that install — and the servo strain-compensation map are
+CoreXY-specific, and reject a Markforged machine rather than mapping it
 wrongly.
 
 **The coupling sign is the one thing to verify per machine.** The default
