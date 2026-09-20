@@ -48,6 +48,11 @@ run_quiet() {
 # image (mirrors tools/sim/run.sh's kalico-sim-<branch> tagging). Docker's
 # content-addressed layer cache makes repeat calls near-instant when nothing
 # relevant changed.
+# Prints the image tag on stdout, so a caller MUST capture it and check the
+# status separately: inside `$( )` this function's `return 1` cannot reach the
+# caller's command line, and a failed build would otherwise hand `docker run`
+# an empty image name — "invalid reference format", printed after the real
+# build error and carrying docker run's exit code instead of the build's.
 docker_image() {
     local branch tag
     branch="$(cd "$ROOT" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo head)"
@@ -175,8 +180,8 @@ job_fuzz_piece_sink() {
     local cc="${CC:-clang}"
     if ! echo 'int main(void){return 0;}' \
         | "$cc" -fsanitize=address,undefined -x c - -o /dev/null 2>/dev/null; then
-        echo "$cc cannot link the sanitizer runtime here (install compiler-rt, or set CC=gcc) — skipping locally; CI runs it"
-        return 0
+        echo "$cc cannot link the sanitizer runtime here (install compiler-rt, or set CC=gcc)"
+        return "$SKIP_RC"
     fi
     "$ROOT/scripts/fuzz-piece-sink.sh"
 }
@@ -185,7 +190,8 @@ job_deny() {
     if command -v cargo-deny >/dev/null 2>&1; then
         cargo deny --manifest-path "$RUST/Cargo.toml" check
     else
-        echo "cargo-deny not installed (cargo install cargo-deny) — CI runs it via cargo-deny-action; skipping locally"
+        echo "cargo-deny not installed (cargo install cargo-deny)"
+        return "$SKIP_RC"
     fi
 }
 
@@ -248,9 +254,10 @@ job_py_typecheck() {
 }
 
 job_py() {
-    local ver="${1:-3.13}"
+    local ver="${1:-3.13}" image
     if command -v docker >/dev/null 2>&1; then
-        docker run -v "$ROOT:/klipper" "$(docker_image)" --python "$ver" py.test -n auto
+        image="$(docker_image)" || return 1
+        docker run -v "$ROOT:/klipper" "$image" --python "$ver" py.test -n auto
     else
         echo "docker unavailable — running py.test on the local interpreter only (CI runs 3.9-3.14)"
         cd "$ROOT" && python -m pytest -n auto
@@ -258,13 +265,14 @@ job_py() {
 }
 
 job_sim() {
-    local sel="sim_unit and not needs_hardware"
+    local sel="sim_unit and not needs_hardware" image
     local paths="tools/sim \
         tools/test_host_io_seq_wrap.py \
         tools/test_motion_idle_timeout.py \
         tools/test_motion_static.py"
     if command -v docker >/dev/null 2>&1; then
-        docker run --rm -v "$ROOT:/klipper" -w /klipper --entrypoint bash "$(docker_image)" -lc \
+        image="$(docker_image)" || return 1
+        docker run --rm -v "$ROOT:/klipper" -w /klipper --entrypoint bash "$image" -lc \
             "make -C tools/sim/preload >/dev/null && uv run py.test -n auto $paths -m '$sel'"
     else
         echo "docker unavailable — running sim unit tests on the local interpreter"
@@ -285,11 +293,19 @@ job_snapshot() {
     fi
 }
 
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIP=0
 FAILED_JOBS=()
+SKIPPED_JOBS=()
+
+# A gate that cannot run here — its tool is absent, not its subject broken —
+# exits with this and is tallied apart from the passes. Counting an absent
+# tool as a pass is the one outcome this script must not produce: CLAUDE.md
+# tells the reader the tally line is the result, so the tally has to mean it.
+SKIP_RC=77
 
 red()    { printf '\033[1;31m%s\033[0m\n' "$*"; }
 green()  { printf '\033[1;32m%s\033[0m\n' "$*"; }
+yellow() { printf '\033[1;33m%s\033[0m\n' "$*"; }
 
 tally() { sed -e '/^[[:space:]]*$/d' -e 's/^[[:space:]]*//' "$1" | tail -1 | cut -c1-120; }
 
@@ -309,6 +325,11 @@ run_check() {
     if [ "$rc" -eq 0 ]; then
         printf '\033[1;32mPASS\033[0m  %s  \033[2m[%s]\033[0m\n' \
             "$(tally "$log")" ".ci-logs/$name.log"; PASS=$((PASS + 1))
+    elif [ "$rc" -eq "$SKIP_RC" ]; then
+        printf '\033[1;33mSKIP\033[0m  %s  \033[2m[%s]\033[0m\n' \
+            "$(tally "$log")" ".ci-logs/$name.log"
+        SKIP=$((SKIP + 1)); SKIPPED_JOBS+=("$name")
+        rc=0
     else
         red "FAIL ($rc) — full log: .ci-logs/$name.log"
         FAIL=$((FAIL + 1)); FAILED_JOBS+=("$name")
@@ -345,8 +366,14 @@ run_all() {
         run_check "snapshot"        job_snapshot
     fi
     echo "────────────────────────────────────────"
-    printf '  %s   %s\n' "$(green "$PASS pass")" "$([ "$FAIL" -gt 0 ] && red "$FAIL fail" || echo "0 fail")"
+    printf '  %s   %s%s\n' "$(green "$PASS pass")" \
+        "$([ "$FAIL" -gt 0 ] && red "$FAIL fail" || echo "0 fail")" \
+        "$([ "$SKIP" -gt 0 ] && printf '   %s' "$(yellow "$SKIP skipped")" || echo "")"
     [ "$FAIL" -eq 0 ] || { printf '  failed: %s\n' "${FAILED_JOBS[*]}"; }
+    [ "$SKIP" -eq 0 ] || {
+        printf '  skipped (tool absent here, CI runs them): %s\n' \
+            "${SKIPPED_JOBS[*]}"
+    }
     echo "────────────────────────────────────────"
     return "$FAIL"
 }

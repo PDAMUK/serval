@@ -26,10 +26,17 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # RUSTUP_TOOLCHAIN overrides the toml at cargo time so this image never
 # downloads the cross-compilation targets the firmware builds want.
 COPY rust/rust-toolchain.toml /tmp/rust-toolchain.toml
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --profile minimal --default-toolchain \
-      "$(sed -n 's/^channel = "\(.*\)"/\1/p' /tmp/rust-toolchain.toml)"
+# Downloaded to a file and then run, never piped: in `curl ... | sh` the
+# pipeline's status is sh's, and sh reading empty stdin succeeds. A failed
+# download therefore built a layer with no cargo in it and surfaced three
+# steps later as `cargo: not found` against a Dockerfile that looks correct.
+# `cargo --version` closes the layer so the failure lands where it happened.
+RUN curl --proto '=https' --tlsv1.2 -sSf -o /tmp/rustup-init.sh https://sh.rustup.rs \
+    && sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain \
+      "$(sed -n 's/^channel = "\(.*\)"/\1/p' /tmp/rust-toolchain.toml)" \
+    && rm -f /tmp/rustup-init.sh
 ENV PATH="/root/.cargo/bin:${PATH}"
+RUN cargo --version && rustc --version
 
 # Built from rust/ alone so Python-only edits keep this layer cached.
 # Installed OUTSIDE /klipper: the test container bind-mounts the host
