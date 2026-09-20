@@ -43,6 +43,11 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 26 | The bench checklist's worked example for this machine contradicted the guide on torque and following error, and showed a drive identity klippy accepts but no drive matches | `f9660dd` |
 | 27 | Part 11 declared all three axis endstops bare, with no `^` pull-up; the inputs float when a switch opens, and the guard only checked the pin *name*, which `^PF4` contains | `cbbde86` |
 | 28 | Seven guide statements against the ProNet V2.19 manual: a time-delayed RCD the manual forbids, the drives' own 0-55 C / 45 C limits and their 10/50 mm spacing absent, the 300 mm power-signal separation unstated, the manual's self-contradiction on filters unflagged, control power not located relative to the filter, `A.16` missing from the fault table, and `max_torque`'s 400 not distinguished from Pn401/Pn402's 0-300% | `cbbde86` |
+| 29 | `log_observability` armed a 60 s timer whose probe was a hardcoded `return None`, so it rescheduled forever and could never report anything; three tests covered the predicate it never called | `e129640` |
+| 30 | `ci.sh` tallied gates whose tool was absent as passes, so a run claiming 20 passes had run 18 | `3a7df85` |
+| 31 | `docker_image()`'s failure is invisible inside `$( )`, so a failed build became `docker run ""` — the real error buried under "invalid reference format", carrying docker run's exit code | `3a7df85` |
+| 32 | `Dockerfile-build` piped the rustup installer into `sh`, where a failed download still exits 0 — a cargo-less image failing three layers later as `cargo: not found` | `3a7df85` |
+| 33 | `MCU_bus_digital_out` reused the protocol lookup's `%c` format under Python's `%`, emitting `oid=\x05 value=\x01` where every sibling and `mcu_pins.py` write `%d` | `bfc9235` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -113,11 +118,77 @@ Not defects. Recorded so the next pass does not spend the time again.
   and do nothing at all with the wire off. What the runtime does about a
   dangerous polarity is settled below, under **Known, deliberately not
   changed** — do not re-open it from this entry.
+- **The host's periodic work, swept for anything the CB2 need not run.** After
+  finding 29 the rest is earned: `webhooks` unregisters its query timer when
+  the last subscription drops, the non-critical-MCU reconnect timer only arms
+  when `is_non_critical` is set, TMC driver checks are start/stop-gated, and
+  `structured_log.event` goes through `queuelogger`'s background thread so
+  event writes never touch the reactor. `support_bundle` holds a lock at init
+  and starts its threads only inside its command. Of the seven modules klippy
+  loads unconditionally, only `telemetry` is worth a config line: it is
+  upstream Kalico's opt-in analytics and prompts at every ready, so set
+  `enabled: False` rather than leave it asking.
+- **The per-axis step budget is guarded on both sides; the aggregate is a
+  deliberate margin.** `src/stepper.c` gives each axis half a sample window
+  and says in the same breath that the ISR is shared across axes, so three
+  busy axes can in principle ask for more than one window. That is the 0.5
+  factor's job. Both ends do enforce the per-axis half: the host clamps
+  planned velocity through `motor_velocity_ceiling`, and `dispatch_stepper`
+  raises `steps_per_sample_exceeded` with fault context rather than dropping
+  steps. Worth knowing for the tandem extruder, whose two motors step from one
+  trajectory and so draw their budgets together.
+- **Post-processor parameters cannot reach a divide by zero.** Every
+  `ParamSpec` carries a `Bound`; `frequency_hz` is `Positive`, `damping_ratio`
+  is `UnitInterval`, and `check` rejects non-finite values before compile. The
+  `omega` divisions in `mode_inverse` are safe by that construction.
+- **`endstop_pin` tells the keyed form from a plain pin by a newline, not a
+  colon**, so a remote-MCU pin like `toolboard:PB1` parses as the single pin it
+  is. The keyed form is inherently multi-line.
+- **`[extruder] axis:` is validated**, not merely accepted: the named axis must
+  exist and must declare `follows:`. `build_follower_steppers` really does walk
+  every motor of every follower, which is what makes the tandem pair one
+  trajectory rather than two.
+- **The markforged coupling mirror is runtime-guarded.** `motion_kinematics`
+  compares its constant against the value the compiled module reports and
+  fails loudly on a mismatch or a module too old to answer — so finding 5's
+  rebuild trap cannot come back silently.
+- **The stub endpoint is well covered.** Six Rust integration files spawn the
+  real binary: `torque_lifecycle`, `sensorless_homing`, `endpoint_supervision`,
+  `stub_lifecycle`, `sdo_lifecycle`, `capture_lifecycle`. A grep that excludes
+  `*.rs` suggests otherwise and is wrong.
+- **Snapshots carry no markforged case on purpose.** The planner is
+  kinematics-agnostic — snapshots pin the trajectory in axis space, and the
+  markforged matrix is pinned separately. Its absence there is not a gap.
 - **Line citations in `beacon-fork-survey.md` and `external-probe-homing.md`**
   (48 of the 55 in `docs/`) are historical analyses pointing at upstream files,
   not references anyone configures from. Left alone deliberately.
 
 ## Known, deliberately not changed
+
+- **`set_clock_est_rebased` mixes an injectable clock with a real one, and
+  that makes one of its tests flaky.** `router.rs` reads
+  `instant_to_f64(self.clock.now())` — the injectable `Clock`, a `MockClock`
+  under test — and `crate::clock::monotonic_raw_secs()`, which is the real
+  monotonic raw clock and is not injectable, then takes their difference.
+  Any test comparing two calls therefore also measures the real time that
+  elapsed between them. `set_clock_est_rebased_epsilon_independent` asserts a
+  2-tick tolerance at 1 MHz and was seen failing at 4 ticks under load; it
+  passes 8/8 in isolation.
+
+  The property it names is not the one at risk: `host_now_raw` is bound as
+  `_host_now_raw` and never read, so epsilon-independence holds by
+  construction and every failure is measurement noise. Two separately
+  constructed `MockClock`s partially cancel the skew, because each seeds from
+  `Instant::now()` at its own construction — which is why the test usually
+  passes, and why *sharing* one clock between the two routers makes it
+  strictly worse rather than better. That was tried during this pass and
+  reverted: the mutation check disproved the hypothesis it was built on.
+
+  Not fixed here because the only real fix is to make the raw clock
+  injectable alongside `Clock`, which is a production change to clocksync
+  rather than a test repair, and widening the tolerance would hide the one
+  signal the test still carries. Flagged for whoever owns that seam. Do not
+  "fix" it by putting both routers on one clock.
 
 - **`[emergency_stop]` accepts an inverted or pulled-down pin without
   complaint.** `^!PF1` and `~PF1` both halt on a press and both do nothing at
