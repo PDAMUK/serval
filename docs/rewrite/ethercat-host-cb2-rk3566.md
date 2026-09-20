@@ -158,6 +158,26 @@ ls /lib/modules/$(uname -r)/extra/ec_dwmac-rk.ko   # or wherever modules_install
 modinfo ec_dwmac-rk | head -5
 ```
 
+Then confirm the module was built against the **running** kernel, not some
+other tree. This matters more here than on a Pi 5: there you install a distro
+RT kernel and its matching headers, while Step 1 above had you *build* the
+kernel, so a module compiled against a different tree is an easy mistake and
+`modprobe` refuses it with nothing that names the cause.
+
+```sh
+/usr/sbin/modinfo -F vermagic /lib/modules/$(uname -r)/extra/ec_dwmac-rk.ko
+uname -r
+```
+
+The two must agree, and both must mention `preempt_rt`. A mismatch means it
+built against the wrong kernel tree — fix `--with-linux-dir` and rebuild.
+
+`generate.py` refuses to write anything if the IgH tree is not the one it
+expects: a missing rename map, or an anchor it cannot find exactly once in
+`configure.ac`, `Kbuild.in` or `Makefile.am`, raises rather than producing a
+half-wired tree. That is the guard against pointing `--igh` at the wrong
+checkout.
+
 ## Step 4 — Find the MAC's device path
 
 The handover script needs the **platform device name of the CB2's GMAC**, which
@@ -381,6 +401,7 @@ Then return to
 | --- | --- |
 | `ec_dwmac-rk: Unknown symbol ecdev_*` | `ec_master.ko` not loaded first; `/opt/etherlab/etc/init.d/ethercat start` loads it |
 | `modprobe: module not found` | `depmod -a` not run after `modules_install` |
+| `modprobe: ... Invalid module format` or a version-magic complaint | built against a different kernel tree than the running one — check `modinfo -F vermagic` against `uname -r` |
 | Builds, but `ethercat master` shows no link | `MASTER0_DEVICE` MAC does not match `eth0` |
 | Device stays bound to `stmmac` | `driver_override` written after the driver already bound — the unbind step is what fixes it |
 | Compile error naming a struct member | kernel is not 6.12-series; see the version note above |

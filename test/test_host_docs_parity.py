@@ -86,3 +86,37 @@ def test_both_host_pages_put_the_master_config_under_the_install_prefix():
                 "%s runs /etc/init.d/ethercat, which this build does not "
                 "install" % rel
             )
+
+
+def test_both_host_pages_check_the_module_against_the_running_kernel():
+    """A module built against a different kernel tree is refused by modprobe
+    with nothing that names the cause. The Pi 5 page checks `modinfo -F
+    vermagic` against `uname -r`; the CB2 page only printed the first lines of
+    modinfo and never said to compare them.
+
+    The CB2 is the side where this is likelier, not less: the Pi 5 installs a
+    distro RT kernel with matching headers, while the CB2 page has you build
+    the kernel yourself in Step 1 and then build modules against it."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for rel in [
+        "docs/rewrite/ethercat-igh-macb-install.md",
+        "docs/rewrite/ethercat-host-cb2-rk3566.md",
+        "docs/rewrite/markforged-cb2-complete-build.md",
+    ]:
+        text = (root / rel).read_text(encoding="utf-8")
+        # In a command block, not merely mentioned in prose: a troubleshooting
+        # row telling you to check it after it has already failed is not the
+        # same as a step that checks it before you go on.
+        fences = "\n".join(re.findall(r"```sh\n(.*?)```", text, re.S))
+        assert "modinfo -F vermagic" in fences, (
+            "%s does not check the module's vermagic as a step, so a module "
+            "built against the wrong kernel tree is found by modprobe "
+            "refusing it" % rel
+        )
+        flat = re.sub(r"\s+", " ", text)
+        assert re.search(r"wrong kernel tree", flat), (
+            "%s checks vermagic without saying what a mismatch means" % rel
+        )
