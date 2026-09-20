@@ -124,10 +124,18 @@ def test_every_anchor_resolves(rel):
     assert not dangling, "%s: %s" % (rel, dangling)
 
 
+# The audit log's job is to record what was wrong, so a path it names may be
+# exactly the path that did not exist — findings 40 and 41 are two of them.
+# Holding it to this check would mean it could never describe a dead reference.
+RECORDS_WHAT_WAS_BROKEN = {"docs/rewrite/repo-audit-status.md"}
+
+
 @pytest.mark.parametrize("rel", OURS)
 def test_every_repo_path_it_names_exists(rel):
     """`rust/motion-engine/src/logging/mod.rs` read perfectly well for as long
     as it took someone to go looking for it. The module had moved crates."""
+    if rel in RECORDS_WHAT_WAS_BROKEN:
+        pytest.skip("%s records dead references on purpose" % rel)
     doc = ROOT / rel
     text = doc.read_text(encoding="utf-8")
     missing = []

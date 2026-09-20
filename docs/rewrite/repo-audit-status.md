@@ -54,6 +54,16 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 37 | Both build documents specified a **latching, key-release** stop button (RS 139-972) in their bill of materials and then said "Nothing latches", describing release as twisting it back. The button latches and takes a key; the coil circuit is the half that does not. Stated the wrong way round it throws away the one real interlock the part buys — key out and nobody restores main power — while a reader could still take the key for isolation it does not give | `e933ab9` |
 | 38 | The 300 mm cable-separation rule named categories — "power and signal" — and not cables. On a machine smaller than the separation that is unactionable: the reader has to identify the runs themselves. The source guide named three victims and one aggressor in one sentence and omitted the regenerative-resistor leads, the bed heater and the encoder and EtherCAT runs entirely; the collated guide had dropped even that. Neither said that a motor's power and encoder cables share a drive, a motor and a drag chain — the one pairing no distance can fix | `a4ec4a0` |
 | 39 | Neither build document said that `SERVO_PARAM` and `params:` write drive **RAM**, never EEPROM. A console `SET` is therefore gone on the next restart while a `params:` entry is re-pushed every claim — so an evening's tuning at the console evaporates on a power cycle, with no documented way to persist deliberately (CiA 301 `0x1010`). The bench checklist had it; both guides dropped it, and the setup guide's "for values that must survive a restart" hid the failure. Three smaller drops with it: a rejected `params:` write **fails the claim**, objects wider than 4 bytes fail loudly, and SDO traffic is non-deterministic mailbox traffic | `f3641e1` |
+| 40 | `ethercat-bench-bringup.md` cited `RUST_LOG`'s `EnvFilter` at `rust/motion-engine/src/logging/mod.rs`. The module lives in `motion-services` — it moved crates and the citation did not | `39a8168` |
+| 41 | The same page attributed `CONFIG_MCU_SIM` to `tools/sim_klippy`, which exists nowhere in the tree and is referenced from nowhere else. The live MACH_LINUX configs carrying it are `tools/sim/configs/` | `39a8168` |
+| 42 | `.claude/CLAUDE.md`'s two reference-doc links were written relative to the repository root rather than to the file holding them, so they resolve to `.claude/docs/rewrite/...` and 404 when clicked | `39a8168` |
+| 43 | `Config_Reference_Motion.md` named `SERVO_FIT_DYNAMICS` as though this repository registered it — the third document with finding 36's defect | `39a8168` |
+| 44 | The `[emergency_stop]` polarity guard was declined on the strength of the documentation, and `Config_Reference.md` — the document someone has open while writing `printer.cfg` — said to wire NC with a pull-up but never said not to invert the pin. `^!pin` and `~pin` still halt on a press, so the mistake looks like it works, and assert nothing with the wire off | `e66b989` |
+| 45 | `ethercat-bench-bringup.md`'s headline sample config used `[servo_x]`, which the reader refuses outright, and split its options between motor and axis wrongly besides. The first config on the page, and it could not load | `3b4e6ae` |
+| 46 | The same page's Markforged worked example named three axes in `[kinematics]` and defined none of them, and declared `z_motors: motor_z` with no `[motor motor_z]` | `3b4e6ae` |
+| 47 | The collated CB2 guide had no counterpart to the host page's "confirm the bus before trusting it": its only cold-boot instruction sat in the closing done-criteria, three hundred lines past the point where a reader decides whether to carry on | `1dd5bf0` |
+| 48 | The CB2 host page put `MASTER0_DEVICE` in `/etc/ethercat.conf` and started the master from `/etc/init.d/ethercat`, while building with `--prefix=/opt/etherlab` and using the prefixed path in its own `ExecStop`. Neither unprefixed path exists for this build, so the settings are silently never read and the master comes up with no link — indistinguishable from the wrong MAC its own troubleshooting table sends you to | `b7904e1` |
+| 49 | The CB2 page never checked the built module's vermagic against the running kernel, where the Pi 5 page does — backwards, since the CB2 has you build the kernel yourself and a wrong `--with-linux-dir` surfaces only as `modprobe` refusing the module | `1d5aad7` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -219,6 +229,32 @@ Not defects. Recorded so the next pass does not spend the time again.
   not one: what this branch changed in them is findings 12, 14 and 15 — fixed,
   tested, and listed above — plus additive markforged wiring. Nothing in them is
   both branch-specific and unexamined.
+- **All twelve of this fork's markdown files, swept mechanically and by
+  hand.** 105 markdown files, 93 byte-identical to upstream and out of scope.
+  The other twelve now have `test_doc_references.py` over them: relative links,
+  anchors including cross-file ones, repo paths, make targets and `ci.sh` jobs,
+  with two documented allowlists — the five `../config/*.cfg` links mkdocs
+  rewrites to upstream GitHub, and the paths a document names precisely to say
+  they are *not* here. `test_doc_config_examples.py` parses every whole-machine
+  config example through the reader klippy uses. Checked and sound in the same
+  sweep: no rejected section name survives in any ini fence; every
+  `[ethercat_node]` key in every fragment is one the module reads; every
+  documented script invocation and flag exists; every stated default matches the
+  code (`homing_following_error` 2.5, `homing_max_torque` 50,
+  `homing_retract_dist` 5.0 from `rail.py`, retract speed defaulting to
+  `homing_speed`, RT priority 80); and `tools/ethercat-dwmac-rk/README.md`'s
+  6.1/6.4/6.12 claim holds, because `kv` is parameterised throughout
+  `generate.py`.
+
+  One exemption is deliberate and documented in the test: **this document is
+  not held to the path check**. An audit log's job is to record what was
+  wrong, so a path it names may be exactly the path that did not exist —
+  findings 40 and 41 are two of them, and holding it to the check would mean
+  it could never describe a dead reference.
+- **This document's own integrity.** 39 findings at the time of the check, no
+  gaps, no duplicates, in order, and all 28 commits it cites resolve in this
+  repository. The one hash that does not is `14f6296`, which is upstream's head
+  and correctly absent.
 - **The vendored MCU SDKs upstream carries and this fork does not.** All 1115
   files present upstream and absent here are under `lib/`: `pico-sdk`, the
   SAM/SAMD/SAME families, `hc32f460`. Not damage, and not this branch's doing —
