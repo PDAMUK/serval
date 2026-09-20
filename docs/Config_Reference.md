@@ -3120,6 +3120,15 @@ asserted both when the button is pressed and when the wire is broken,
 so a damaged cable stops the machine instead of silently disabling the
 stop.
 
+**Do not invert the pin.** `^!pin` and `~pin` are accepted without
+complaint and both still halt on a press, so the mistake looks like it
+works — but with the wire off they assert nothing at all, and the
+failure is discovered by pressing the stop and watching the machine
+carry on. `QUERY_EMERGENCY_STOP` cannot tell a severed wire from an
+idle button either, so nothing reports it. The polarity is deliberately
+left as a configuration choice rather than refused at startup; this
+paragraph is the whole of the guard.
+
 ```
 [emergency_stop my_emergency_stop]
 pin:

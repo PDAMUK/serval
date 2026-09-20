@@ -147,3 +147,65 @@ def test_the_input_can_be_debounced_against_servo_noise():
     assert passed_config is not None, (
         "no config reached the debouncer, so debounce_delay cannot be set"
     )
+
+
+def test_the_module_really_does_accept_an_inverted_pin():
+    """The premise of the documentation fix below. A config-time refusal of
+    `!` and `~` was proposed and declined — the polarity stays a configuration
+    choice — so the module passes whatever pin it is given straight through.
+    If that ever changes, the documents claiming it is accepted are wrong."""
+    buttons = RecordingButtons()
+    printer = FakePrinter(
+        objects={"buttons": buttons, "gcode": RecordingGCode()}
+    )
+    config = FakeConfig(printer, "emergency_stop estop", {"pin": "^!PF1"})
+    EmergencyStop(config)
+    assert buttons.registered[0][0] == ["^!PF1"], (
+        "the module no longer passes the pin through unchanged; the docs say "
+        "an inverted pin is accepted without complaint"
+    )
+
+
+def test_every_document_describing_the_section_warns_off_inverting_the_pin():
+    """The guard was declined on the strength of the documentation, which
+    makes the documentation the whole of the guard. `^!pin` and `~pin` still
+    halt on a press, so the mistake looks like it works, and assert nothing
+    with the wire off — the failure is found by pressing the stop and watching
+    the machine carry on.
+
+    Config_Reference.md is the one a person reads while writing printer.cfg,
+    and it was the one not saying so."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    docs = {
+        "docs/Config_Reference.md": (
+            "### [emergency_stop]",
+            "### [gcode_button]",
+        ),
+        # Anchored on the part, not on the section name: that string appears
+        # twice — once in the worked config, once in the prose — so splitting
+        # on it lands between the two and misses the truth table.
+        "docs/rewrite/estun-pronet-markforged-setup.md": (
+            "## Part 11 — Configuration",
+            "## Part 12",
+        ),
+        "docs/rewrite/markforged-cb2-complete-build.md": (
+            "## 2. Emergency stop",
+            "### 3. One drive",
+        ),
+    }
+    for rel, (start, end) in docs.items():
+        text = (root / rel).read_text(encoding="utf-8")
+        assert start in text, "%s no longer documents the section" % rel
+        section = text.split(start)[1].split(end)[0]
+        flat = re.sub(r"\s+", " ", section)
+        assert re.search(r"[!~]", flat), (
+            "%s describes the stop without ever showing the inverted forms"
+            % rel
+        )
+        assert re.search(r"nothing|no — |does nothing|assert nothing", flat), (
+            "%s does not say an inverted pin asserts nothing with the wire off"
+            % rel
+        )
