@@ -931,6 +931,12 @@ than leaving it asking:
 enabled: False
 ```
 
+> **Stage B is not proved yet.** Everything above was built with no drives
+> wired, so nothing has tested the real-time setup against real EtherCAT
+> traffic. The gate is **Stage J1**, after the chain is wired: a cold boot with
+> both drives reaching `PREOP` and no `A.70`. Until then treat the host as
+> assembled, not working.
+
 ## If the module will not load
 
 | Symptom | Cause |
@@ -1498,6 +1504,36 @@ reaching `PREOP`.
   faulty.
 - **Zero slaves** means `Pn006.0` is not `4`, or `eth0` never reached
   `ec_dwmac-rk`.
+
+## J1 — Confirm the bus on a cold boot, before trusting any of it
+
+**This is the gate on Stage B, and it is the first moment it can be run** —
+the host was built with no drives wired, so nothing up to here has proved the
+real-time setup against real traffic. Do it now, before a line of
+`printer.cfg` is written.
+
+**Power the machine down fully, boot it, and watch.** Not a `systemctl
+restart`, not a `FIRMWARE_RESTART` — a cold boot.
+
+| | Must hold after the cold boot |
+| --- | --- |
+| `ethercat master` | reports the master up, with a link |
+| `ethercat slaves` | both drives, in wired order, reaching `PREOP` |
+| the drives' panels | no `A.70` |
+| `chrt -p $(pgrep -f release/ethercat-rt)` | `SCHED_FIFO` priority 80 — once the endpoint is running |
+| `sudo journalctl -b \| grep -c 'al=0x001a'` | `0` |
+
+**A warm restart proves nothing here, and that is the whole point.**
+`ec_generic` and a kernel that reports `PREEMPT` rather than `PREEMPT_RT` will
+both hold cadence on an idle bench and drop frames under boot load. The
+failure they produce — `A.70`, latched in the drive and surviving host reboots
+until the drive is power-cycled — arrives on the first cold start of a machine
+that has passed every other step, which is the most expensive place to find
+it.
+
+If this fails, the fault is in Stage B and not in anything since. Go back to
+B1 (is it really `PREEMPT_RT`?), B2 (is the core really isolated?) and B5 (is
+the endpoint really `SCHED_FIFO` on it?) before touching drive parameters.
 
 ---
 

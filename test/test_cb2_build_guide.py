@@ -446,3 +446,28 @@ def test_the_tuning_stage_says_where_a_tuned_value_lives():
         "the machine starting"
     )
     assert "Objects wider than 4 bytes" in flat
+
+
+def test_the_host_is_gated_on_a_cold_boot_before_the_config_stage():
+    """The CB2 host page ends with "confirm the bus before trusting it", and a
+    cold boot is what confirms it: `ec_generic` and a PREEMPT-not-PREEMPT_RT
+    kernel both hold cadence on an idle bench and drop frames under boot load.
+
+    The collation had that only in the closing done-criteria, hundreds of
+    lines after the point where it decides whether to carry on — so a reader
+    built the host, wired the machine, and met the failure at the most
+    expensive moment. The gate belongs before the config stage, which is the
+    first place it can run: the host is built with no drives wired."""
+    stage_j = TEXT.split("# Stage J")[1].split("\n# Stage K")[0]
+    flat = re.sub(r"\s+", " ", stage_j)
+    assert "cold boot" in flat.lower(), (
+        "Stage J does not gate on a cold boot, so nothing proves Stage B "
+        "before printer.cfg is written"
+    )
+    assert "A.70" in flat, "the gate does not say what a failure looks like"
+    assert "warm restart proves nothing" in flat
+    # And Stage B has to say it is not finished.
+    stage_b = TEXT.split("# Stage B")[1].split("\n# Stage C")[0]
+    assert "Stage J1" in stage_b, (
+        "Stage B does not tell the reader the host is unproven until the gate"
+    )
