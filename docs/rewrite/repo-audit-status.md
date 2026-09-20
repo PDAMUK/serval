@@ -66,6 +66,7 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 49 | The CB2 page never checked the built module's vermagic against the running kernel, where the Pi 5 page does — backwards, since the CB2 has you build the kernel yourself and a wrong `--with-linux-dir` surfaces only as `modprobe` refusing the module | `1d5aad7` |
 | 50 | The Pi 5 host page told the reader to "pick any core and pass `--rt-cpu` to match". Nothing can pass it: klippy spawns the endpoint and `bridge/ethercat_endpoint.rs` never emits the flag, so the core is fixed at CPU 3. Following the advice is worse than being stuck — `sched_setaffinity(3)` succeeds for any online CPU, so the loop pins to a *non-isolated* core while `chrt -p` and `Cpus_allowed_list` both read exactly as the verification says they should. Every documented check passes and the machine drops frames on the first cold boot. The two CB2 pages had the right core and never said why it had to be that one; the bench checklist named both `--rt-cpu` and `--rt-prio` as knobs | `549b5c2` |
 | 51 | Both guides warn that EtherCAT is direction-sensitive, then verified the chain with "the green `LINK/ACT` LED lights on each connected RJ45". The link is negotiated below EtherCAT, so a `CN4`-to-`CN4` link lights both LEDs identically — the check passes in the failure case it sits under. Direction is only proven where `ethercat slaves` counts the slaves, and neither page said so | `2c22d25` |
+| 52 | Both guides spend a paragraph on the `^` pull-up — finding 27's defect — and then verified the wiring with "`QUERY_ENDSTOPS` reports all three switches changing state when pressed", which passes with or without it: closing to ground pulls the pin firmly low either way, and what a missing prefix breaks is the *released* state. The check sat directly under the defect it cannot see |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -278,6 +279,21 @@ Not defects. Recorded so the next pass does not spend the time again.
   Manta M8P V2 is an STM32H723. Worth knowing before anyone plans an RP2040 or
   SAMD toolboard on this fork — `lib/rp2040_flash` is still here, the SDK it
   flashes is not.
+
+### Every verification step in the two build guides, evaluated
+
+Findings 51 and 52 came from one question asked of each in turn: *would this
+check pass if the thing it verifies were broken?* Twelve steps, two that
+failed it — the chain LED, which lights identically on a reversed link, and
+`QUERY_ENDSTOPS`, which swings the same way with or without the pull-up. The
+other ten discriminate, and are recorded here so the question is not asked of
+them again: the three kernel checks (which name the `PREEMPT` vs `PREEMPT_RT`
+trap), the isolated-core read, the module vermagic (added by finding 49), the
+master/`/dev/EtherCAT0`/`ip link` trio, the encoder check (`A.10`/`A.22` plus a
+smooth position display), the mains sequence — especially step 6, where `POWER`
+staying lit while `CHARGE` drops is what proves control power is on the correct
+side of the contactor — `ethercat slaves` counting two in wired order, klippy
+parsing the config, and the coupling-sign test.
 
 ## Known, deliberately not changed
 

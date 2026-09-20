@@ -227,3 +227,33 @@ def test_the_collated_bill_carries_the_load_and_the_breaker_that_matches():
     assert "Type A" in flat and "Type AC is not acceptable" in flat, (
         "the collated guide does not rule out the RCD type that cannot see DC"
     )
+
+
+@pytest.mark.parametrize("doc", [GUIDE, COLLATED], ids=lambda p: p.stem)
+def test_the_endstop_check_does_not_claim_to_prove_the_pull_up(doc):
+    """Both guides spend a paragraph on the `^` prefix — an input without it
+    floats the moment the switch opens — and then verified the wiring with
+    "QUERY_ENDSTOPS reports all three switches changing state when pressed".
+
+    That passes either way. Closing to ground pulls the pin firmly low with or
+    without the pull-up; what a missing prefix breaks is the *released* state.
+    So the check sits directly under the defect it cannot see, and the page
+    has to say which half it proves and give the one that bites: the released
+    state read repeatedly, and read again with the servos moving."""
+    text = doc.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    assert "QUERY_ENDSTOPS" in flat, (
+        "%s no longer checks the endstops" % doc.stem
+    )
+    assert "It does not prove the pull-up" in flat, (
+        "%s lets QUERY_ENDSTOPS stand as proof of the pull-up; a missing `^` "
+        "passes it exactly like a correct one" % doc.stem
+    )
+    assert "released" in flat, (
+        "%s does not point at the released state, which is the half a missing "
+        "pull-up actually breaks" % doc.stem
+    )
+    assert "servos moving" in flat, (
+        "%s does not say to re-check with the servos running, which is when "
+        "the noise is there to be picked up" % doc.stem
+    )

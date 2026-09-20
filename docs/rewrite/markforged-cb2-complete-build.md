@@ -1486,9 +1486,26 @@ machine that homes and one that appears to have a flaky switch.
 
 Wire the motor coils in pairs **by phase, not by wire colour**.
 
-**✅ Check.** With the Manta powered and no mains on the drives, klippy starts
-against a minimal config and `QUERY_ENDSTOPS` reports all three switches
-changing state when pressed.
+**✅ Check.** With the Manta powered and no mains on the drives, klippy
+starts against a minimal config and `QUERY_ENDSTOPS` reports all three
+switches changing state when pressed.
+
+**That proves the switch reaches the right pin. It does not prove the pull-up.**
+An input declared without `^` still swings when the contact closes to ground —
+closing to ground pulls it firmly low either way — so a missing prefix passes
+this check exactly like a correct one. What a missing pull-up breaks is the
+*released* state, which floats rather than resting high.
+
+So check the released state, not the press:
+
+- Query it several times with nothing pressed. Every read must return the same
+  value. A reading that changes between queries, or with a hand near the loom,
+  is a floating input.
+- Re-run it later with the servos moving, which is when the noise is there to
+  be picked up. This is the check that actually bites, and it is why Stage
+  L homes slowly with a hand on the power.
+- Read the config back: all four inputs — `^PF4`, `^PF3`, `^PF2` and `^PF1` —
+  carry the prefix. It is three characters and invisible when wrong.
 
 ---
 
