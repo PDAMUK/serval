@@ -44,17 +44,54 @@ def test_heartbeat_emits_observability_event():
     assert rec.subsystem == "observability"
 
 
-def test_lag_within_threshold_is_ok():
-    assert lo.check_lag(bytes_behind=1024, threshold=1_048_576) is False
+class RecordingReactor:
+    def __init__(self):
+        self.timers = []
+
+    def monotonic(self):
+        return 0.0
+
+    def register_timer(self, callback, waketime):
+        self.timers.append((callback.__name__, waketime))
+        return callback
 
 
-def test_lag_over_threshold_is_flagged():
-    assert lo.check_lag(bytes_behind=5_000_000, threshold=1_048_576) is True
+class FakePrinter:
+    def __init__(self, reactor):
+        self.reactor = reactor
+        self.handlers = {}
+
+    def get_reactor(self):
+        return self.reactor
+
+    def get_start_args(self):
+        return {}
+
+    def register_event_handler(self, event, cb):
+        self.handlers[event] = cb
 
 
-def test_lag_at_threshold_is_not_stale():
-    # boundary: exactly at threshold is not yet stale (strictly greater)
-    assert lo.check_lag(bytes_behind=1_048_576, threshold=1_048_576) is False
+class FakeConfig:
+    def __init__(self, printer):
+        self.printer = printer
+
+    def get_printer(self):
+        return self.printer
+
+
+def test_ready_arms_only_the_heartbeat():
+    """Every timer here wakes the reactor on a host that shares cores with the
+    EtherCAT DC loop, so each one has to earn its place. The heartbeat does:
+    it watches for the swap-out that stalls piece emission. A shipper-lag
+    timer used to run beside it at 60 s forever, reading a probe hardcoded to
+    return None, so it could never report anything however long it ran."""
+    reactor = RecordingReactor()
+    printer = FakePrinter(reactor)
+    lo.LogObservability(FakeConfig(printer))
+    printer.handlers["klippy:ready"]()
+
+    assert [name for name, _ in reactor.timers] == ["_heartbeat_timer"]
+    assert reactor.timers[0][1] == lo.HEARTBEAT_INTERVAL
 
 
 if __name__ == "__main__":
