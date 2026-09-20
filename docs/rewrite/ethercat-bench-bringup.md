@@ -14,6 +14,10 @@
 
 ## Stub validation: results (2026-06-01, no second MCU)
 
+> Kept as the record of that run, in the syntax of the day. `[servo_x]` below
+> is the section name as it then was; role-encoding sections are refused now —
+> see **Sample config**. Nothing else in this block has changed meaning.
+
 Validated the whole host path on the Pi 3B with **no second STM32** — a
 Linux-process MCU (`klipper_mcu`, MACH_LINUX build) as the primary clock + Y/Z
 steppers, and the EtherCAT servo on X talking to the `ethercat-rt-stub`.
@@ -72,7 +76,25 @@ stepping path today.
 
 ## Sample config
 
+A complete minimal machine: one servo on X, steppers on Y and Z. It parses as
+written — the annotations are the reference, and the section shapes are the
+ones the config reader accepts.
+
+**`[servo_x]` is not one of them.** Role-encoding sections (`[servo_x]`,
+`[servo_y]`, `[servo_z]`, and `[stepper_x]` and friends) are refused outright:
+a motor is named freely and assigned a role in `[kinematics]`. Motor properties
+live on `[motor <name>]`; travel limits and homing live on `[axis <name>]`.
+
 ```ini
+[kinematics]
+type: cartesian
+axis_x: x
+x_motors: motor_x
+axis_y: y
+y_motors: motor_y
+axis_z: z
+z_motors: motor_z
+
 # The EtherCAT motion endpoint, reached over a Unix socket (NOT a Klipper MCU).
 # klippy SPAWNS the endpoint binary itself at claim time — you do not launch it.
 [ethercat_node node_x]
@@ -87,29 +109,18 @@ interface: eth0                     # required; NIC the drive is wired to (raw E
 #group_delay_us: 250
 
 # A position-commanded servo presented as the X axis. No step/dir, no microsteps.
-[servo_x]
+[motor motor_x]
+drive: servo                  # 'servo' or 'stepper'; a lane's motors must agree
 protocol: ethercat            # only 'ethercat' is supported
 node: node_x                  # must match an [ethercat_node <name>]
+ethercat_chain_index: 0       # position on the wire, counting from the host
 rotation_distance: 40         # mm of axis travel per motor revolution (your mechanics)
 encoder_counts_per_rev: 131072  # required; drive encoder counts per motor rev (A6-EC: 131072)
-position_min: 0
-position_max: 300
 #invert_direction: True         # reverse motion AND feedforward (position, velocity_ff, torque)
 # Feedforward (optional; see servo-feedforward.md):
 #velocity_ff: True              # stream 60B1h velocity feedforward
 #dynamics_profile: dynamics_x.toml  # enables 60B2h torque feedforward
 #ff_max_torque: 30.0          # torque-offset ceiling, % of rated
-# Homing (optional). With these set, G28 homes the servo axis against a GPIO
-# endstop on any bridge MCU; without endstop_pin the axis has no endstop and
-# G28 on it fails loudly.
-#endstop_pin: PA13             # pin on the MCU that carries the switch
-#position_endstop: 0           # at or beyond position_min or position_max; placing it
-                               # past the range (e.g. 300.5 with position_max 300) keeps
-                               # that margin between full-range moves and the crash point
-                               # a sensorless home lands on (encoder noise, belt stretch)
-#homing_speed: 50
-#homing_retract_dist: 5        # back-off after endstop contact (default 5, 0 disables)
-#homing_retract_speed: 50      # back-off speed (default: homing_speed)
 # Drive protection (homing-scoped: written to 6065h/6072h around each G28,
 # restored after; a trip de-energizes the drive and fails the G28 loudly):
 #homing_following_error: 2.5   # mm of commanded-vs-actual deviation (default 2.5)
@@ -117,6 +128,44 @@ position_max: 300
 # Session-wide variants (written once at bringup; unset = drive defaults):
 #following_error: 10
 #max_torque: 150
+
+# Travel limits and homing belong to the axis, not the motor. With endstop_pin
+# set, G28 homes the servo axis against a GPIO endstop on any bridge MCU;
+# without it the axis has no endstop and G28 on it fails loudly.
+[axis x]
+position_min: 0
+position_max: 300
+#endstop_pin: ^PA13            # pin on the MCU that carries the switch
+#position_endstop: 0           # at or beyond position_min or position_max; placing it
+                               # past the range (e.g. 300.5 with position_max 300) keeps
+                               # that margin between full-range moves and the crash point
+                               # a sensorless home lands on (encoder noise, belt stretch)
+#homing_speed: 50
+#homing_retract_dist: 5        # back-off after endstop contact (default 5, 0 disables)
+#homing_retract_speed: 50      # back-off speed (default: homing_speed)
+
+[motor motor_y]
+drive: stepper
+step_pin: PB8
+dir_pin: !PB7
+enable_pin: !PE0
+rotation_distance: 40
+microsteps: 16
+
+[axis y]
+position_min: 0
+position_max: 300
+
+[motor motor_z]
+drive: stepper
+step_pin: PG13
+dir_pin: PG12
+enable_pin: !PG15
+rotation_distance: 8
+microsteps: 16
+
+[axis z]
+position_max: 250
 ```
 
 Bring-up now performs the **variable PDO remap** (1600h/1A00h via SDO in
@@ -132,7 +181,7 @@ identification workflow.
 
 `counts_per_mm = encoder_counts_per_rev / rotation_distance` — the `CountMap` gain
 the endpoint uses to convert host millimetres to drive counts. klippy derives it at
-claim time from `[servo_x]` and hands it to the spawned endpoint. Get both keys right
+claim time from `[motor motor_x]` and hands it to the spawned endpoint. Get both keys right
 before the drive moves.
 
 ## Drive profiles (which drive family is on the bus)
@@ -271,6 +320,33 @@ rotation_distance: 40
 encoder_counts_per_rev: 1048576
 max_torque: 100
 following_error: 2.0
+
+[motor motor_z]
+drive: stepper
+step_pin: PB8
+dir_pin: !PB7
+enable_pin: !PE0
+rotation_distance: 8
+microsteps: 16
+
+# Travel limits and homing are the axis's, not the motor's.
+[axis x]
+endstop_pin: ^PF4
+position_min: 0
+position_max: 300
+position_endstop: 0
+homing_speed: 50
+
+[axis y]
+endstop_pin: ^PF3
+position_min: 0
+position_max: 300
+position_endstop: 0
+homing_speed: 50
+
+[axis z]
+endstop_pin: ^PF2
+position_max: 250
 ```
 
 `max_torque` is a percentage of *rated* torque and accepts up to 400, so 300 is
@@ -292,14 +368,14 @@ feedforward calibration does not carry over.
 
 ## Drive parameters (SDO)
 
-Drive tuning lives in config, not drive EEPROM. `params:` entries on `[servo_*]`
+Drive tuning lives in config, not drive EEPROM. `params:` entries on `[motor <name>]`
 are raw CoE object addresses pushed to drive RAM (never EEPROM) on every claim,
 after bringup succeeds and before the claim is reported healthy. Each write is
 read back; a mismatch (drive clamped or rejected the value) fails the claim with
 the offending address, the value written, and what the drive settled on.
 
 ```ini
-[servo_x]
+[motor motor_x]
 # ... options above ...
 params:
     0x2002.0: 100          # size probed via SDO upload (one extra mailbox round-trip)
@@ -310,9 +386,9 @@ params:
 Ad-hoc access while tuning:
 
 ```
-SERVO_PARAM SERVO=servo_x GET=0x2002.0
-SERVO_PARAM SERVO=servo_x GET=0x2002.0 TYPE=i16
-SERVO_PARAM SERVO=servo_x SET=0x2002.0 VALUE=100 TYPE=u16
+SERVO_PARAM SERVO=motor_x GET=0x2002.0
+SERVO_PARAM SERVO=motor_x GET=0x2002.0 TYPE=i16
+SERVO_PARAM SERVO=motor_x SET=0x2002.0 VALUE=100 TYPE=u16
 ```
 
 GET without `TYPE=` prints raw hex plus both unsigned and signed decimal

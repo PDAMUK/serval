@@ -7,7 +7,8 @@
 >
 > This is the infrastructure the servo path sits on. Once it is in place, follow
 > [`ethercat-bench-bringup.md`](ethercat-bench-bringup.md) to bring an actual
-> drive up (`[ethercat_node]` / `[servo]` config, homing, feedforward, capture).
+> drive up (`[ethercat_node]` and a `[motor]` with `drive: servo`, homing,
+> feedforward, capture).
 >
 > Substitute your own values for everything in `<angle brackets>` — this guide
 > names no specific host.
