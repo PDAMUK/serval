@@ -171,3 +171,59 @@ def test_tuning_docs_say_where_a_tuned_value_lives(doc):
         "%s does not warn that a rejected params: write stops startup"
         % doc.stem
     )
+
+
+COLLATED = DOCS / "markforged-cb2-complete-build.md"
+
+
+@pytest.mark.parametrize("doc", [GUIDE, COLLATED], ids=lambda p: p.stem)
+def test_the_chain_check_does_not_claim_to_prove_direction(doc):
+    """EtherCAT is direction-sensitive and both guides say so — then verified
+    the chain with "the LINK/ACT LED lights on each connected RJ45".
+
+    The link is negotiated below EtherCAT, so a CN4-to-CN4 link lights both
+    LEDs exactly the same way. The check passes in the failure case it sits
+    under, which is the worst property a verification can have. Direction is
+    proven where `ethercat slaves` counts the slaves, and the page has to say
+    so rather than let the LED stand in for it."""
+    text = doc.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    assert "LINK/ACT" in flat, "%s no longer checks the link at all" % doc.stem
+    assert "nothing about direction" in flat, (
+        "%s lets the LINK/ACT LED stand as the chain-direction check; it "
+        "lights the same way on a reversed link" % doc.stem
+    )
+    assert re.search(r"CN4.{0,4}to.{0,4}`?CN4", flat), (
+        "%s does not name the reversed link the LED cannot see" % doc.stem
+    )
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["175-5085", "489-0447", "488-6915", "211-1482", "139-972", "870-3413"],
+)
+def test_the_collated_bill_quotes_the_same_parts_as_the_source(code):
+    """The collation carries its own bill of materials, and the arithmetic
+    tests that guard the source guide's never looked at it. A part that drifts
+    between the two is a part someone buys twice."""
+    source = GUIDE.read_text(encoding="utf-8")
+    collated = COLLATED.read_text(encoding="utf-8")
+    assert code in source, "%s left the source guide's bill" % code
+    assert code in collated, "%s is missing from the collated bill" % code
+
+
+def test_the_collated_bill_carries_the_load_and_the_breaker_that_matches():
+    """7.83 A is the figure every sizing decision is made against. A bill that
+    quotes a breaker without it, or a breaker too small for it, is a bill
+    nobody can check."""
+    text = COLLATED.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    assert "7.83" in flat, "the collated guide no longer states the load"
+    breaker = re.search(r"S201-C(\d+)", flat)
+    assert breaker, "no breaker named in the collated bill"
+    assert float(breaker.group(1)) > 7.83, (
+        "the collated bill's breaker is rated below the load it states"
+    )
+    assert "Type A" in flat and "Type AC is not acceptable" in flat, (
+        "the collated guide does not rule out the RCD type that cannot see DC"
+    )

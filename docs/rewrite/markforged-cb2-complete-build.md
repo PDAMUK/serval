@@ -1465,7 +1465,15 @@ Two further `-EC` differences worth knowing before building a loom: `CN1` is a
 **20-pin** connector rather than the standard 50-pin, and it carries **5
 sequence input channels** rather than 8.
 
-**✅ Check.** The green `LINK/ACT` LED lights on each connected RJ45.
+**✅ Check — and be clear what it does not prove.** The green `LINK/ACT` LED
+lights on each connected RJ45. That confirms the cable and the PHY link, and
+**nothing about direction**: a `CN4`-to-`CN4` link lights both LEDs exactly the
+same way, because the link is negotiated below EtherCAT.
+
+Direction is proven at **Stage J**, where `ethercat slaves` must list *two*
+slaves in the wired order. One slave there is the reversed link showing up.
+Until then, the only guard is having wired IN to OUT deliberately and labelled
+the drives.
 
 ---
 
