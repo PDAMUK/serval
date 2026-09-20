@@ -120,3 +120,54 @@ def test_both_host_pages_check_the_module_against_the_running_kernel():
         assert re.search(r"wrong kernel tree", flat), (
             "%s checks vermagic without saying what a mismatch means" % rel
         )
+
+
+def test_no_host_page_offers_a_core_choice_nothing_can_honour():
+    """The endpoint pins to CPU 3. `--rt-cpu` exists on the binary, but klippy
+    spawns the endpoint and never passes it, and no printer.cfg option reaches
+    it — so the core is not a choice.
+
+    The Pi 5 page said "pick any core and pass --rt-cpu to match". Following
+    that is worse than being stuck on CPU 3: sched_setaffinity(3) succeeds for
+    any online CPU, so the loop pins to a core that is not isolated while
+    chrt -p and Cpus_allowed_list both read exactly as the guide says they
+    should. Every documented check passes and the machine drops frames on the
+    first cold boot under load."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+
+    # The premise: nothing in the host or the bridge emits --rt-cpu.
+    reachable = []
+    for sub in ["klippy", "rust/motion-engine"]:
+        for path in (
+            (root / sub).rglob("*.p[y]")
+            if sub == "klippy"
+            else (root / sub).rglob("*.rs")
+        ):
+            if "--rt-cpu" in path.read_text(encoding="utf-8", errors="ignore"):
+                reachable.append(str(path.relative_to(root)))
+    assert not reachable, (
+        "--rt-cpu is now reachable from %s; the pages saying the core is "
+        "fixed need revisiting" % reachable
+    )
+
+    for rel in [
+        "docs/rewrite/ethercat-igh-macb-install.md",
+        "docs/rewrite/ethercat-host-cb2-rk3566.md",
+        "docs/rewrite/markforged-cb2-complete-build.md",
+    ]:
+        text = (root / rel).read_text(encoding="utf-8")
+        flat = re.sub(r"\s+", " ", text)
+        assert "isolcpus=domain,managed_irq,3" in flat, (
+            "%s no longer isolates CPU 3, which is the only core the endpoint "
+            "will pin to" % rel
+        )
+        assert "must be CPU 3" in flat, (
+            "%s does not say the core is fixed, so a reader may isolate "
+            "another and pass every check anyway" % rel
+        )
+        assert not re.search(r"pick any core", flat), (
+            "%s offers a core choice that nothing can honour" % rel
+        )

@@ -102,13 +102,22 @@ Select the RT image and isolate a core. Back up both files first.
 kernel=kernel8_rt.img
 ```
 
-`/boot/firmware/cmdline.txt` — append to the single line (isolate core **3**;
-the endpoint pins to CPU 3 by default — pick any core and pass `--rt-cpu` to
-match if you choose a different one):
+`/boot/firmware/cmdline.txt` — append to the single line, isolating core **3**
+specifically:
 
 ```
 isolcpus=domain,managed_irq,3 nohz_full=3 rcu_nocbs=3 threadirqs
 ```
+
+**It must be CPU 3, not "a core".** The endpoint pins to CPU 3 and nothing
+reachable changes that: `--rt-cpu` exists on the binary, but klippy spawns the
+endpoint itself and never passes it, and no `printer.cfg` option reaches it.
+Isolate a different core and `sched_setaffinity(3)` still succeeds — it only
+fails for a CPU that is offline or absent — so the loop pins to a core that is
+*not* isolated while `chrt -p` reports `SCHED_FIFO 80` and
+`Cpus_allowed_list` reports `3`. Every check in this guide passes and the loop
+shares a contended core, which is the sync-loss failure that shows up only on
+a cold boot under load.
 
 Reboot and verify:
 
