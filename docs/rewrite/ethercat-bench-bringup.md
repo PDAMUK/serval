@@ -552,12 +552,19 @@ heisenbug.
    `cargo build` writes a fresh inode and drops file-caps**, so re-run setcap
    after *every* endpoint rebuild — the flash script re-applies it, a bare
    rebuild does not. Skipping it is the direct cause of "ErC11 after flashing".
-2. **An isolated core to pin to.** The bench reserves CPUs 2-3 on the kernel
-   cmdline (`isolcpus=domain,managed_irq,2-3 nohz_full=2-3 rcu_nocbs=2-3`); the
-   endpoint pins to CPU `--rt-cpu` (default 3). An isolated core stays
+2. **An isolated core to pin to — and it must be CPU 3.** The bench reserves
+   CPUs 2-3 on the kernel cmdline
+   (`isolcpus=domain,managed_irq,2-3 nohz_full=2-3 rcu_nocbs=2-3`), which
+   covers it with a core to spare. The endpoint pins to CPU 3 and nothing
+   reachable changes that: `--rt-cpu` exists on the binary, but klippy spawns
+   the endpoint and the bridge never emits the flag, so no config reaches it.
+   Isolating a different core is worse than useless — `sched_setaffinity(3)`
+   succeeds for any online CPU, so the loop pins to a contended core while
+   every check below still reads correct. An isolated core stays
    contention-free even while the rest of the Pi is saturated booting — that is
    what holds cadence through the cold-boot window that used to fault.
-3. **`SCHED_FIFO`** at priority `--rt-prio` (default 80).
+3. **`SCHED_FIFO`** at priority 80 (`--rt-prio`, and unreachable for the same
+   reason).
 
 **Robust alternative to per-rebuild setcap** (ambient caps survive rebuilds; the
 file-cap does not): grant the caps on the systemd service via a drop-in

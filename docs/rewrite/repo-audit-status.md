@@ -64,6 +64,7 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 47 | The collated CB2 guide had no counterpart to the host page's "confirm the bus before trusting it": its only cold-boot instruction sat in the closing done-criteria, three hundred lines past the point where a reader decides whether to carry on | `1dd5bf0` |
 | 48 | The CB2 host page put `MASTER0_DEVICE` in `/etc/ethercat.conf` and started the master from `/etc/init.d/ethercat`, while building with `--prefix=/opt/etherlab` and using the prefixed path in its own `ExecStop`. Neither unprefixed path exists for this build, so the settings are silently never read and the master comes up with no link — indistinguishable from the wrong MAC its own troubleshooting table sends you to | `b7904e1` |
 | 49 | The CB2 page never checked the built module's vermagic against the running kernel, where the Pi 5 page does — backwards, since the CB2 has you build the kernel yourself and a wrong `--with-linux-dir` surfaces only as `modprobe` refusing the module | `1d5aad7` |
+| 50 | The Pi 5 host page told the reader to "pick any core and pass `--rt-cpu` to match". Nothing can pass it: klippy spawns the endpoint and `bridge/ethercat_endpoint.rs` never emits the flag, so the core is fixed at CPU 3. Following the advice is worse than being stuck — `sched_setaffinity(3)` succeeds for any online CPU, so the loop pins to a *non-isolated* core while `chrt -p` and `Cpus_allowed_list` both read exactly as the verification says they should. Every documented check passes and the machine drops frames on the first cold boot. The two CB2 pages had the right core and never said why it had to be that one; the bench checklist named both `--rt-cpu` and `--rt-prio` as knobs | `549b5c2` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -251,6 +252,13 @@ Not defects. Recorded so the next pass does not spend the time again.
   wrong, so a path it names may be exactly the path that did not exist —
   findings 40 and 41 are two of them, and holding it to the check would mean
   it could never describe a dead reference.
+- **Every documented knob has a path to the code that reads it, bar the three
+  now named as unreachable.** Of the endpoint's 25 CLI flags the bridge emits
+  22; the three it does not are `--rt-cpu`, `--rt-prio` (finding 50) and
+  `--mailbox-cpu`, which no document mentions and nothing tells a reader to
+  set. In the other direction, every `[motor]` servo option `servo_axis.py`
+  reads is documented in at least one servo document — checked by extracting
+  the reads and searching all six.
 - **This document's own integrity.** 39 findings at the time of the check, no
   gaps, no duplicates, in order, and all 28 commits it cites resolve in this
   repository. The one hash that does not is `14f6296`, which is upstream's head

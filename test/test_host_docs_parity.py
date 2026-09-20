@@ -153,6 +153,22 @@ def test_no_host_page_offers_a_core_choice_nothing_can_honour():
         "fixed need revisiting" % reachable
     )
 
+    # The bench checklist names the flags too, and is the page that explains
+    # the real-time rules in depth, so it carries the same burden.
+    for rel in [
+        "docs/rewrite/ethercat-bench-bringup.md",
+        "docs/rewrite/ethercat-igh-macb-install.md",
+        "docs/rewrite/ethercat-host-cb2-rk3566.md",
+        "docs/rewrite/markforged-cb2-complete-build.md",
+    ]:
+        text = (root / rel).read_text(encoding="utf-8")
+        flat = re.sub(r"\s+", " ", text)
+        assert "must be CPU 3" in flat, (
+            "%s names --rt-cpu without saying it cannot be reached" % rel
+        )
+        assert not re.search(r"pick any core", flat), (
+            "%s offers a core choice that nothing can honour" % rel
+        )
     for rel in [
         "docs/rewrite/ethercat-igh-macb-install.md",
         "docs/rewrite/ethercat-host-cb2-rk3566.md",
@@ -163,11 +179,4 @@ def test_no_host_page_offers_a_core_choice_nothing_can_honour():
         assert "isolcpus=domain,managed_irq,3" in flat, (
             "%s no longer isolates CPU 3, which is the only core the endpoint "
             "will pin to" % rel
-        )
-        assert "must be CPU 3" in flat, (
-            "%s does not say the core is fixed, so a reader may isolate "
-            "another and pass every check anyway" % rel
-        )
-        assert not re.search(r"pick any core", flat), (
-            "%s offers a core choice that nothing can honour" % rel
         )
