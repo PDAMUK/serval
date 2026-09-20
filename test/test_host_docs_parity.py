@@ -43,3 +43,46 @@ def test_both_host_paths_cover_the_same_step(doc, what, token):
     assert token in doc.read_text(encoding="utf-8"), (
         f"{doc.name} never covers {what}"
     )
+
+
+def test_both_host_pages_put_the_master_config_under_the_install_prefix():
+    """Both pages build the master with `--prefix=/opt/etherlab`, which puts
+    autoconf's sysconfdir at `/opt/etherlab/etc`. The init script and the file
+    it reads are therefore under that prefix.
+
+    The CB2 page had the config at `/etc/ethercat.conf` and started the master
+    with `/etc/init.d/ethercat` — a distro-packaged master's layout, which
+    this build does not install — while its own ExecStop already used the
+    prefixed path. A MASTER0_DEVICE written to a file nothing reads produces a
+    master that loads and finds no link, which is indistinguishable from a
+    wrong MAC and is the row its own troubleshooting table sends you to."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    pages = [
+        "docs/rewrite/ethercat-igh-macb-install.md",
+        "docs/rewrite/ethercat-host-cb2-rk3566.md",
+        "docs/rewrite/markforged-cb2-complete-build.md",
+    ]
+    for rel in pages:
+        text = (root / rel).read_text(encoding="utf-8")
+        assert "--prefix=/opt/etherlab" in text, (
+            "%s no longer sets the prefix" % rel
+        )
+        # The unprefixed paths belong to a packaged master, so they may only
+        # appear where the page is explaining that they do not apply.
+        for stray in re.finditer(
+            r"(?<!ld\.so\.conf\.d/)\betc/ethercat\.conf\b", text
+        ):
+            window = text[max(0, stray.start() - 220) : stray.end() + 120]
+            assert "distro-packaged" in window, (
+                "%s points MASTER0_DEVICE at /etc/ethercat.conf, which a "
+                "--prefix=/opt/etherlab master never reads" % rel
+            )
+        for stray in re.finditer(r"(?<!etherlab/)etc/init\.d/ethercat", text):
+            window = text[max(0, stray.start() - 220) : stray.end() + 120]
+            assert "distro-packaged" in window, (
+                "%s runs /etc/init.d/ethercat, which this build does not "
+                "install" % rel
+            )

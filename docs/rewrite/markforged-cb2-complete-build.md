@@ -748,15 +748,25 @@ fi
 
 modprobe ec_dwmac-rk
 echo "$DEV" > "$SYS/drivers/ec_dwmac-rk/bind" 2>/dev/null || true
-/etc/init.d/ethercat start
+/opt/etherlab/etc/init.d/ethercat start
 ```
 
-Configure the master to expect this MAC, in `/etc/ethercat.conf`:
+Configure the master to expect this MAC, in
+`/opt/etherlab/etc/sysconfig/ethercat`:
 
 ```
 MASTER0_DEVICE="<eth0 MAC, lowercase, e.g. 2c:cf:67:7d:37:1b>"
 DEVICE_MODULES="dwmac-rk"
 ```
+
+Both live under the `--prefix` the master was built with. `./configure
+--prefix=/opt/etherlab` puts `sysconfdir` at `/opt/etherlab/etc`, so the init
+script is `/opt/etherlab/etc/init.d/ethercat` and the file it reads is
+`/opt/etherlab/etc/sysconfig/ethercat`. `/etc/ethercat.conf` and
+`/etc/init.d/ethercat` belong to a distro-packaged master and do not exist for
+this build — a `MASTER0_DEVICE` written there is silently never read, and the
+symptom is a master that loads and finds no link, which reads exactly like a
+wrong MAC.
 
 The MAC is matched as a **string**, so lowercase with colons — an uppercase one
 gives a master that loads and finds no link. `DEVICE_MODULES` takes the name
@@ -941,7 +951,7 @@ enabled: False
 
 | Symptom | Cause |
 | --- | --- |
-| `ec_dwmac-rk: Unknown symbol ecdev_*` | `ec_master.ko` not loaded first; `/etc/init.d/ethercat start` loads it |
+| `ec_dwmac-rk: Unknown symbol ecdev_*` | `ec_master.ko` not loaded first; `/opt/etherlab/etc/init.d/ethercat start` loads it |
 | `modprobe: module not found` | `depmod -a` not run after `modules_install` |
 | Builds, but `ethercat master` shows no link | `MASTER0_DEVICE` MAC does not match `eth0` |
 | Device stays bound to `stmmac` | `driver_override` written after the driver already bound — the unbind step is what fixes it |
