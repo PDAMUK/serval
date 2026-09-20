@@ -93,19 +93,25 @@ def test_the_sim_image_builds_and_installs_the_stub():
 
 
 @pytest.mark.needs_elf
-def test_klippy_reaches_ready_with_the_drives_off(sim_world, tmp_path):
-    """Part 12 step 1. A world that comes up means the claim completed: the
-    endpoint was spawned, the handshake finished, and both drive slots were
-    configured."""
-    socket_path = str(tmp_path / "kalico-ethercat.sock")
-    world = sim_world(
+def test_the_endpoint_is_spawned_and_claimed(sim_world, tmp_path):
+    """Part 12 step 1. The fixture already waits for klippy to reach ready and
+    fails the test if it does not, so re-asserting that proves nothing — what
+    is specific to this world is that the claim happened at all: klippy spawned
+    the endpoint binary and it created its socket.
+
+    The name is kept short on purpose. A unix socket path is capped near 108
+    bytes and pytest's tmp_path is already most of one."""
+    socket_path = str(tmp_path / "ec.sock")
+    sim_world(
         lambda w: configs.ethercat_servo_config(
             w.h7_pty, str(w.gcode_dir), socket_path
         ),
         dual_mcu=False,
     )
-    status = world.status({"webhooks": None})["webhooks"]
-    assert status["state"] == "ready", status
+    assert pathlib.Path(socket_path).exists(), (
+        "klippy reached ready but the endpoint never created %s — the claim "
+        "did not happen" % socket_path
+    )
 
 
 @pytest.mark.needs_elf
@@ -114,7 +120,7 @@ def test_a_servo_axis_move_is_accepted(sim_world, tmp_path):
     is accepted — not that anything turned. A move rejected here is the
     planner-to-bridge path failing, which is what this world exists to catch
     before a drive is ever energised."""
-    socket_path = str(tmp_path / "kalico-ethercat.sock")
+    socket_path = str(tmp_path / "ec.sock")
     world = sim_world(
         lambda w: configs.ethercat_servo_config(
             w.h7_pty, str(w.gcode_dir), socket_path
@@ -124,6 +130,6 @@ def test_a_servo_axis_move_is_accepted(sim_world, tmp_path):
     world.gcode_ok("SET_KINEMATIC_POSITION X=125 Y=125 Z=125")
     world.gcode_ok("G1 X135 Y135 F3000")
     world.gcode_ok("M400")
-    toolhead = world.status({"toolhead": None})["toolhead"]
-    assert toolhead["position"][0] == pytest.approx(135.0, abs=0.01)
-    assert toolhead["position"][1] == pytest.approx(135.0, abs=0.01)
+    assert world.toolhead_position()[:2] == pytest.approx(
+        [135.0, 135.0], abs=0.01
+    )
