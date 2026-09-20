@@ -323,3 +323,38 @@ fn identity_rejects_nonsense_loudly() {
     assert!(err.contains("wibble"), "{err}");
     assert!(super::parse_identity("--product-code", Some("0xZZ".into())).is_err());
 }
+
+#[test]
+fn group_flag_absent_means_the_profile_decides() {
+    // -1 is what the C side reads as "leave the profile's answer alone", and
+    // it is what every machine configured before these options existed gets.
+    assert_eq!(super::parse_group_flag("--pdo-touch-probe", None), Ok(-1));
+}
+
+#[test]
+fn group_flag_accepts_the_spellings_the_config_uses() {
+    for on in ["1", "on", "true", "yes", "On", "TRUE"] {
+        assert_eq!(
+            super::parse_group_flag("--pdo-digital-io", Some(on.into())),
+            Ok(1),
+            "{on} should read as on"
+        );
+    }
+    for off in ["0", "off", "false", "no", "Off", "FALSE"] {
+        assert_eq!(
+            super::parse_group_flag("--pdo-digital-io", Some(off.into())),
+            Ok(0),
+            "{off} should read as off"
+        );
+    }
+}
+
+#[test]
+fn group_flag_refuses_anything_else_rather_than_guessing() {
+    // Guessing here would leave a group mapped that the operator asked to
+    // drop, and the drive would refuse the whole map with no clue why.
+    let err = super::parse_group_flag("--pdo-touch-probe", Some("maybe".into()))
+        .expect_err("a non-boolean must not parse");
+    assert!(err.contains("--pdo-touch-probe"), "{err}");
+    assert!(err.contains("maybe"), "{err}");
+}

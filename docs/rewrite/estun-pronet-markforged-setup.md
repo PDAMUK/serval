@@ -1430,6 +1430,14 @@ Belts stay uncoupled until the final step.
    already (`make -f Makefile.rust ethercat-stub`), point `endpoint:` at
    `rust/target/release/ethercat-rt-stub` and start klippy. It must reach
    `ready`. This proves planner -> bridge -> transport with zero hardware risk.
+
+   This step now has an automated counterpart, so a failure here is more
+   likely to be this machine than the software. `test/test_ethercat_claim_stub.py`
+   spawns the same binary and completes the same handshake in the ordinary
+   test suite — no master, no NIC, no MCU — and the simulator carries an
+   EtherCAT world (`tools/sim/tests/test_ethercat_world.py`) that boots klippy
+   against it with X and Y on servos and Z on a stepper. If those are green and
+   this step is not, suspect the config or the host, not the claim path.
 2. **Test the halt, still on the stub.** The drives are off and the stub
    answers `Stop` and `SetTorque` exactly as the real endpoint does, so this
    costs nothing and proves the wiring before any drive is live.

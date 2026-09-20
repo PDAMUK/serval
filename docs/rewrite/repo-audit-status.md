@@ -364,9 +364,10 @@ job from auditing this branch.
   not an auditor's.
 - `klippy/extras/` beyond the servo path — the 138 files identical to upstream.
   A bug found there is upstream's, not this branch's.
-- `tools/sim` beyond confirming its unit subset now runs in CI. It carries no
-  EtherCAT or servo world, so the seam where klippy spawns the endpoint and
-  completes the claim is exercised only by hand, at Part 12 step 1.
+- `tools/sim` beyond confirming its unit subset now runs in CI, and beyond the
+  EtherCAT world since added. That world, plus `test_ethercat_claim_stub.py`,
+  closes what used to be listed here: the seam where klippy spawns the endpoint
+  and completes the claim is no longer exercised only by hand at Part 12 step 1.
 
 ## Resuming on a fresh container
 

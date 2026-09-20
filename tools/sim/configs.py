@@ -2248,3 +2248,103 @@ enable_force_move: True
 #*# model_mode = {mode}
 #*# model_fw_version = v0.0.0-sim
 """
+
+
+ETHERCAT_STUB_BINARY = "/kalico/rust/target/release/ethercat-rt-stub"
+
+
+def ethercat_servo_config(
+    h7_pty: str,
+    gcode_dir: str,
+    socket_path: str,
+    endpoint_binary: str = ETHERCAT_STUB_BINARY,
+    drive_profile: str = "a6ec",
+    extra_node_options: str = "",
+) -> str:
+    """X and Y on EtherCAT servos, Z on a stepper — the bench's own topology.
+
+    The endpoint defaults to `ethercat-rt-stub`, which answers the protocol
+    with nothing behind it, so this is Part 12 step 1 of the build guide: the
+    drives are off and what is under test is planner to bridge to transport.
+    The servo axes home against MCU GPIO endstops exactly as the real machine
+    does, the Manta carrying the switches for lanes it does not step.
+
+    `extra_node_options` is appended inside `[ethercat_node]` so a caller can
+    exercise the optional PDO groups without a second copy of the config.
+    """
+    return f"""\
+[mcu]
+serial: {h7_pty}
+
+[printer]
+max_velocity: 300
+max_accel: 3000
+max_jerk: 100000
+max_z_velocity: 10
+max_z_accel: 30
+
+[kinematics]
+type: cartesian
+axis_x: x
+axis_y: y
+axis_z: z
+x_motors: motor_x
+y_motors: motor_y
+z_motors: motor_z
+
+[ethercat_node node_xy]
+socket: {socket_path}
+interface: eth0
+drive_profile: {drive_profile}
+cycle_us: 250
+endpoint: {endpoint_binary}
+{extra_node_options}
+[motor motor_x]
+drive: servo
+protocol: ethercat
+node: node_xy
+ethercat_chain_index: 0
+rotation_distance: 40
+encoder_counts_per_rev: 131072
+max_torque: 100
+following_error: 2.0
+
+[motor motor_y]
+drive: servo
+protocol: ethercat
+node: node_xy
+ethercat_chain_index: 1
+rotation_distance: 40
+encoder_counts_per_rev: 131072
+max_torque: 100
+following_error: 2.0
+
+[motor motor_z]
+drive: stepper
+step_pin: gpiochip0/gpio6
+dir_pin: gpiochip0/gpio7
+enable_pin: !gpiochip0/gpio8
+microsteps: 16
+rotation_distance: 4
+
+[axis x]
+position_min: 0
+position_endstop: 0
+position_max: 250
+endstop_pin: ^gpiochip0/gpio10
+homing_speed: 10
+
+[axis y]
+position_min: 0
+position_endstop: 0
+position_max: 250
+endstop_pin: ^gpiochip0/gpio11
+homing_speed: 10
+
+[axis z]
+position_min: -5
+position_endstop: 0
+position_max: 250
+endstop_pin: ^gpiochip0/gpio12
+homing_speed: 5
+{_tail(gcode_dir)}"""

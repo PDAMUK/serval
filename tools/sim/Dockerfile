@@ -69,10 +69,12 @@ COPY rust/ /kalico/rust/
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=shared \
     --mount=type=cache,target=/root/.cargo/git,sharing=shared \
     cargo build -p motion-engine -p config-py -p shaper-ident --release && \
+    cargo build -p ethercat-rt --bin ethercat-rt-stub --release && \
     mkdir -p /artifacts && \
     cp /kalico/rust/target/release/lib_motion_engine.so /artifacts/ && \
     cp /kalico/rust/target/release/lib_config_doc.so /artifacts/ && \
-    cp /kalico/rust/target/release/lib_shaper_ident.so /artifacts/
+    cp /kalico/rust/target/release/lib_shaper_ident.so /artifacts/ && \
+    cp /kalico/rust/target/release/ethercat-rt-stub /artifacts/
 
 # --------------------------------------------------------------------
 # Stage 3 — firmware
@@ -198,6 +200,15 @@ COPY --from=rust-build \
 COPY --from=rust-build \
     /artifacts/lib_shaper_ident.so \
     /kalico/klippy/_shaper_ident.so
+
+# The stub EtherCAT endpoint. klippy spawns it itself at claim time, so it
+# only has to exist at the path the config's `endpoint:` names — which is
+# where configs.ETHERCAT_STUB_BINARY points. No master, no NIC: it answers
+# the protocol with nothing behind it, which is Part 12 step 1 of the build
+# guide made automatic.
+COPY --from=rust-build \
+    /artifacts/ethercat-rt-stub \
+    /kalico/rust/target/release/ethercat-rt-stub
 
 # Third-party plugins fetched during the firmware stage.
 COPY --from=firmware /kalico/tools/sim/third_party_repos/ \
