@@ -159,6 +159,30 @@ Not defects. Recorded so the next pass does not spend the time again.
 - **Snapshots carry no markforged case on purpose.** The planner is
   kinematics-agnostic — snapshots pin the trajectory in axis space, and the
   markforged matrix is pinned separately. Its absence there is not a gap.
+- **The PDO byte accounting is right for both profiles.** `rx_entries` sums to
+  18 (`OUT_BYTES`), the first nine `tx_entries` to 28 (`IN_BYTES_BASE`), and
+  adding `60F4h` gives the 32 that upstream hardcoded. `60F4h` really is last
+  in the array, so the short map is a prefix of the long one as its comment
+  claims, and a profile that drops it maps a contiguous run.
+- **Homing's drive-limit swap cannot start a move with limits half applied.**
+  `_servo_drive_limits` is a context manager: a failing `set_drive_limits`
+  raises before the `with` body, so homing never runs; an exception inside
+  attempts a restore, logs if that also fails, and re-raises the original. The
+  one residue is that a swap failing partway leaves the earlier drives on
+  homing limits, which are the *tighter* pair — 50% torque and a smaller
+  following-error window — so the machine is left safer rather than looser, and
+  the next successful swap or a drive power cycle clears it.
+- **Lint sweeps, and what they are worth here.** ruff's bug-focused rules over
+  `klippy/` (`B`, `PLE`, `RUF`, `C4`) found finding 33 and nothing else — 161
+  hits, 158 of them style, one real, two false positives (`%d` with a bool is
+  valid). Clippy at `pedantic` over `ethercat-rt`, `motion-engine` and
+  `motion-core` is dominated by 510 `cast_possible_truncation`, which is too
+  coarse to triage and is knowingly outside the gate's enabled set. Of the ten
+  `float_cmp` sites, eight are tests and the two that are not —
+  `geometry/src/velocity/disk.rs` and `motion-pipeline/src/shaper.rs` — are
+  byte-identical to upstream, so they are upstream's planner internals. Left
+  alone deliberately: changing them would move motion output and oblige the
+  owner to regenerate snapshot baselines.
 - **Line citations in `beacon-fork-survey.md` and `external-probe-homing.md`**
   (48 of the 55 in `docs/`) are historical analyses pointing at upstream files,
   not references anyone configures from. Left alone deliberately.
@@ -325,11 +349,24 @@ planner's output is byte-identical to base.
 
 ## Not yet audited
 
+Rescoped once the upstream diff made it clear what is actually this branch's
+code. `motion-core` is byte-identical to upstream apart from `kinematics.rs`
+and `motion_history.rs`, both now verified, and only six files under
+`klippy/extras/` differ at all — so most of what this list used to name is
+upstream's code, running on upstream's hardware, and auditing it is a different
+job from auditing this branch.
+
 - `Config_Reference.md` — the non-motion half. Only
   `Config_Reference_Motion.md` has been checked.
-- The planner itself — `motion-core`, the pipeline stages, snapshot coverage.
-- `klippy/extras/` beyond the servo path.
-- `tools/sim` beyond confirming its unit subset now runs in CI.
+- **Upstream's planner internals** — the pipeline stages, `geometry`,
+  `motion-pipeline`. Unexamined here, and deliberately so: a change there moves
+  motion output and needs a regenerated baseline, which is the owner's call,
+  not an auditor's.
+- `klippy/extras/` beyond the servo path — the 138 files identical to upstream.
+  A bug found there is upstream's, not this branch's.
+- `tools/sim` beyond confirming its unit subset now runs in CI. It carries no
+  EtherCAT or servo world, so the seam where klippy spawns the endpoint and
+  completes the claim is exercised only by hand, at Part 12 step 1.
 
 ## Resuming on a fresh container
 
