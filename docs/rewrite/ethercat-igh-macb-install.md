@@ -307,6 +307,13 @@ From the repo, on the Pi (the `hw` build compiles the IgH C shim and links
 make -f Makefile.rust ethercat-endpoint-hw     # -> rust/target/release/ethercat-rt
 ```
 
+> **If the master is not at `/opt/etherlab`.** `build.rs` reads `IGH_DIR` for
+> the prefix and `IGH_LIB_DIR` for the library directory, defaulting to
+> `/opt/etherlab` and `$IGH_DIR/lib`. Build against a different prefix with
+> `IGH_DIR=/usr/local make -f Makefile.rust ethercat-endpoint-hw`. Without the
+> headers the build now stops and says so, naming the file it wanted, rather
+> than failing inside the C compiler.
+
 For a **drive-off dry run** build the stub instead (`make -f Makefile.rust
 ethercat-stub`) and point `[ethercat_node].endpoint` at
 `rust/target/release/ethercat-rt-stub`.

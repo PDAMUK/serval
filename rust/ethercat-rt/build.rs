@@ -28,6 +28,21 @@ fn build_igh() {
     println!("cargo:rerun-if-changed=csrc/libecrt_igh.c");
     println!("cargo:rerun-if-changed=csrc/libecrt.h");
 
+    let ecrt_h = igh_dir.join("include").join("ecrt.h");
+    if !ecrt_h.is_file() {
+        panic!(
+            "IgH EtherCAT master headers not found: {} does not exist.\n\
+             The hw endpoint compiles against libethercat and cannot be \
+             cross-compiled or built without it.\n\
+             Install the master first (docs/rewrite/ethercat-host-cb2-rk3566.md \
+             step 3 for a CB2, ethercat-igh-macb-install.md step 3 for a Pi 5), \
+             or point IGH_DIR at an existing prefix.\n\
+             For a build with no master present, the stub endpoint needs none: \
+             make -f Makefile.rust ethercat-stub",
+            ecrt_h.display()
+        );
+    }
+
     cc::Build::new()
         .file("csrc/libecrt_igh.c")
         .include("csrc")

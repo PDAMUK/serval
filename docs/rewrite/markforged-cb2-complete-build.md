@@ -598,6 +598,41 @@ ip route get 1.1.1.1      # must NOT leave via eth0
 Keep a serial console to hand regardless. Recovering a headless board whose
 only route went to the EtherCAT master otherwise means pulling the eMMC.
 
+## B0b — What to install on the CB2 first
+
+A minimal Armbian image has none of this, and the steps below fail at four
+different points without it. Install it all in one go rather than discovering
+each one:
+
+```sh
+sudo apt update
+sudo apt install -y \
+    build-essential pkg-config git curl ca-certificates \
+    autoconf automake libtool \
+    libudev-dev libffi-dev \
+    python3 python3-dev python3-pip python3-venv \
+    gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+. "$HOME/.cargo/env"
+```
+
+What each is for, because a missing one fails somewhere that does not name it:
+
+| Needed by | Without it |
+| --- | --- |
+| `autoconf automake libtool` | IgH's `./bootstrap` (B3) has nothing to run |
+| kernel headers for the running kernel | `make modules` (B3) cannot build against it — Armbian ships them as `linux-headers-*` for the branch you built |
+| `libudev-dev pkg-config` | the Rust build (B6) fails in the `serialport` crate, which links `libudev`. This one is easy to mistake for a Rust problem |
+| `python3-dev libffi-dev` | klippy's `chelper` cannot compile its C at first start |
+| `gcc-arm-none-eabi` and friends | the Manta firmware build stops at `arm-none-eabi-gcc: No such file or directory` |
+| `rustup` | `rust/rust-toolchain.toml` pins Rust **1.85.0** and the `thumbv7em-none-eabi` target, so rustup fetches both on first build. A distro `rustc` is the wrong version and has no ARM target |
+
+**The firmware build is the one no gate covers.** `ci.sh rust-mcu-h7` compiles
+the Rust half of the MCU for `thumbv7em-none-eabi`; nothing in CI compiles the
+C firmware or links `out/klipper.bin`, because no CI image carries an ARM
+toolchain. A green gate therefore does not mean the firmware builds — the
+first machine to find out is this one.
+
 ## B1 — A 6.12 PREEMPT_RT kernel
 
 Two independent requirements meet at 6.12:
@@ -926,6 +961,13 @@ make -f Makefile.rust ethercat-endpoint-hw   # -> rust/target/release/ethercat-r
 make -f Makefile.rust ethercat-stub          # -> rust/target/release/ethercat-rt-stub
 scripts/build-native.sh                      # klippy/_*.so — klippy will not start without them
 ```
+
+> **If the master is not at `/opt/etherlab`.** `build.rs` reads `IGH_DIR` for
+> the prefix and `IGH_LIB_DIR` for the library directory, defaulting to
+> `/opt/etherlab` and `$IGH_DIR/lib`. Build against a different prefix with
+> `IGH_DIR=/usr/local make -f Makefile.rust ethercat-endpoint-hw`. Without the
+> headers the build now stops and says so, naming the file it wanted, rather
+> than failing inside the C compiler.
 
 `scripts/build-native.sh --bench` auto-detects which endpoint to build and
 picks **one**: with `/opt/etherlab` installed it builds `ethercat-rt` and skips

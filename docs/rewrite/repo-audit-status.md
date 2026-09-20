@@ -67,6 +67,9 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 50 | The Pi 5 host page told the reader to "pick any core and pass `--rt-cpu` to match". Nothing can pass it: klippy spawns the endpoint and `bridge/ethercat_endpoint.rs` never emits the flag, so the core is fixed at CPU 3. Following the advice is worse than being stuck — `sched_setaffinity(3)` succeeds for any online CPU, so the loop pins to a *non-isolated* core while `chrt -p` and `Cpus_allowed_list` both read exactly as the verification says they should. Every documented check passes and the machine drops frames on the first cold boot. The two CB2 pages had the right core and never said why it had to be that one; the bench checklist named both `--rt-cpu` and `--rt-prio` as knobs | `549b5c2` |
 | 51 | Both guides warn that EtherCAT is direction-sensitive, then verified the chain with "the green `LINK/ACT` LED lights on each connected RJ45". The link is negotiated below EtherCAT, so a `CN4`-to-`CN4` link lights both LEDs identically — the check passes in the failure case it sits under. Direction is only proven where `ethercat slaves` counts the slaves, and neither page said so | `2c22d25` |
 | 52 | Both guides spend a paragraph on the `^` pull-up — finding 27's defect — and then verified the wiring with "`QUERY_ENDSTOPS` reports all three switches changing state when pressed", which passes with or without it: closing to ground pulls the pin firmly low either way, and what a missing prefix breaks is the *released* state. The check sat directly under the defect it cannot see | `b616305` |
+| 53 | Neither CB2 document listed a single package to install. A minimal Armbian image carries none of what the steps need, and the path fails at four separate points: `./bootstrap` with no autotools, `make modules` with no kernel headers, the Rust build inside the `serialport` crate for want of `libudev-dev` — which surfaces as a Rust compile error and reads as a toolchain problem — and the firmware at `arm-none-eabi-gcc: No such file or directory` | `PENDING` |
+| 54 | `build.rs` let the missing IgH master fail inside cc-rs. The headline was `error occurred in cc-rs: command did not execute successfully`, with `fatal error: ecrt.h: No such file or directory` demoted to a cargo warning above it. It now checks for the header before invoking cc and names the file, the document that installs the master, `IGH_DIR` for another prefix, and the stub build that needs no master | `PENDING` |
+| 55 | `IGH_DIR` and `IGH_LIB_DIR` are read by `build.rs` and documented nowhere, so a master installed outside `/opt/etherlab` had no documented route | `PENDING` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -294,6 +297,26 @@ smooth position display), the mains sequence — especially step 6, where `POWER
 staying lit while `CHARGE` drops is what proves control power is on the correct
 side of the contactor — `ethercat slaves` counting two in wired order, klippy
 parsing the config, and the coupling-sign test.
+
+### Readiness for the bench, checked by building rather than by reading
+
+Asked directly whether the repository is ready for hardware, so each thing a
+bench needs was built rather than asserted:
+
+- **`scripts/build-native.sh`** produces all three klippy modules.
+- **`ethercat-stub`** builds, and `test_ethercat_claim_stub.py` completes a
+  real handshake against it — the planner-to-bridge-to-transport path Part 12
+  step 1 proves.
+- **`ethercat-endpoint-hw`** cannot build without IgH, which is correct and is
+  finding 54's subject.
+- **The Manta firmware does not build here** for want of `arm-none-eabi-gcc`.
+  The guide's four menuconfig settings do produce the intended `.config`
+  (`MACH_STM32H723`, `FLASH_START_20000`, `CLOCK_REF_25M`, `USBSERIAL` on
+  `PA11_PA12`), and the Rust half compiles for `thumbv7em-none-eabi`.
+- **No gate covers the C firmware.** `ci.sh rust-mcu-h7` builds `c-api` for
+  `thumbv7em-none-eabi` and stops; no CI image carries an ARM toolchain, so
+  nothing compiles the firmware or links `out/klipper.bin`. A green gate does
+  not mean the firmware builds, and both CB2 documents now say so.
 
 ## Known, deliberately not changed
 
