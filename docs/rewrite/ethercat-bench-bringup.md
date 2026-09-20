@@ -423,6 +423,14 @@ endpoint: rust/target/release/ethercat-rt-stub
 The full `SERVO_*` calibration command and script reference lives in the
 [serval-dashboard](https://github.com/dderg/serval-dashboard) repository.
 
+**Which half of `SERVO_*` is which.** This repository registers four commands
+and no more: `SERVO_CAPTURE_START`, `SERVO_CAPTURE_STOP`, `SERVO_PARAM` and
+`QUERY_EMERGENCY_STOP`. Everything else named below — `SERVO_FIT_DYNAMICS`
+among them — is a serval-dashboard macro. A console answering "Unknown
+command" for one of those is missing that install, not a broken build, and the
+distinction is worth stating because the two sets are described here in the
+same breath.
+
 `SERVO_CAPTURE_START AXIS=<axis>` records the servo on that axis on its
 `[ethercat_node]`, even when the node carries several drives — the host resolves the
 target to a `(node, slot)` and tells the endpoint which slot to sample.
