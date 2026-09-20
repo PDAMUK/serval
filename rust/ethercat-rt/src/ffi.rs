@@ -37,6 +37,9 @@ extern "C" {
         profile_name: *const c_char,
         vendor_id: u32,
         product_code: u32,
+        map_touch_probe: c_int,
+        map_digital_io: c_int,
+        map_following_error: c_int,
     ) -> c_int;
 
     pub fn ec_rt_bringup_finish() -> c_int;

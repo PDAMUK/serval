@@ -289,7 +289,7 @@ impl PyMotionEngine {
         Ok(raw)
     }
 
-    #[pyo3(signature = (label, socket_path, interface, endpoint_binary, cycle_us, dynamics_profile, drives, late_tolerance_us=None, group_delay_us=None, drive_profile=None, vendor_id=None, product_code=None))]
+    #[pyo3(signature = (label, socket_path, interface, endpoint_binary, cycle_us, dynamics_profile, drives, late_tolerance_us=None, group_delay_us=None, drive_profile=None, vendor_id=None, product_code=None, map_touch_probe=None, map_digital_io=None, map_following_error=None))]
     fn claim_ethercat_node(
         &self,
         label: &str,
@@ -304,6 +304,9 @@ impl PyMotionEngine {
         drive_profile: Option<String>,
         vendor_id: Option<u32>,
         product_code: Option<u32>,
+        map_touch_probe: Option<bool>,
+        map_digital_io: Option<bool>,
+        map_following_error: Option<bool>,
     ) -> PyResult<u32> {
         if drives.is_empty() {
             return Err(PyRuntimeError::new_err(format!(
@@ -326,6 +329,9 @@ impl PyMotionEngine {
             profile: drive_profile.unwrap_or_else(|| "a6ec".to_string()),
             vendor_id: vendor_id.unwrap_or(0),
             product_code: product_code.unwrap_or(0),
+            map_touch_probe,
+            map_digital_io,
+            map_following_error,
         };
         let events_dir = self.events_dir.lock_ok().clone();
         let mut child = spawn_ethercat_endpoint(

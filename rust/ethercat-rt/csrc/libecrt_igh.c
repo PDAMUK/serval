@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <ecrt.h>
+#include "pdo_map.h"
 
 #define SLAVE_ALIAS  0
 
@@ -65,6 +66,16 @@ typedef struct {
     uint32_t           product_code;
     uint16_t           dc_assign_activate;
     int                map_following_error; /* 60F4h exists and is PDO-mappable */
+    /* Touch probe (60B8h out, 60B9h/60BAh/60BCh in) and digital I/O
+     * (60FEh:01 out, 60FDh in). Nothing in this endpoint consumes either
+     * group: `tx.touch_probe` and `tx.phys_outputs` are never assigned, so
+     * they put constant zeros on the wire, and the four input entries are
+     * registered and never read. They stay mapped for the A6-EC because that
+     * is the map its drives have been running against, and default off for a
+     * family whose dictionary has not been confirmed — which is also the
+     * likeliest cause of a refused map (rc=-6) on first contact. */
+    int                map_touch_probe;
+    int                map_digital_io;
     int                split_torque_limit;  /* 60E0h/60E1h pair, not 6072h */
     const cfg_sdo16_t *cfg_sdos;
     int                num_cfg_sdos;
@@ -80,7 +91,7 @@ typedef struct {
  * caller must supply one. */
 static const drive_profile_t g_profiles[] = {
     /* Panasonic-protocol A6-EC (ethercat slaves -v: AS715N_sAxis). */
-    {"a6ec", 0x00400000u, 0x00000715u, 0x0300, 1, 0, a6ec_cfg_sdos,
+    {"a6ec", 0x00400000u, 0x00000715u, 0x0300, 1, 1, 1, 0, a6ec_cfg_sdos,
      (int)(sizeof(a6ec_cfg_sdos) / sizeof(a6ec_cfg_sdos[0])), NULL},
     /* ESTUN ProNet with the EC100 EtherCAT module (ProNet-xxxxx-EC). Identity
      * lives only in ESTUN's ESI (ESTUN_ProNet_CoE.xml), which is not public, so
@@ -92,12 +103,12 @@ static const drive_profile_t g_profiles[] = {
      * 60E0h/60E1h pair, whose 0.1%-of-rated unit already matches what the host
      * sends. CSP applies 60B1h/60B2h directly (EtherCAT manual section 5.10),
      * so there is no vendor feedforward routing to write. */
-    {"estun-pronet", 0, 0, 0x0300, 0, 1, NULL, 0,
-     "the PDO map is the A6-EC's minus 60F4h - touch probe 60B8h/60B9h/60BAh/"
-     "60BCh, digital I/O 60FEh:01/60FDh, and variable RxPDO 1600h / TxPDO 1A00h "
-     "remapping - and the following-error window 6065h and timeout 6066h are "
-     "written although the same CiA group's 60F4h is absent on this family. "
-     "None of that is confirmed against ESTUN's dictionary"},
+    {"estun-pronet", 0, 0, 0x0300, 0, 0, 0, 1, NULL, 0,
+     "the PDO map is the A6-EC's minus 60F4h, the touch probe and the digital "
+     "I/O - what remains assumes variable RxPDO 1600h / TxPDO 1A00h remapping - "
+     "and the following-error window 6065h and timeout 6066h are written "
+     "although the same CiA group's 60F4h is absent on this family. None of "
+     "that is confirmed against ESTUN's dictionary"},
 };
 
 static const drive_profile_t *g_profile = &g_profiles[0];
@@ -118,10 +129,9 @@ static uint32_t g_product_code;
 #define DC_CONVERGE_BUDGET_NS 15.0e9
 #define OP_WALK_BUDGET_NS     20.0e9
 
-#define OUT_BYTES 18
-/* Without 60F4h the TxPDO is one INT32 shorter. */
-#define IN_BYTES_BASE 28
-#define IN_BYTES (IN_BYTES_BASE + (g_profile->map_following_error ? 4 : 0))
+/* Process-image widths, summed from the entries actually mapped. Both were
+ * #defines until the optional groups became droppable. */
+static unsigned g_out_bytes, g_in_bytes;
 
 static ec_master_t *g_master;
 static ec_domain_t *g_domain;
@@ -179,21 +189,61 @@ static void check_idx(int s) {
     }
 }
 
-static ec_pdo_entry_info_t rx_entries[] = {
-    {0x6040, 0x00, 16}, {0x607A, 0x00, 32}, {0x60B8, 0x00, 16},
-    {0x60FE, 0x01, 32}, {0x60B1, 0x00, 32}, {0x60B2, 0x00, 16},
-};
-/* 60F4h sits last so a profile without it maps the first TX_ENTRIES_BASE
- * entries — the short map is a prefix of the long one. */
-static ec_pdo_entry_info_t tx_entries[] = {
-    {0x603F, 0x00, 16}, {0x6041, 0x00, 16}, {0x6064, 0x00, 32},
-    {0x606C, 0x00, 32}, {0x6077, 0x00, 16}, {0x60B9, 0x00, 16},
-    {0x60BA, 0x00, 32}, {0x60BC, 0x00, 32}, {0x60FD, 0x00, 32},
-    {0x60F4, 0x00, 32},
-};
-#define TX_ENTRIES_BASE 9
-static ec_pdo_info_t rx_pdos[] = {{0x1600, 6, rx_entries}};
-static ec_pdo_info_t tx_pdos[] = {{0x1A00, TX_ENTRIES_BASE, tx_entries}};
+static ec_pdo_entry_info_t rx_entries[KALICO_RX_ENTRIES_MAX];
+static ec_pdo_entry_info_t tx_entries[KALICO_TX_ENTRIES_MAX];
+static ec_pdo_info_t rx_pdos[] = {{0x1600, 0, rx_entries}};
+static ec_pdo_info_t tx_pdos[] = {{0x1A00, 0, tx_entries}};
+
+/* Per-run overrides of the profile's group choices: -1 keeps the profile's
+ * answer, 0 and 1 force it. A drive family's defaults are a starting point —
+ * the dictionary is the drive's, not the profile's, and a refused map is the
+ * one failure a rebuild should not be needed to get past. */
+static int g_override_touch_probe = -1;
+static int g_override_digital_io = -1;
+static int g_override_following_error = -1;
+
+static int group_choice(int override, int from_profile) {
+    return override >= 0 ? override : from_profile;
+}
+
+/* Resolved once by build_pdo_maps. The cyclic path reads these rather than
+ * re-deriving the choice per slave per cycle. */
+static int g_map_touch_probe, g_map_digital_io, g_map_following_error;
+
+static pdo_groups_t profile_groups(void) {
+    pdo_groups_t g = {
+        group_choice(g_override_touch_probe, g_profile->map_touch_probe),
+        group_choice(g_override_digital_io, g_profile->map_digital_io),
+        group_choice(g_override_following_error, g_profile->map_following_error),
+    };
+    return g;
+}
+
+/* Rebuild both maps for the bound profile. Must run after select_profile and
+ * before configure_slave. */
+static void build_pdo_maps(void) {
+    pdo_groups_t groups = profile_groups();
+    g_map_touch_probe = groups.touch_probe;
+    g_map_digital_io = groups.digital_io;
+    g_map_following_error = groups.following_error;
+    rx_pdos[0].n_entries = kalico_copy_entries(
+        kalico_rx_entries_all, (unsigned)KALICO_RX_ENTRIES_MAX, groups,
+        rx_entries, &g_out_bytes);
+    tx_pdos[0].n_entries = kalico_copy_entries(
+        kalico_tx_entries_all, (unsigned)KALICO_TX_ENTRIES_MAX, groups,
+        tx_entries, &g_in_bytes);
+    if (groups.touch_probe && groups.digital_io && groups.following_error
+        && (g_out_bytes != KALICO_OUT_BYTES_FULL
+            || g_in_bytes != KALICO_IN_BYTES_FULL)) {
+        fprintf(stderr,
+                "ec_rt: full PDO map built as %u out / %u in bytes, expected "
+                "%u / %u — the entry tables have drifted\n",
+                g_out_bytes, g_in_bytes, KALICO_OUT_BYTES_FULL,
+                KALICO_IN_BYTES_FULL);
+        abort();
+    }
+}
+
 static ec_sync_info_t syncs[] = {
     {0, EC_DIR_OUTPUT, 0, NULL, EC_WD_DISABLE},
     {1, EC_DIR_INPUT, 0, NULL, EC_WD_DISABLE},
@@ -295,8 +345,10 @@ static void flush_outputs(void) {
         slave_t *sl = &g_slaves[s];
         EC_WRITE_U16(g_pd + sl->o_controlword, sl->tx.controlword);
         EC_WRITE_S32(g_pd + sl->o_target, sl->tx.target_position);
-        EC_WRITE_U16(g_pd + sl->o_touch_probe, sl->tx.touch_probe);
-        EC_WRITE_U32(g_pd + sl->o_phys_outputs, sl->tx.phys_outputs);
+        if (g_map_touch_probe)
+            EC_WRITE_U16(g_pd + sl->o_touch_probe, sl->tx.touch_probe);
+        if (g_map_digital_io)
+            EC_WRITE_U32(g_pd + sl->o_phys_outputs, sl->tx.phys_outputs);
         EC_WRITE_S32(g_pd + sl->o_velocity_offset, sl->tx.velocity_offset);
         EC_WRITE_S16(g_pd + sl->o_torque_offset, sl->tx.torque_offset);
     }
@@ -440,8 +492,10 @@ static int select_profile(const char *name, uint32_t vendor_id, uint32_t product
 static int register_pdo_entries(slave_t *sl) {
     return reg_entry(sl, 0x6040, 0x00, &sl->o_controlword)
         || reg_entry(sl, 0x607A, 0x00, &sl->o_target)
-        || reg_entry(sl, 0x60B8, 0x00, &sl->o_touch_probe)
-        || reg_entry(sl, 0x60FE, 0x01, &sl->o_phys_outputs)
+        || (g_map_touch_probe
+            && reg_entry(sl, 0x60B8, 0x00, &sl->o_touch_probe))
+        || (g_map_digital_io
+            && reg_entry(sl, 0x60FE, 0x01, &sl->o_phys_outputs))
         || reg_entry(sl, 0x60B1, 0x00, &sl->o_velocity_offset)
         || reg_entry(sl, 0x60B2, 0x00, &sl->o_torque_offset)
         || reg_entry(sl, 0x603F, 0x00, &sl->i_error_code)
@@ -449,18 +503,20 @@ static int register_pdo_entries(slave_t *sl) {
         || reg_entry(sl, 0x6064, 0x00, &sl->i_position_actual)
         || reg_entry(sl, 0x606C, 0x00, &sl->i_velocity_actual)
         || reg_entry(sl, 0x6077, 0x00, &sl->i_torque_actual)
-        || reg_entry(sl, 0x60B9, 0x00, &sl->i_tp_status)
-        || reg_entry(sl, 0x60BA, 0x00, &sl->i_tp1_pos)
-        || reg_entry(sl, 0x60BC, 0x00, &sl->i_tp2_pos)
-        || reg_entry(sl, 0x60FD, 0x00, &sl->i_digital_inputs)
-        || (g_profile->map_following_error
+        || (g_map_touch_probe
+            && (reg_entry(sl, 0x60B9, 0x00, &sl->i_tp_status)
+                || reg_entry(sl, 0x60BA, 0x00, &sl->i_tp1_pos)
+                || reg_entry(sl, 0x60BC, 0x00, &sl->i_tp2_pos)))
+        || (g_map_digital_io
+            && reg_entry(sl, 0x60FD, 0x00, &sl->i_digital_inputs))
+        || (g_map_following_error
             && reg_entry(sl, 0x60F4, 0x00, &sl->i_following_error));
 }
 
 /* The drive's own 60F4h where it exists; otherwise the CSP definition of
  * following error, commanded minus measured. */
 static int32_t slave_following_error(const slave_t *sl) {
-    if (g_profile->map_following_error)
+    if (g_map_following_error)
         return EC_READ_S32(g_pd + sl->i_following_error);
     return sl->tx.target_position - EC_READ_S32(g_pd + sl->i_position_actual);
 }
@@ -586,7 +642,8 @@ static int configure_slave(slave_t *sl) {
 int ec_rt_bringup_preop(const char *ifname, int64_t cycle_ns, int rt_cpu, int rt_prio,
                         const int32_t *slave_positions, int num_slaves,
                         const char *profile_name, uint32_t vendor_id,
-                        uint32_t product_code) {
+                        uint32_t product_code, int map_touch_probe,
+                        int map_digital_io, int map_following_error) {
     (void)ifname; /* the IgH master is bound to the NIC via /etc/ethercat.conf */
     if (num_slaves < 1 || num_slaves > EC_RT_MAX_SLAVES) {
         fprintf(stderr, "ec_rt: num_slaves %d outside [1,%d]\n",
@@ -595,7 +652,16 @@ int ec_rt_bringup_preop(const char *ifname, int64_t cycle_ns, int rt_cpu, int rt
     }
     int rc_profile = select_profile(profile_name, vendor_id, product_code);
     if (rc_profile != 0) return rc_profile;
-    tx_pdos[0].n_entries = TX_ENTRIES_BASE + (g_profile->map_following_error ? 1 : 0);
+    g_override_touch_probe = map_touch_probe;
+    g_override_digital_io = map_digital_io;
+    g_override_following_error = map_following_error;
+    build_pdo_maps();
+    fprintf(stderr,
+            "ec_rt: PDO map for %s — touch probe %s, digital I/O %s, "
+            "following error %s (%u out / %u in bytes per drive)\n",
+            g_profile->name, g_map_touch_probe ? "on" : "off",
+            g_map_digital_io ? "on" : "off",
+            g_map_following_error ? "on" : "off", g_out_bytes, g_in_bytes);
     g_cycle_ns = cycle_ns < 250000 ? 250000 : cycle_ns;
     g_activated = 0;
     g_num_slaves = num_slaves;
@@ -735,7 +801,7 @@ int ec_rt_bringup_finish(void) {
 
     g_pd = ecrt_domain_data(g_domain);
     if (!g_pd) return EC_RT_ERR_PDO_SIZE;
-    size_t want = (size_t)(g_num_slaves * (OUT_BYTES + IN_BYTES));
+    size_t want = (size_t)g_num_slaves * (size_t)(g_out_bytes + g_in_bytes);
     if (ecrt_domain_size(g_domain) != want) {
         fprintf(stderr, "ec_rt: domain size %zu, expected %zu (%d slaves)\n",
                 ecrt_domain_size(g_domain), want, g_num_slaves);

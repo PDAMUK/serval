@@ -125,6 +125,17 @@ class EtherCatNode:
                 "at the OP walk instead of here"
                 % (self.name, self.drive_profile, " and ".join(missing))
             )
+        # Optional PDO groups. Unset leaves the drive profile's own answer in
+        # place. A drive whose dictionary lacks touch probe or digital I/O
+        # refuses the entire map — rc=-6 at bring-up — and before these existed
+        # the only way past that was editing C and rebuilding. Nothing in the
+        # endpoint reads either group, so turning them off costs no function
+        # and takes 20 bytes per drive off every cycle.
+        self.map_touch_probe = config.getboolean("pdo_touch_probe", None)
+        self.map_digital_io = config.getboolean("pdo_digital_io", None)
+        self.map_following_error = config.getboolean(
+            "pdo_following_error", None
+        )
         self.dynamics_profile = servo_axis.read_dynamics_profile_option(config)
         self.live_dynamics_profile = None
         # Default 0: strict - any late frame faults. Deliberate fail-loud
@@ -309,6 +320,9 @@ class EtherCatNode:
                 drive_profile=self.drive_profile,
                 vendor_id=self.vendor_id,
                 product_code=self.product_code,
+                map_touch_probe=self.map_touch_probe,
+                map_digital_io=self.map_digital_io,
+                map_following_error=self.map_following_error,
             )
         except RuntimeError as e:
             raise self.printer.config_error(str(e))

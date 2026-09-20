@@ -183,6 +183,13 @@ pub struct Args {
     /// that ships none without an explicit value.
     pub vendor_id: u32,
     pub product_code: u32,
+    /// Optional PDO group overrides: -1 keeps the drive profile's answer, 0
+    /// and 1 force it. A drive whose dictionary lacks touch probe or digital
+    /// I/O refuses the map outright (rc=-6), and that is not worth a rebuild
+    /// to get past.
+    pub map_touch_probe: std::os::raw::c_int,
+    pub map_digital_io: std::os::raw::c_int,
+    pub map_following_error: std::os::raw::c_int,
 }
 
 pub const DEFAULT_DRIVE_PROFILE: &str = "a6ec";
@@ -200,6 +207,18 @@ pub fn parse_identity(flag: &str, raw: Option<String>) -> Result<u32, String> {
         None => trimmed.parse::<u32>(),
     };
     parsed.map_err(|_| format!("{flag} {text} is not a number"))
+}
+
+/// An optional PDO group override. Absent leaves the drive profile's own
+/// answer in place, which is what -1 means to the C side; `on`/`off` are
+/// accepted alongside 1/0 because that is how the printer config spells them.
+pub fn parse_group_flag(flag: &str, raw: Option<String>) -> Result<i32, String> {
+    let Some(text) = raw else { return Ok(-1) };
+    match text.trim().to_ascii_lowercase().as_str() {
+        "1" | "on" | "true" | "yes" => Ok(1),
+        "0" | "off" | "false" | "no" => Ok(0),
+        other => Err(format!("{flag} {other} is not on/off")),
+    }
 }
 
 fn load_dynamics_profile(path: &str) -> crate::dynamics::DynamicsModel {
@@ -312,6 +331,15 @@ impl Args {
                 eprintln!("ec-rt: {e}");
                 std::process::exit(1);
             });
+        let group_flag = |flag: &str| {
+            parse_group_flag(flag, arg_val(&raw, flag)).unwrap_or_else(|e| {
+                eprintln!("ec-rt: {e}");
+                std::process::exit(1);
+            })
+        };
+        let map_touch_probe = group_flag("--pdo-touch-probe");
+        let map_digital_io = group_flag("--pdo-digital-io");
+        let map_following_error = group_flag("--pdo-following-error");
         let product_code = parse_identity("--product-code", arg_val(&raw, "--product-code"))
             .unwrap_or_else(|e| {
                 eprintln!("ec-rt: {e}");
@@ -345,6 +373,9 @@ impl Args {
             drive_profile,
             vendor_id,
             product_code,
+            map_touch_probe,
+            map_digital_io,
+            map_following_error,
         }
     }
 }

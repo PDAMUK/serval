@@ -275,6 +275,9 @@ pub fn bringup(args: Args) -> EndpointCtx {
         drive_profile,
         vendor_id,
         product_code,
+        map_touch_probe,
+        map_digital_io,
+        map_following_error,
     } = args;
 
     let num_slaves = slaves.len();
@@ -370,6 +373,9 @@ pub fn bringup(args: Args) -> EndpointCtx {
                 cprofile.as_ptr(),
                 vendor_id,
                 product_code,
+                map_touch_probe,
+                map_digital_io,
+                map_following_error,
             )
         };
         tracing::info!(

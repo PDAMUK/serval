@@ -44,6 +44,55 @@ fn a6ec() -> DriveIdentity {
         profile: "a6ec".into(),
         vendor_id: 0,
         product_code: 0,
+        map_touch_probe: None,
+        map_digital_io: None,
+        map_following_error: None,
+    }
+}
+
+fn args_for(identity: &DriveIdentity) -> Vec<String> {
+    endpoint_args(
+        "eth0",
+        "/tmp/x.sock",
+        250,
+        None,
+        None,
+        250.0,
+        None,
+        identity,
+        &[drive()],
+    )
+}
+
+#[test]
+fn pdo_group_flags_are_absent_unless_the_config_sets_them() {
+    // Absent means "whatever the profile says", which is what every machine
+    // running today gets. Passing --pdo-* unconditionally would hand the
+    // endpoint an override it was never asked for.
+    let args = args_for(&a6ec());
+    assert!(
+        !args.iter().any(|a| a.starts_with("--pdo-")),
+        "unset groups still reached the endpoint: {args:?}"
+    );
+}
+
+#[test]
+fn pdo_group_flags_are_passed_as_on_and_off() {
+    let identity = DriveIdentity {
+        map_touch_probe: Some(false),
+        map_digital_io: Some(false),
+        map_following_error: Some(true),
+        ..a6ec()
+    };
+    let args = args_for(&identity);
+    let pos = |flag: &str| args.iter().position(|a| a == flag);
+    for (flag, want) in [
+        ("--pdo-touch-probe", "off"),
+        ("--pdo-digital-io", "off"),
+        ("--pdo-following-error", "on"),
+    ] {
+        let i = pos(flag).unwrap_or_else(|| panic!("{flag} missing from {args:?}"));
+        assert_eq!(args[i + 1], want, "{flag} carried the wrong value");
     }
 }
 
@@ -469,6 +518,7 @@ fn endpoint_args_pass_an_explicit_identity_as_hex() {
         profile: "estun-pronet".into(),
         vendor_id: 0x0000_060A,
         product_code: 0x0000_0002,
+        ..a6ec()
     };
     let args = endpoint_args(
         "eth0",

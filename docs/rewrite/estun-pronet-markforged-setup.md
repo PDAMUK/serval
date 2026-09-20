@@ -1193,6 +1193,16 @@ drive_profile: estun-pronet
 vendor_id: 0x00000000       # <- replace, from Part 10
 product_code: 0x00000000    # <- replace, from Part 10
 cycle_us: 250
+#pdo_touch_probe: False
+#pdo_digital_io: False
+#   Optional PDO object groups, unset by default so the drive profile
+#   decides. `estun-pronet` already drops both, because nothing in the
+#   endpoint reads either one and they are the likeliest reason a ProNet
+#   refuses the whole map. Set them True only if you have reason to want
+#   them back on the wire.
+#pdo_following_error: True
+#   60F4h. `estun-pronet` drops it and derives the following error from
+#   607Ah - 6064h instead; set it True if your drive turns out to have it.
 #endpoint: /home/biqu/serval/rust/target/release/ethercat-rt
 #   Optional. Defaults to rust/target/release/ethercat-rt inside the
 #   repository. Part 12 step 1 switches this to ethercat-rt-stub for the
@@ -1536,19 +1546,33 @@ Pn409/Pn410 (filter 2).
 | `A.10` / `A.22` | encoder / sensor break | CN2 wiring, shield, 5 V |
 | `rc=-2` | no slave matched | vendor/product identity, not necessarily the cable |
 | `rc=-4` | a drive never reached OP | read the per-slot `al_state`/`al_status` lines printed with it |
-| `rc=-6` | the drive refused the PDO map | an object in the map this drive does not have, or a fixed map |
+| `rc=-6` | the drive refused the PDO map | an object in the map this drive does not have, or a fixed map — `pdo_touch_probe` / `pdo_digital_io` / `pdo_following_error` drop the optional groups without a rebuild |
 | `rc=-21` | profile identity missing or zero | `vendor_id` **and** `product_code` both set, from Part 10 |
 
 `rc=-2` deserves emphasis: a drive that is present but of a different identity
 looks **exactly** like an absent one to the master. The endpoint names the
 profile and identity it matched on, so read that line before suspecting wiring.
 
-**`rc=-6` and `rc=-4` are the ones to expect first on ProNet**, because the
-profile carries assumptions inherited from the drive family this fork was built
+**`rc=-4` is the one to expect first on ProNet**, because the profile still
+carries assumptions inherited from the drive family this fork was built
 against. The endpoint prints what it assumed alongside either failure — the
-touch-probe objects, the digital I/O, the variable `1600h`/`1A00h` remapping,
-and the following-error window `6065h` and timeout `6066h` — so the message
-names the assumption that broke rather than leaving a bare code.
+variable `1600h`/`1A00h` remapping, and the following-error window `6065h` and
+timeout `6066h` — so the message names the assumption that broke rather than
+leaving a bare code.
+
+`rc=-6` was the other one to expect, and the `estun-pronet` profile now maps
+less to make it less likely: the touch-probe objects (`60B8h` out,
+`60B9h`/`60BAh`/`60BCh` in) and the digital I/O (`60FEh:01` out, `60FDh` in)
+are dropped, along with `60F4h`. That is not a guess about ESTUN's dictionary —
+**nothing in the endpoint reads or writes any of them.** `touch_probe` and
+`phys_outputs` are never assigned, so they were putting constant zeros on the
+wire, and the four input entries were registered and never read. Dropping them
+takes a ProNet's process image from 46 bytes per drive per cycle to 26.
+
+The endpoint prints the map it built at bring-up — which groups are on and the
+resulting byte counts — so the log says what the drive was actually asked for.
+If a map is still refused, the three `pdo_*` options above move the remaining
+groups without a rebuild.
 
 `rc=-4` is also where a rejected configuration SDO surfaces. The master applies
 those in PRE-OP, not at the call, so a drive that refuses one simply never

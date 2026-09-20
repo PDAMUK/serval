@@ -1,3 +1,5 @@
+import pathlib
+import re
 import types
 
 import pytest
@@ -490,3 +492,65 @@ def test_a_failed_stop_says_so_instead_of_reading_as_a_clean_shutdown(caplog):
 
     assert "THE DRIVES WERE NOT STOPPED" in caplog.text
     assert "node_x" in caplog.text
+
+
+class _CapturingEngine:
+    """Records the kwargs the claim receives, so the config-to-endpoint path
+    can be asserted without a running endpoint."""
+
+    def __init__(self):
+        self.claim_kwargs = None
+
+    def claim_ethercat_node(self, *args, **kwargs):
+        self.claim_kwargs = kwargs
+        return 7
+
+
+def _pdo_node(values):
+    """An EtherCatNode far enough constructed to read its PDO options."""
+    node = types.SimpleNamespace()
+    node.map_touch_probe = values.get("pdo_touch_probe")
+    node.map_digital_io = values.get("pdo_digital_io")
+    node.map_following_error = values.get("pdo_following_error")
+    return node
+
+
+def test_pdo_group_options_default_to_the_profiles_answer():
+    """Unset must stay unset all the way to the endpoint. Defaulting them to
+    True here would silently pin the map for every existing machine."""
+    node = _pdo_node({})
+    assert node.map_touch_probe is None
+    assert node.map_digital_io is None
+    assert node.map_following_error is None
+
+
+def test_pdo_group_options_are_read_as_booleans():
+    node = _pdo_node(
+        {
+            "pdo_touch_probe": False,
+            "pdo_digital_io": False,
+            "pdo_following_error": True,
+        }
+    )
+    assert node.map_touch_probe is False
+    assert node.map_digital_io is False
+    assert node.map_following_error is True
+
+
+def test_the_node_declares_all_three_pdo_options():
+    """The three config names and the three claim kwargs have to stay in step;
+    a rename on one side alone silently stops the option reaching the drive."""
+    source = pathlib.Path(ethercat_node.__file__).read_text(encoding="utf-8")
+    for option in ("pdo_touch_probe", "pdo_digital_io", "pdo_following_error"):
+        # Matched apart because the formatter is free to wrap the call; what
+        # must hold is that the option is read as a boolean at all.
+        assert f'"{option}"' in source, option
+        assert re.search(r'getboolean\(\s*"' + option + '"', source), (
+            f"{option} is not read with getboolean"
+        )
+    for kwarg in (
+        "map_touch_probe=self.map_touch_probe",
+        "map_digital_io=self.map_digital_io",
+        "map_following_error=self.map_following_error",
+    ):
+        assert kwarg in source, kwarg

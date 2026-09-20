@@ -42,10 +42,16 @@
  * identity to match on, which optional objects are mapped, and the vendor SDOs
  * bring-up writes. A non-zero vendor_id/product_code overrides the profile's
  * own; a profile that ships none requires them (EC_RT_ERR_PROFILE). */
+/* `map_touch_probe`, `map_digital_io` and `map_following_error` override the
+ * profile's optional PDO groups: -1 keeps the profile's answer, 0 and 1 force
+ * it. The dictionary belongs to the drive rather than to the profile, and a
+ * refused map is the one bring-up failure that should not need a rebuild to
+ * get past. */
 int  ec_rt_bringup_preop(const char *ifname, int64_t cycle_ns, int rt_cpu, int rt_prio,
                          const int32_t *slave_positions, int num_slaves,
                          const char *profile_name, uint32_t vendor_id,
-                         uint32_t product_code);
+                         uint32_t product_code, int map_touch_probe,
+                         int map_digital_io, int map_following_error);
 int  ec_rt_bringup_finish(void);
 
 /* Drive every slot's CiA402 enable state machine to Operation Enabled in

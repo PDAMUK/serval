@@ -156,6 +156,13 @@ pub(crate) struct DriveIdentity {
     pub profile: String,
     pub vendor_id: u32,
     pub product_code: u32,
+    /// Optional PDO group overrides. `None` leaves the profile's own answer
+    /// alone; `Some(false)` drops the group. A drive whose dictionary lacks
+    /// touch probe or digital I/O refuses the whole map with rc=-6, and that
+    /// is not a failure worth a rebuild to get past.
+    pub map_touch_probe: Option<bool>,
+    pub map_digital_io: Option<bool>,
+    pub map_following_error: Option<bool>,
 }
 
 impl DriveIdentity {
@@ -169,6 +176,16 @@ impl DriveIdentity {
         if self.product_code != 0 {
             args.push("--product-code".into());
             args.push(format!("0x{:08x}", self.product_code));
+        }
+        for (flag, value) in [
+            ("--pdo-touch-probe", self.map_touch_probe),
+            ("--pdo-digital-io", self.map_digital_io),
+            ("--pdo-following-error", self.map_following_error),
+        ] {
+            if let Some(on) = value {
+                args.push(flag.into());
+                args.push(if on { "on".into() } else { "off".into() });
+            }
         }
     }
 }
