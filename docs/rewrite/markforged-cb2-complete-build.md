@@ -388,10 +388,48 @@ no pull-up at all, so a switch wired to ground floats the moment it opens and
 the axis homes against noise. It is three characters, it is invisible when
 wrong, and it reads exactly like a flaky switch.
 
-**Cable separation.** ESTUN's number is **300 mm** between power and signal
-runs, never in the same duct or bundle. A printer cannot give you 300 mm and
-this document will not pretend otherwise — the whole machine is smaller than
-the separation. What replaces the distance, in descending order of value:
+**Cable separation — and which cables, because "power and signal" is not a
+list.** ESTUN's number is **300 mm** between power and signal runs, never in
+the same duct or bundle. On this machine that means these, specifically:
+
+**The aggressors — route everything else away from these:**
+
+| Cable | Why it is noisy |
+| --- | --- |
+| **Servo motor power**, drive `U`/`V`/`W` → motor (×2) | The worst one on the machine. PWM at the drive's carrier frequency with high dV/dt, and it runs to the same place as its own encoder cable |
+| **Regenerative resistor leads**, `B1`/`B2` (×2) | The braking transistor switches these hard, and only on decel — so the noise arrives exactly when the gantry is moving fastest |
+| **Mains, filter output to drives** — `L1`/`L2` and `L1C`/`L2C` | Filtered, but still 230 V carrying two rectifiers' inrush |
+| **Mains upstream of the filter** | Unfiltered, and the reason the filter belongs at the drives rather than at the enclosure edge |
+| **Bed heater leads** to `PF5` | High current, switched |
+| **Stepper leads**, Motor3 / Motor5 / Motor6 | Chopper switching. Far less than the servos; not nothing |
+
+**The victims — these are what the separation is protecting:**
+
+| Cable | Why it is sensitive | What it looks like when it goes wrong |
+| --- | --- | --- |
+| **Encoder**, drive `CN2` → motor (×2) | 20-bit serial data, and the most sensitive run on the machine | `A.10` / `A.22`, or a panel position display that jumps or freezes |
+| **EtherCAT patch leads**, host → `CN3`, `CN4` → `CN3` | 100BASE-TX is robust, but the failure is catastrophic rather than noisy | `A.70`, `al=0x001a`, endpoint halt on a working-counter fault |
+| **Emergency-stop signal** to `^PF1` | The longest low-voltage run on the machine, held up through tens of kΩ | the machine stops mid-print for nothing |
+| **Endstops** to `^PF4` / `^PF3` / `^PF2` | The same pull-up impedance, shorter runs | homing against noise instead of the switch |
+| **Thermistors** to `PB0` / `PB1` | High-impedance analogue | temperature jitter, spurious heater errors |
+| **TMC2209 UART**, `PB9` / `PG14` / `PG10` | Short, and inside the board's own loom | driver communication errors |
+
+One cable that is *not* on either list: **the MCU link**. The CB2 sits in the
+Manta's BTB socket and the USB link to the STM32 runs across the connector, so
+there is no external cable to route. A Pi-5 host has one and has to.
+
+**The pair you cannot separate, which is the whole problem.** The motor power
+cable and the encoder cable go to the **same motor** — they leave the same
+drive, arrive at the same place, and on a moving gantry they share a drag
+chain. That is the worst aggressor and the most sensitive victim, with no
+distance available between them. It is why ESTUN sells both as screened
+assemblies (`PDM-GD12` power, `PBP` encoder), why the power cable's screen is
+bonded at the drive end, and why — if they must share a chain — they go on
+opposite sides of it with the quieter cables in between.
+
+A printer cannot give you 300 mm and this document will not pretend otherwise:
+the whole machine is smaller than the separation. What replaces the distance,
+in descending order of value:
 
 - **Cross at right angles** where runs must meet, never parallel. Coupling
   falls off sharply with angle and a crossing is nearly free.

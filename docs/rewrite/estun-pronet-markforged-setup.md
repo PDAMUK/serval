@@ -1072,9 +1072,25 @@ config carries the prefix on all four inputs for this reason. It is three
 characters, it is invisible when wrong, and it is the kind of thing that reads
 as a flaky switch.
 
-Wire the motor coils in pairs by phase, not by wire colour. Route endstop,
-thermistor **and emergency-stop** wiring away from the servo motor cables —
-those carry PWM switching noise.
+Wire the motor coils in pairs by phase, not by wire colour.
+
+**Which cables, because "power and signal" is not a list.** The aggressors on
+this machine are the servo motor power cables (`U`/`V`/`W`, PWM at the drive's
+carrier with high dV/dt — much the worst), the regenerative resistor leads
+(`B1`/`B2`, switched hard by the braking transistor and only on decel, so the
+noise arrives when the gantry is moving fastest), the mains runs either side of
+the filter, the bed heater leads to `PF5`, and the stepper leads on Motor3,
+Motor5 and Motor6. The victims are the encoder cables (`CN2`, 20-bit serial and
+the most sensitive run here), the EtherCAT patch leads, the emergency-stop
+signal on `^PF1`, the three endstops, the thermistors on `PB0`/`PB1`, and the
+TMC2209 UART lines. The MCU link is not on either list: on a CB2 in the BTB
+socket it never leaves the board.
+
+**And the pair that cannot be separated at all:** a motor's power cable and its
+encoder cable leave the same drive and arrive at the same motor, sharing a drag
+chain on a moving gantry. Worst aggressor, most sensitive victim, no distance
+available — which is why ESTUN sells both as screened assemblies and why, if
+they must share a chain, they go on opposite sides of it.
 
 **ESTUN's number for "away" is 300 mm**, stated twice: keep power and signal
 lines separated by at least 300 mm, and never run them in the same duct or

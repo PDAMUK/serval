@@ -394,3 +394,30 @@ def test_the_stop_button_has_no_normally_open_contact():
     assert "2 NC + 1 NO variant" in FLAT, (
         "the guide no longer warns off the variant with an NO contact"
     )
+
+
+def test_the_separation_rule_names_cables_not_categories():
+    """ "Keep power and signal 300 mm apart" is not actionable on a machine
+    smaller than 300 mm. The reader needs to know which runs are which, so the
+    rule names every aggressor and every victim on this build — and the one
+    pairing distance cannot fix: a motor's power cable and its own encoder
+    cable leave the same drive, reach the same motor, and share a drag chain.
+
+    Scoped to the section, not the document: `B1`/`B2` appears in the drive
+    terminal diagram and in Stage E10 as well, so a whole-file search passes
+    even after the separation rule stops naming it."""
+    section = TEXT.split("**Cable separation")[1].split("\n### ")[0]
+    assert "300 mm" in section
+    for cable in ["U`/`V`/`W", "B1`/`B2", "PF5", "Motor3 / Motor5 / Motor6"]:
+        assert cable in section, "noisy cable the rule never names: %s" % cable
+    for cable in ["CN2", "EtherCAT patch leads", "^PF1", "PB0"]:
+        assert cable in section, (
+            "sensitive cable the rule never names: %s" % cable
+        )
+    flat = re.sub(r"\s+", " ", section)
+    assert "same motor" in flat, (
+        "the rule never says the motor power and encoder cables share a route"
+    )
+    assert "BTB socket and the USB link" in flat, (
+        "the rule no longer says the MCU link is not an external run"
+    )

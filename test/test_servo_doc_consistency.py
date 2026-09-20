@@ -103,3 +103,35 @@ def test_a_doc_naming_a_dashboard_macro_says_it_is_one(doc):
         "%s names %s but never says a console will answer 'Unknown command' "
         "for them" % (doc.stem, external)
     )
+
+
+# Cables a reader has to identify at the machine to apply the 300 mm rule.
+# Aggressors first, then the runs they corrupt.
+SEPARATION_AGGRESSORS = ["U`/`V`/`W", "B1`/`B2", "PF5", "Motor3"]
+SEPARATION_VICTIMS = ["CN2", "EtherCAT", "PF1", "PB0"]
+
+
+@pytest.mark.parametrize("doc", [GUIDE, BENCH], ids=lambda p: p.stem)
+def test_the_separation_rule_names_cables_not_categories(doc):
+    """ "Keep power and signal 300 mm apart" is not actionable at a machine
+    where every cable is within 300 mm of every other. The reader has to know
+    which runs on THIS build are which, and the worst pairing — a motor's
+    power cable and its own encoder cable, same drive to same motor, sharing a
+    drag chain — has to be called out because no distance is available for it.
+    """
+    text = doc.read_text(encoding="utf-8")
+    if "300 mm" not in text:
+        pytest.skip("%s does not carry the separation rule" % doc.stem)
+    # Scoped to the section. `B1`/`B2` and CN2 appear in the wiring parts too,
+    # so a whole-file search passes even after the rule stops naming them.
+    section = text.split("Wire the motor coils in pairs by phase")[1]
+    section = section.split("\n## ")[0]
+    missing = [c for c in SEPARATION_AGGRESSORS if c not in section]
+    assert not missing, "noisy cables the rule never names: %s" % (missing,)
+    missing = [c for c in SEPARATION_VICTIMS if c not in section]
+    assert not missing, "sensitive cables the rule never names: %s" % (missing,)
+    flat = re.sub(r"\s+", " ", section)
+    assert "same motor" in flat or "same drive" in flat, (
+        "%s never says the motor power and encoder cables share a route, "
+        "which is the one pairing distance cannot fix" % doc.stem
+    )
