@@ -135,3 +135,32 @@ def test_the_separation_rule_names_cables_not_categories(doc):
         "%s never says the motor power and encoder cables share a route, "
         "which is the one pairing distance cannot fix" % doc.stem
     )
+
+
+@pytest.mark.parametrize("doc", [GUIDE, BENCH], ids=lambda p: p.stem)
+def test_tuning_docs_say_where_a_tuned_value_lives(doc):
+    """Both routes push to drive RAM and nothing writes EEPROM implicitly. A
+    `SERVO_PARAM SET` is therefore gone on the next restart, while a `params:`
+    entry comes back because klippy re-pushes it every claim. A page that
+    teaches tuning without that distinction sends someone through a long
+    session whose results evaporate, and leaves them no way to persist
+    deliberately (CiA 301 `0x1010`).
+
+    The same page has to warn that a rejected or clamped `params:` write
+    *fails the claim* — the machine will not start, which is intended."""
+    text = doc.read_text(encoding="utf-8")
+    if "params:" not in text or "SERVO_PARAM" not in text:
+        pytest.skip("%s does not document drive parameters" % doc.stem)
+    flat = re.sub(r"\s+", " ", text)
+    assert "0x1010" in flat, (
+        "%s never names the store-parameters object, so there is no documented "
+        "way to persist deliberately" % doc.stem
+    )
+    assert "EEPROM" in flat
+    assert re.search(r"never (?:persists|does this) implicitly", flat), (
+        "%s does not say the drive's EEPROM is left alone" % doc.stem
+    )
+    assert "fails the claim" in flat, (
+        "%s does not warn that a rejected params: write stops startup"
+        % doc.stem
+    )

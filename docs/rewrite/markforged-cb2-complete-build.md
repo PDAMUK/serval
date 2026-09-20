@@ -846,7 +846,10 @@ from klippy.
 > Ambient caps on the service survive rebuilds, which is why B5 uses them.
 > (If the binary carries file-caps too, those take precedence and the ambient
 > set reads back empty — harmless, since file-caps already include
-> `cap_sys_nice`.)
+> `cap_sys_nice`.) On that route the check below gains a line:
+> `/usr/sbin/getcap rust/target/release/ethercat-rt` must report
+> `...cap_sys_nice=ep`. On the ambient route it reads back empty, correctly,
+> which is why it is not in the check as written.
 
 There is **no silent `SCHED_OTHER` fallback**. If any of the three requirements
 is missing, `go_realtime()` aborts the claim loudly and names which:
@@ -1872,7 +1875,9 @@ Any fault or claim failure is recovered the same way: **fix the cause, then
 the drive), re-spawns it, and re-runs the claim. There is no manual pre-launch,
 socket cleanup or endpoint restart to do by hand.
 
-**A latched sync-loss fault (`0x8700`, panel `ErC11`) is the exception.**
+**A latched sync-loss fault — `ErC1.1` "synchronization loss" in ESTUN's
+documentation, `ErC11` on the drive's own panel, CoE error register `0x8700`,
+EtherCAT AL status `0x001a` — is the exception.**
 `FIRMWARE_RESTART` re-spawns the endpoint but does **not** clear the drive's
 stored fault — the EtherCAT INIT bounce resets the network state machine, not
 the CiA 402 fault. With the drive on its own supply it stays faulted across
@@ -1912,10 +1917,13 @@ SERVO_PARAM SERVO=motor_x SET=0x3014.0 VALUE=40 TYPE=u16
 `SERVO=` takes the `[motor]` name, or the axis name where the axis has a single
 servo — both `motor_x` and `x` reach the same drive here. A `SET` reports the
 value **read back from the drive**, which is not always the one sent:
-out-of-range writes settle at the drive's own limit.
+out-of-range writes settle at the drive's own limit. A `GET` **without** `TYPE=`
+prints raw hex plus both the unsigned and the signed decimal reading, which is
+how to tell a negative value from a large positive one when an object's
+signedness is not documented.
 
-A `params:` block on the `[motor]` section, for values that must survive a
-restart, one per line as `0xINDEX.SUB: type value`:
+A `params:` block on the `[motor]` section, for values that must come back on
+their own, one per line as `0xINDEX.SUB: [type] value`:
 
 ```ini
 [motor motor_x]
@@ -1923,9 +1931,48 @@ restart, one per line as `0xINDEX.SUB: type value`:
 params:
   0x3016.0: u16 300
   0x3014.0: u16 40
+  0x3012.0: 500        # type omitted: the size is probed by an SDO upload,
+                       # which costs one extra mailbox round-trip at claim
 ```
 
 These are written **at claim time, every start, in the order given**.
+
+### Where a tuned value actually lives — read this before a long tuning session
+
+**Nothing you tune is written to the drive's EEPROM.** Both routes push to
+drive **RAM**, and kalico never persists implicitly. What differs is who puts
+the value back:
+
+| | Survives a `FIRMWARE_RESTART`? | Survives a **drive** power cycle? |
+| --- | --- | --- |
+| `SERVO_PARAM SET` at the console | **No.** Nothing re-sends it | **No** |
+| `params:` on the `[motor]` section | **Yes** — klippy re-pushes every claim | **Yes**, same reason: the next claim writes it again |
+| Neither | — | the drive reverts to whatever its EEPROM holds |
+
+So the console is for **trying** a value and the `params:` block is for
+**keeping** one, and a value that only ever existed at the console is gone the
+moment anything restarts. Move each value you settle on into `params:` as you
+find it, rather than at the end of the session.
+
+**To write the drive's EEPROM deliberately**, SET the CiA 301 store-parameters
+object **`0x1010`** — the magic value is in the drive manual. Nothing in this
+repository does that for you, by design: the config file is meant to be the
+record of how the machine is tuned, so a drive can be swapped and brought back
+from `printer.cfg` rather than from whatever happens to be in its EEPROM.
+
+**A bad `params:` line stops the machine starting, on purpose.** Every write is
+read back, and a mismatch — the drive clamped the value, or rejected it —
+**fails the claim**, naming the offending address, the value written and what
+the drive settled on. That is intended behaviour and not a fault: a silently
+clamped gain is a machine tuned to a number nobody chose.
+
+Two more limits worth meeting here rather than at the bench:
+
+- **Objects wider than 4 bytes** (strings, segmented transfers) are
+  unsupported and fail loudly.
+- **SDO traffic is mailbox traffic.** It rides between DC cycles — fast, but
+  not deterministic. Anything needing hard-real-time parameter changes has to
+  be mapped into the PDO instead, which is a code change, not a config one.
 
 **Order of work:** establish the load inertia ratio (Pn106) first, raise the
 speed loop gain (Pn102) until the axis is stiff without audible ringing, then

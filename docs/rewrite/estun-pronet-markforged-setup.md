@@ -1547,8 +1547,9 @@ servo — both `motor_x` and `x` reach the same drive on this machine. A `SET`
 reports the value read back from the drive, which is not always the one sent:
 out-of-range writes settle at the drive's own limit.
 
-A `params:` block on the `[motor]` section, for values that must survive a
-restart, one per line as `0xINDEX.SUB: type value`:
+A `params:` block on the `[motor]` section, for values that must come back on
+their own, one per line as `0xINDEX.SUB: [type] value` — the type is optional,
+and omitting it costs one SDO upload at claim to probe the object's size:
 
 ```ini
 [motor motor_x]
@@ -1559,6 +1560,24 @@ params:
 ```
 
 These are written at claim time, every start, in the order given.
+
+**Nothing here writes the drive's EEPROM.** Both routes push to drive RAM and
+kalico never persists implicitly, so what differs is who puts the value back: a
+`SERVO_PARAM SET` at the console is gone the moment anything restarts, because
+nothing re-sends it, while a `params:` entry is re-pushed on every claim and so
+comes back after a host restart *and* a drive power cycle alike. The console is
+for trying a value; `params:` is for keeping one. To write EEPROM deliberately,
+SET the CiA 301 store-parameters object `0x1010` — the magic value is in the
+drive manual. Leaving it alone is the point: `printer.cfg` is then the record of
+how the machine is tuned, and a replacement drive is brought back from the
+config rather than from whatever its EEPROM happens to hold.
+
+**A bad `params:` line stops the machine starting, on purpose.** Each write is
+read back, and a mismatch — clamped or rejected — fails the claim, naming the
+address, the value written and what the drive settled on. Objects wider than
+4 bytes fail loudly, and SDO traffic is mailbox traffic: it rides between DC
+cycles, fast but not deterministic, so anything needing hard-real-time
+parameter changes has to be mapped into the PDO instead.
 
 Order of work: establish the load inertia ratio (Pn106) first, raise the speed
 loop gain (Pn102) until the axis is stiff without audible ringing, then the

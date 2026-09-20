@@ -421,3 +421,28 @@ def test_the_separation_rule_names_cables_not_categories():
     assert "BTB socket and the USB link" in flat, (
         "the rule no longer says the MCU link is not an external run"
     )
+
+
+def test_the_tuning_stage_says_where_a_tuned_value_lives():
+    """Both routes push to drive RAM; nothing writes EEPROM implicitly. So a
+    `SERVO_PARAM SET` evaporates on the next restart while a `params:` entry
+    comes back, because klippy re-pushes it every claim. Without that, a long
+    tuning session at the console is lost and the reader has no documented way
+    to persist deliberately."""
+    # Split on the next top-level heading, not on "\n# " — the config
+    # examples contain comment lines that start the same way.
+    stage = TEXT.split("# Stage M")[1].split("\n# Fault quick reference")[0]
+    flat = re.sub(r"\s+", " ", stage)
+    assert "0x1010" in flat, (
+        "the tuning stage never names the store-parameters object"
+    )
+    assert "never persists implicitly" in flat
+    assert "Survives a **drive** power cycle?" in flat, (
+        "the tuning stage no longer distinguishes the two routes by what "
+        "survives what"
+    )
+    assert "fails the claim" in flat, (
+        "the tuning stage does not warn that a rejected params: write stops "
+        "the machine starting"
+    )
+    assert "Objects wider than 4 bytes" in flat
