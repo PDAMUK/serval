@@ -358,7 +358,7 @@ class MCU_bus_digital_out:
         if self.update_pin_cmd is None:
             # Send setup message via mcu initialization
             self.mcu.add_config_cmd(
-                "update_digital_out oid=%c value=%c" % (self.oid, not not value)
+                "update_digital_out oid=%d value=%d" % (self.oid, not not value)
             )
             return
         self.update_pin_cmd.send(
