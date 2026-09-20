@@ -377,6 +377,10 @@ Then return to
 
 ## See also
 
+- [`markforged-cb2-complete-build.md`](markforged-cb2-complete-build.md) —
+  every step of this build collated into one document for the CB2 route,
+  with wiring diagrams and what this fork adds over base Serval. Follow
+  that one to build; read these for the reasoning behind each decision.
 - [`estun-pronet-markforged-setup.md`](estun-pronet-markforged-setup.md) — the
   build this host serves; return to it at Part 10.
 - [`ethercat-igh-macb-install.md`](ethercat-igh-macb-install.md) — the Pi 5

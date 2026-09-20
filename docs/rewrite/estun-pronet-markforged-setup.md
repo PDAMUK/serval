@@ -1634,6 +1634,10 @@ Carried forward honestly. None of the following has run on real hardware:
 
 ## See also
 
+- [`markforged-cb2-complete-build.md`](markforged-cb2-complete-build.md) —
+  every step of this build collated into one document for the CB2 route,
+  with wiring diagrams and what this fork adds over base Serval. Follow
+  that one to build; read these for the reasoning behind each decision.
 - [`ethercat-host-cb2-rk3566.md`](ethercat-host-cb2-rk3566.md) — the CB2 host:
   kernel, IgH master, `ec_dwmac-rk`, and the endpoint build.
 - [`ethercat-igh-macb-install.md`](ethercat-igh-macb-install.md) — the Pi 5 host

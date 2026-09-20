@@ -50,6 +50,7 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 33 | `MCU_bus_digital_out` reused the protocol lookup's `%c` format under Python's `%`, emitting `oid=\x05 value=\x01` where every sibling and `mcu_pins.py` write `%d` | `bfc9235` |
 | 34 | The PDO map was two fixed arrays, so an object a drive family cannot accept could only be dropped by editing C and rebuilding — the worst shape for a failure that arrives as a bare `rc=-6` at first contact. Two of its groups were also dead on every profile: `tx.touch_probe` and `tx.phys_outputs` are written to the wire every cycle and assigned nowhere, and `60B9h`/`60BAh`/`60BCh`/`60FDh` are registered with not one `EC_READ` between them — 20 of 50 bytes per drive per cycle, at 4 kHz, for objects nothing consumes | `bc220d3` |
 | 35 | Part 12 step 1 — stub endpoint, drives off, klippy must reach ready — was the one bring-up step no test stood behind. Both sides of that seam were covered (six Rust integration files spawn the stub, `ethercat_node`'s validation has unit tests with fakes) and the join where klippy spawns the binary and completes the claim had nothing | `8d2f1e6`, `c9421b5` |
+| 36 | `ethercat-bench-bringup.md` described `SERVO_CAPTURE_START` (which ships here) and `SERVO_FIT_DYNAMICS` (a serval-dashboard macro) under one heading, so a reader typing the second gets "Unknown command" and goes hunting a build failure that is really a missing install | `929a4a2` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -188,9 +189,23 @@ Not defects. Recorded so the next pass does not spend the time again.
 - **Line citations in `beacon-fork-survey.md` and `external-probe-homing.md`**
   (48 of the 55 in `docs/`) are historical analyses pointing at upstream files,
   not references anyone configures from. Left alone deliberately.
+- **The collated CB2 build guide was verified against the code, not against
+  its sources.** `markforged-cb2-complete-build.md` gathers the build document,
+  the CB2 host page and the bench checklist into one sequence, and
+  `test_cb2_build_guide.py` holds it there: its worked config parses through
+  the same native reader klippy uses and yields markforged with two servo lanes
+  and a two-motor follower; every `[section]` it sets resolves to a module;
+  every `rc=` it explains is a real `EC_RT_ERR_*`; every make target, file path
+  and `pdo_*` option it names exists; every endstop carries its `^`; the
+  torque ceiling still tells the config field's 400 from the drive's 300; the
+  disable hold is still `0x0006` for 100 cycles; and the anchors are slugged
+  the way `ci.sh docs` slugs them, so a stale cross-reference fails here before
+  it fails the build. That sweep produced finding 36 and nothing else — every
+  other claim checked out, including all 21 Manta pins against BigTreeTech's
+  own configuration and the whole mains chain against ProNet V2.19.
 - **What this branch actually is, counted rather than estimated.** Against
-  `dderg/serval` at `14f6296`: 1874 tracked files here, 76 of which differ from
-  upstream's copy of the same path, and 23 that upstream does not have at all.
+  `dderg/serval` at `14f6296`: 1876 tracked files here, 76 of which differ from
+  upstream's copy of the same path, and 25 that upstream does not have at all.
   Of the 76, 48 are code — 11 under `klippy/`, 37 under `rust/` — and the rest
   are documents, scripts and CI. All 48 have now been read. That is the honest
   boundary of this audit: what is left is upstream's code running on upstream's
