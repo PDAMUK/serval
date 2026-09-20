@@ -338,3 +338,59 @@ def test_every_in_page_anchor_resolves():
         a for a in re.findall(r"\]\(#([\w-]+)\)", TEXT) if a not in slugs
     ]
     assert not dangling, "anchors with no heading: %s" % (dangling,)
+
+
+def test_it_tells_the_latching_button_from_the_unlatched_circuit():
+    """The RS 139-972 is a latching, key-release button: pressed, it stays in
+    with both NC contacts held open, and only a key turns it back. The coil
+    circuit behind it does not latch — no safety relay holds the contactor
+    dropped out — so the key is the reset and main power returns the instant
+    it turns.
+
+    Both source documents said "Nothing latches" while their own bill of
+    materials called the part latching. The distinction is not pedantry: it
+    decides whether pocketing the key stops someone else re-energising the
+    enclosure."""
+    assert "Nothing latches" not in FLAT, (
+        "this contradicts the bill of materials, which lists a latching "
+        "key-release button"
+    )
+    assert "Latching, key release" in FLAT, (
+        "the parts list no longer says the button latches and takes a key"
+    )
+    assert "key release" in FLAT and "cannot be twisted back" in FLAT
+    assert (
+        "There is no safety relay holding the contactor dropped out" in FLAT
+    ), (
+        "the guide no longer says the coil circuit is the half that does "
+        "not latch"
+    )
+    assert "the key is the reset" in FLAT.lower()
+    assert "take the key out and nobody restores power" in FLAT.lower()
+
+
+def test_it_does_not_let_the_key_stand_in_for_the_isolator():
+    """A key in a pocket stops someone restoring main power. It does not make
+    the enclosure dead: control power at L1C/L2C is never interrupted, by
+    design, so the drives can be halted cleanly. Anyone who reads the key as
+    isolation reaches into a live enclosure."""
+    assert "key out is an interlock" in FLAT.lower()
+    assert "the isolator locked off is isolation" in FLAT.lower()
+    assert "not a lockable disconnector" in FLAT
+    assert "live at 230 V the whole time the stop was pressed" in FLAT
+
+
+def test_the_stop_button_has_no_normally_open_contact():
+    """The same RS family runs to a 2 NC + 1 NO variant. An NO contact on PF1
+    is silent when the wire comes off, which is the one failure the wiring is
+    chosen to avoid — so the guide has to say why that variant is not used."""
+    row = [
+        line
+        for line in TEXT.splitlines()
+        if line.startswith("| Emergency stop |")
+    ]
+    assert row, "no emergency stop row in the bill of materials"
+    assert "1 NC/1 NC" in row[0], "the stop no longer specifies two NC contacts"
+    assert "2 NC + 1 NO variant" in FLAT, (
+        "the guide no longer warns off the variant with an NO contact"
+    )

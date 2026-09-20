@@ -27,9 +27,12 @@ printer but never touched a servo drive.
 > 2. **The machine has no safety-rated stop of any kind.** These drives have
 >    **no STO** — no safety function appears anywhere in the ProNet manual.
 >    The emergency stop here is a plain contactor dropping out, which is a
->    Category 0 stop with no monitoring, no mirrored contacts and no latching
->    reset. An industrial machine would use a safety relay and a contactor
->    with mirror contacts. This one does not.
+>    Category 0 stop with no monitoring, no mirrored contacts and no safety
+>    relay. The button latches and takes a key to release — that part is
+>    sound — but nothing watches the contactor, nothing detects a welded pole,
+>    and nothing holds the circuit dropped out once the key turns. An
+>    industrial machine would use a safety relay and a contactor with mirror
+>    contacts. This one does not.
 > 3. **Large parts of it have never run on hardware.** The CB2 host path in
 >    particular compiles and has never been loaded. See
 >    [Still unverified](#still-unverified-on-hardware) for the honest list.
@@ -56,9 +59,11 @@ printer but never touched a servo drive.
   opening the contactor. Control power stays on deliberately, so the drives
   can be told to halt cleanly. Only the isolator, locked off and proved,
   makes the enclosure safe to work in.
-- **Releasing the stop restores power immediately.** Nothing latches. Never
-  release it to "see what happened" — you have just re-energised the
-  enclosure you are standing in.
+- **The button latches and takes a key to release; the circuit behind it does
+  not latch.** Turn the key and main power comes straight back, with no
+  separate reset step. Never release it to "see what happened" — you have just
+  re-energised the enclosure you are standing in. **Take the key out** and
+  nobody else can, which is worth doing and is still not a lock-off.
 - Never plug or unplug a drive connector with power applied.
 - Power sequencing: control power (`L1C`/`L2C`) **on first**, main circuit
   (`L1`/`L2`) second. Reverse on shutdown.
@@ -241,7 +246,9 @@ live at 230 V. Those are different states and the stop only reaches the first.
 ```
                      ┌──────────────────────────┐
                      │   E-STOP (RS 139-972)    │
-                     │   latching, key release  │
+                     │   LATCHING, KEY RELEASE  │
+                     │   — stays in until a key │
+                     │     turns it; no twist   │
                      │   TWO NC CONTACTS        │
                      └───┬──────────────────┬───┘
                          │                  │
@@ -450,7 +457,7 @@ share the supply: 7.83 A for the pair sits inside a single 16 A circuit.
 | RCD | ABB `F202 A-25/0.03` — 30 mA **Type A**, 2 modules | **488-6915** |
 | EMC filter | Roxburgh `DRF10` (≤45 °C ambient) **or** Schaffner `FN2412-16-44` (≥50 °C) | **761-5696** / **518-6389** |
 | Contactor | ABB `ESB20-20N-06` — 20 A AC-1, 230 V coil, 1 module | **211-1482** |
-| Emergency stop | **Two NC contacts.** RS PRO key release, 1 NC/1 NC, IP65 | **139-972** |
+| Emergency stop | **Latching, key release, with two NC contacts** — one in series with the contactor coil, one to `PF1`. RS PRO, 1 NC/1 NC, IP65, **through-hole** so it needs a panel to sit in. The same family runs to a 2 NC + 1 NO variant, deliberately not used: the NO contact is the one this circuit must not have | **139-972** |
 | Coil suppressor | *Optional.* RC network 0.1 µF + 100 Ω, **Class X2**. Not needed behind the `ESB20-20N-06` | — |
 | SPD | *Optional.* Schneider `A9L20500` iPRD20 | **654-748** |
 | DIN rail | 35 mm top-hat + two end stops | — |
@@ -1241,16 +1248,38 @@ contactor**: no mirrored contacts, no monitoring, nothing that detects a welded
 pole. An industrial machine would use a safety relay and a contactor with
 mirror contacts.
 
-**And the second half of that choice: releasing the button restores power.**
-The contact sits in series with the coil and nothing latches, so the moment the
-stop is twisted or keyed back the coil re-energises, the contactor closes, and
-the drives have main power again. There is no reset step and nothing asks for
-one. The motors stay still — klippy is shut down and torque disabled until a
-`FIRMWARE_RESTART` — but **the DC bus is live and `CHARGE` is lit**. Anyone who
-pressed the stop to clear a jam and then released it to see what happened has
-re-energised the enclosure they are standing in. **Lock the isolator off
-instead.** A latching safety relay with a separate reset button is the part
-that would change this, and it is what an industrial build would fit.
+**And the second half of that choice — but read which half latches, because
+the two are routinely confused.**
+
+| | Latches here? |
+| --- | --- |
+| **The button** (RS 139-972) | **Yes.** Pressed, it stays in with both NC contacts held open. It is **key release**: it cannot be twisted back, thumbed back or knocked back. A key goes in and turns, or it stays pressed |
+| **The coil circuit** | **No.** There is no safety relay holding the contactor dropped out independently of the button. The instant the key releases it, the coil re-energises and the contactor closes |
+
+So **the key is the reset**, and there is no other one — nothing else asks for
+a deliberate action before main power returns. Two things follow, and the
+build depends on both being understood.
+
+**The good half: take the key out and nobody restores power.** Not the person
+who wandered in, not the person who thinks the jam is cleared, not you in five
+minutes having forgotten why it was pressed. For a machine on a bench in a
+house, a key in a pocket is a real interlock and it is the main reason to buy
+this part rather than a twist-release button.
+
+**The half that is not a substitute for anything.** Releasing it restores
+main power immediately: the motors stay still, because klippy is shut down and
+torque disabled until a `FIRMWARE_RESTART`, but **the DC bus recharges and
+`CHARGE` lights**. And throughout the press, control power at `L1C`/`L2C` was
+never interrupted — that is deliberate, it is what lets the drives be halted
+cleanly, and it means **the enclosure was live at 230 V the whole time the
+stop was pressed.** The key-release mechanism is not a lockable disconnector
+and gives no proved dead state.
+
+**So: key out is an interlock, the isolator locked off is isolation.** They are
+not alternatives. Before reaching into the enclosure, lock the isolator off,
+prove it dead, and wait for `CHARGE` — every time, key or no key. A latching
+safety relay with a separate monitored reset is what an industrial build would
+add on top, and it would also watch for the welded pole nothing here detects.
 
 ## E10 — Regeneration
 

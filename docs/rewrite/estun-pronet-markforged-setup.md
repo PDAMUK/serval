@@ -178,9 +178,11 @@ Markforged lane assignment, which everything downstream depends on:
   opening the contactor, and control power stays on so the drives can be halted
   cleanly — see Part 5. Only the isolator, locked off and proved, makes the
   enclosure safe to work in.
-- **Releasing the stop restores power immediately.** Nothing latches: the
-  contactor closes again the moment the button is reset, with no separate reset
-  step. Never release it as a way of checking what happened.
+- **The button latches and takes a key to release; the circuit behind it does
+  not.** There is no safety relay, so the contactor closes again the moment the
+  key turns, with no separate reset step. Never release it as a way of checking
+  what happened. **Take the key out** and nobody else can either — worth doing,
+  and still not a lock-off.
 - Never plug or unplug a drive connector with power applied.
 - Power sequencing: control power (`L1C`/`L2C`) **on first**, main circuit
   (`L1`/`L2`) on second; reverse on shutdown.
@@ -795,19 +797,35 @@ with mirror contacts, and a printer on a bench generally does not. That is a
 defensible choice, but it should be a choice.
 
 **And the second half of that choice: releasing the button restores power.**
-The contact sits in series with the coil and nothing latches, so the moment the
-stop is twisted or keyed back the coil re-energises, the contactor closes, and
-the drives have main power again. There is no reset step and nothing asks for
-one. The motors stay still, because klippy is shut down and torque is disabled
-until a `FIRMWARE_RESTART` — but the DC bus is live and `CHARGE` is lit.
+Two things get called latching here and only one of them is. **The button
+latches** — pressed, it stays in with both NC contacts held open, and the
+139-972 is **key release**, so it cannot be twisted back, thumbed back or
+knocked back. **The coil circuit does not**: nothing holds the contactor
+dropped out independently of the button, so the instant the key releases it the
+coil re-energises, the contactor closes, and the drives have main power again.
+The key is the reset and there is no other one.
 
-That is the behaviour this circuit has, not a fault in it, and it is exactly
-why the stop is not what makes the machine safe to reach into. Anyone who
-pressed the stop to clear a jam and then released it to see what happened has
-re-energised the enclosure they are standing in. Lock the isolator off instead;
-it is the only thing in this chain that stays off by itself. A latching safety
-relay with a separate reset button is the part that would change this, and it
-is what an industrial build would fit.
+That cuts both ways. **Take the key out and nobody restores power** — not the
+person who wandered in, not you in five minutes having forgotten why it was
+pressed. For a bench machine in a house that is a real interlock, and it is the
+reason to buy this part rather than a twist-release button. But a key in a
+pocket is not a proved dead state: control power at `L1C`/`L2C` was never
+interrupted, so the enclosure was live at 230 V throughout the press, and the
+key-release mechanism is not a lockable disconnector.
+
+On release the motors stay still, because klippy is shut down and torque is
+disabled until a `FIRMWARE_RESTART` — but the DC bus recharges and `CHARGE`
+lights. That is the behaviour this circuit has, not a fault in it, and it is
+exactly why the stop is not what makes the machine safe to reach into. Anyone
+who pressed the stop to clear a jam and then turned the key to see what
+happened has re-energised the enclosure they are standing in.
+
+**Key out is an interlock; the isolator locked off is isolation.** They are
+not alternatives, and the isolator is the only device in this chain that gives
+a proved dead state. Lock it off, prove it, and wait for `CHARGE` before
+reaching in — every time, key or no key. A safety relay with a separate
+monitored reset is what an industrial build would add on top, and it would
+also watch for the welded pole nothing here detects.
 
 **The 16 A rating is not about the 7.83 A load.** At 16 A the drives sit at
 under half the breaker's rating, which looks generous until the inrush is

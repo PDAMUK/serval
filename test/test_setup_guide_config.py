@@ -731,11 +731,27 @@ def test_the_guide_does_not_present_the_query_as_a_live_reading():
     assert "FIRMWARE_RESTART" in text.split("not a live reading")[1][:600]
 
 
-def test_the_guide_says_releasing_the_stop_restores_power():
-    """Nothing latches the contactor open, so resetting the button closes it
-    and the bus comes back with no reset step. Someone who pressed the stop to
-    clear a jam and released it to look has re-energised the enclosure they
-    are reaching into."""
-    text = GUIDE.read_text(encoding="utf-8")
-    assert "Releasing the stop restores power immediately" in text
-    assert "releasing the button restores power" in text.lower()
+def test_the_guide_tells_the_latching_button_from_the_unlatched_circuit():
+    """Two things get called latching and only one of them is. The 139-972
+    button latches and is key release — it cannot be twisted or knocked back.
+    The coil circuit does not: no safety relay holds the contactor dropped
+    out, so the key is the reset and power returns the instant it turns.
+
+    The guide said "Nothing latches" while its own bill of materials called
+    the part latching, which is a flat contradiction and sells the key short:
+    key-out is a real interlock against someone else restoring power. It is
+    still not isolation, and the guide has to say both."""
+    flat = re.sub(r"\s+", " ", GUIDE.read_text(encoding="utf-8"))
+    assert "Nothing latches" not in flat, (
+        "the guide contradicts its own bill of materials, which lists a "
+        "latching key-release button"
+    )
+    assert "key release" in flat, (
+        "the guide no longer says the part is key release"
+    )
+    assert "The button latches" in flat
+    assert "The coil circuit does not" in flat
+    assert "Take the key out and nobody restores power" in flat
+    assert "not a lockable disconnector" in flat, (
+        "the guide no longer says key-out is not isolation"
+    )
