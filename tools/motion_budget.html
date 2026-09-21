@@ -1,0 +1,379 @@
+<title>Markforged Torque Budget</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#e9edf1; --panel:#ffffff; --panel-2:#f4f7f9; --line:#ccd6df;
+  --ink:#0f151c; --muted:#5c6b7a; --faint:#8b98a5;
+  --amber:#9a5b00; --amber-soft:#f6e4c8;
+  --cyan:#0a6070; --cyan-soft:#d3ebf0;
+  --danger:#9c2b30; --danger-soft:#f7dcdd;
+  --ok:#1f6b45;
+  --grid:#dde5eb;
+  --shadow:0 1px 2px rgba(16,32,48,.08), 0 8px 24px -16px rgba(16,32,48,.35);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0d1218; --panel:#151d26; --panel-2:#1b242f; --line:#2a3745;
+    --ink:#e4ecf3; --muted:#93a3b3; --faint:#6b7b8b;
+    --amber:#f3ae52; --amber-soft:#3a2a12;
+    --cyan:#4cc6da; --cyan-soft:#10313a;
+    --danger:#ec7a72; --danger-soft:#3b1d1e;
+    --ok:#5fc48d;
+    --grid:#22303d;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 28px -18px rgba(0,0,0,.9);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0d1218; --panel:#151d26; --panel-2:#1b242f; --line:#2a3745;
+  --ink:#e4ecf3; --muted:#93a3b3; --faint:#6b7b8b;
+  --amber:#f3ae52; --amber-soft:#3a2a12;
+  --cyan:#4cc6da; --cyan-soft:#10313a;
+  --danger:#ec7a72; --danger-soft:#3b1d1e;
+  --ok:#5fc48d;
+  --grid:#22303d;
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 10px 28px -18px rgba(0,0,0,.9);
+}
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15px; line-height:1.5; margin:0;
+  padding-block:28px 40px; padding-left:16px; padding-right:16px;
+}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+h1{
+  font-family:Archivo,system-ui,sans-serif; font-weight:700;
+  font-size:clamp(1.5rem,1.1rem + 1.6vw,2.1rem); line-height:1.12;
+  margin:0; letter-spacing:-.015em; text-wrap:balance;
+}
+.sub{color:var(--muted);margin:6px 0 0;max-width:62ch}
+.eyebrow{
+  font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.68rem;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin:0 0 8px;
+}
+.cols{display:grid;grid-template-columns:320px minmax(0,1fr);gap:22px;align-items:start}
+@media (max-width:820px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;box-shadow:var(--shadow)}
+.panel h2{
+  font-family:Archivo,sans-serif;font-size:.78rem;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 14px;
+}
+.ctl{display:flex;flex-direction:column;gap:5px;margin-bottom:16px}
+.ctl:last-child{margin-bottom:0}
+.ctl-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.ctl label{font-size:.85rem;font-weight:500}
+.ctl .val{font-family:"IBM Plex Mono",monospace;font-size:.85rem;font-variant-numeric:tabular-nums;color:var(--cyan);font-weight:600}
+.ctl .hint{font-size:.72rem;color:var(--faint);margin-top:1px}
+input[type=range]{width:100%;accent-color:var(--cyan);margin:2px 0}
+.seg{display:flex;gap:0;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{
+  flex:1;padding:7px 4px;background:var(--panel-2);border:0;color:var(--muted);
+  font:inherit;font-size:.8rem;cursor:pointer;border-right:1px solid var(--line);
+}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed=true]{background:var(--cyan);color:var(--panel);font-weight:600}
+.seg button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+.readouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.ro{background:var(--panel);padding:14px 16px}
+.ro .k{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.ro .v{font-family:"IBM Plex Mono",monospace;font-size:1.32rem;font-weight:600;font-variant-numeric:tabular-nums;margin-top:3px;line-height:1.15}
+.ro .u{font-size:.74rem;color:var(--muted);font-weight:400}
+.ro .n{font-size:.73rem;color:var(--muted);margin-top:3px}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:500}
+td.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;text-align:right}
+tr:last-child td{border-bottom:0}
+.bar{height:7px;border-radius:4px;background:var(--panel-2);overflow:hidden;min-width:70px}
+.bar span{display:block;height:100%;border-radius:4px}
+.tag{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.05em;padding:2px 7px;border-radius:99px;font-weight:600}
+.tag.lim{background:var(--amber-soft);color:var(--amber)}
+.tag.ok{background:var(--cyan-soft);color:var(--cyan)}
+.note{border-left:3px solid var(--amber);background:var(--panel-2);padding:12px 14px;border-radius:0 7px 7px 0;font-size:.86rem}
+.note.bad{border-left-color:var(--danger)}
+.note strong{font-weight:600}
+figure{margin:0}
+figcaption{font-size:.78rem;color:var(--muted);margin-top:8px}
+svg{display:block;width:100%;height:auto;max-width:100%;overflow:visible}
+code{font-family:"IBM Plex Mono",monospace;font-size:.85em;background:var(--panel-2);padding:1px 5px;border-radius:4px}
+.cfg{background:var(--panel-2);border:1px solid var(--line);border-radius:7px;padding:12px 14px;font-family:"IBM Plex Mono",monospace;font-size:.8rem;line-height:1.7;overflow-x:auto;white-space:pre}
+footer{color:var(--muted);font-size:.8rem;border-top:1px solid var(--line);padding-top:16px}
+footer a{color:var(--cyan)}
+.src{font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--faint)}
+@media (prefers-reduced-motion:no-preference){.bar span{transition:width .18s ease}}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">ESTUN ProNet-04AEG-EC &middot; EMJ-04AFD22 &middot; Markforged</p>
+    <h1>What the drives can actually accelerate</h1>
+    <p class="sub">Torque budget for this gantry, from the repository&rsquo;s own motion maths: the lane mixing in <code>kinematics.rs</code> and the mode/mass torque model the EtherCAT endpoint already runs for feedforward in <code>dynamics.rs</code>.</p>
+  </header>
+
+  <div class="cols">
+    <form class="panel" id="controls">
+      <h2>Machine</h2>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="teeth">Pulley teeth</label><span class="val" id="teeth-v">20 T</span></div>
+        <input type="range" id="teeth" min="16" max="40" step="1" value="20">
+        <div class="hint">GT2 &middot; sets <code>rotation_distance</code></div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="gantry">Gantry mass</label><span class="val" id="gantry-v">1.60 kg</span></div>
+        <input type="range" id="gantry" min="0.4" max="8" step="0.1" value="1.6">
+        <div class="hint">The Y axis moves this plus the carriage</div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="carriage">Carriage mass</label><span class="val" id="carriage-v">0.60 kg</span></div>
+        <input type="range" id="carriage" min="0.1" max="3" step="0.05" value="0.6">
+        <div class="hint">The X axis moves this alone</div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="torque">Torque limit</label><span class="val" id="torque-v">100 %</span></div>
+        <input type="range" id="torque" min="10" max="300" step="5" value="100">
+        <div class="hint"><code>max_torque</code> &middot; Pn401/Pn402 stop at 300</div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="rpm">Max motor speed</label><span class="val" id="rpm-v">5000 rpm</span></div>
+        <input type="range" id="rpm" min="1000" max="6000" step="100" value="5000">
+        <div class="hint">Not a repo figure &mdash; check your motor plate</div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="kin">Kinematics</label></div>
+        <div class="seg" id="kin" role="group" aria-label="Kinematics">
+          <button type="button" data-kin="markforged" aria-pressed="true">Markforged</button>
+          <button type="button" data-kin="corexy" aria-pressed="false">CoreXY</button>
+          <button type="button" data-kin="cartesian" aria-pressed="false">Cartesian</button>
+        </div>
+        <div class="hint">For comparison &mdash; this machine is Markforged</div>
+      </div>
+    </form>
+
+    <div style="display:flex;flex-direction:column;gap:22px;min-width:0">
+      <div class="readouts" id="readouts"></div>
+
+      <section class="panel">
+        <h2>Per-motor torque, at each axis&rsquo;s limit</h2>
+        <div style="overflow-x:auto">
+          <table id="motors">
+            <thead><tr><th>Move</th><th>Motor 0 (X lane)</th><th>Motor 1 (Y lane)</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="src" id="lane-note" style="margin:12px 0 0"></p>
+      </section>
+
+      <section class="panel">
+        <figure>
+          <h2 style="margin-bottom:4px">Acceleration against pulley size</h2>
+          <div id="chart"></div>
+          <figcaption id="chart-cap"></figcaption>
+        </figure>
+      </section>
+
+      <div id="flags" style="display:flex;flex-direction:column;gap:12px"></div>
+
+      <section class="panel">
+        <h2>Into printer.cfg</h2>
+        <div class="cfg" id="cfg"></div>
+      </section>
+    </div>
+  </div>
+
+  <footer>
+    <p style="margin:0 0 8px"><strong>This is the torque ceiling, not a print acceleration.</strong> It answers one question &mdash; at what acceleration does a motor hit its configured torque limit &mdash; and ignores everything that binds first on a real machine: belt stretch and gantry resonance, the planner&rsquo;s own <code>max_accel</code> and corner budget, and whether the regenerative resistor can absorb the deceleration. Treat a number here as the wall you cannot pass, not the speed you will print at.</p>
+    <p class="src" style="margin:0">Lane mixing <code>rust/motion-core/src/kinematics.rs</code> &middot; torque model <code>rust/ethercat-rt/src/dynamics.rs</code> &middot; stepper ceiling <code>klippy/motion_setup.py</code> &middot; motor data from the build guide&rsquo;s ProNet section &middot; mirrored and tested in <code>tools/motion_budget.py</code></p>
+  </footer>
+</div>
+
+<script>
+"use strict";
+// Mirrors tools/motion_budget.py. Frames are motor_to_axis from kinematics.rs.
+var MARKFORGED_Y_COUPLING = 1.0;
+var FRAMES = {
+  markforged: [[1.0, -MARKFORGED_Y_COUPLING], [0.0, 1.0]],
+  corexy:     [[0.5, 0.5], [0.5, -0.5]],
+  cartesian:  [[1.0, 0.0], [0.0, 1.0]]
+};
+var RATED_TORQUE_NM = 1.27;      // EMJ-04AFD22, build guide
+var ROTOR_INERTIA = 0.31e-4;     // kg m^2, build guide
+var BELT_PITCH_MM = 2.0;         // GT2
+var INERTIA_RATIO_WARN = 30;     // A.13, drive manual
+
+function axisToMotor(f){
+  var det = f[0][0]*f[1][1] - f[0][1]*f[1][0];
+  return [[f[1][1]/det, -f[0][1]/det], [-f[1][0]/det, f[0][0]/det]];
+}
+function machine(s){
+  var rot = s.teeth * BELT_PITCH_MM;
+  var r = rot / (2*Math.PI) / 1000;
+  return {
+    frame: FRAMES[s.kin], a2m: axisToMotor(FRAMES[s.kin]), rot: rot, r: r,
+    torque: RATED_TORQUE_NM * s.torque / 100,
+    mass: [s.carriage, s.gantry + s.carriage],
+    reflected: ROTOR_INERTIA / (r*r),
+    free: s.rpm/60 * rot
+  };
+}
+// dynamics.rs eval: mode force = mass * (frame . accel), lifted by frame[mode][slot].
+function slotTorques(m, axisAccelMmS2){
+  var a = [axisAccelMmS2[0]/1000, axisAccelMmS2[1]/1000];
+  var slotAcc = [0,1].map(function(s){ return m.a2m[s][0]*a[0] + m.a2m[s][1]*a[1]; });
+  return [0,1].map(function(slot){
+    var belt = 0;
+    for (var k=0;k<2;k++) belt += m.frame[k][slot] * m.mass[k] * a[k];
+    return belt*m.r + ROTOR_INERTIA*slotAcc[slot]/m.r;
+  });
+}
+function maxAccel(m, dir){
+  var n = Math.hypot(dir[0],dir[1]), u=[dir[0]/n,dir[1]/n];
+  var t = slotTorques(m, [u[0]*1000, u[1]*1000]);
+  var worst = Math.max(Math.abs(t[0]), Math.abs(t[1]));
+  return worst === 0 ? Infinity : 1000*m.torque/worst;
+}
+function maxVel(m, dir){
+  var n = Math.hypot(dir[0],dir[1]), u=[dir[0]/n,dir[1]/n];
+  var turns = [0,1].map(function(s){ return Math.abs(m.a2m[s][0]*u[0] + m.a2m[s][1]*u[1]); });
+  var fastest = Math.max(turns[0], turns[1]);
+  return fastest === 0 ? Infinity : m.free/fastest;
+}
+
+var state = {teeth:20, gantry:1.6, carriage:0.6, torque:100, rpm:5000, kin:"markforged"};
+var $ = function(id){ return document.getElementById(id); };
+var fmt = function(v, d){ return v.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}); };
+
+function render(){
+  var m = machine(state);
+  var ax = maxAccel(m,[1,0]), ay = maxAccel(m,[0,1]);
+  var vx = maxVel(m,[1,0]), vy = maxVel(m,[0,1]);
+  var ratio = Math.max(m.mass[0],m.mass[1]) / m.reflected;
+
+  $("teeth-v").textContent = state.teeth + " T";
+  $("gantry-v").textContent = fmt(state.gantry,2) + " kg";
+  $("carriage-v").textContent = fmt(state.carriage,2) + " kg";
+  $("torque-v").textContent = state.torque + " %";
+  $("rpm-v").textContent = state.rpm + " rpm";
+
+  $("readouts").innerHTML = [
+    ro("rotation_distance", fmt(m.rot,0), "mm/rev", state.teeth + "T &times; " + BELT_PITCH_MM + " mm"),
+    ro("X acceleration", fmt(ax/1000,1), "m/s&sup2;", fmt(ax/9806.65,1) + " g &middot; carriage only"),
+    ro("Y acceleration", fmt(ay/1000,1), "m/s&sup2;", fmt(ay/9806.65,1) + " g &middot; gantry + carriage"),
+    ro("Top speed", fmt(Math.min(vx,vy),0), "mm/s", fmt(m.torque,2) + " N&middot;m at the belt"),
+    ro("Belt force", fmt(m.torque/m.r,0), "N", "per motor, at " + state.torque + " %"),
+    ro("Reflected rotor", fmt(m.reflected,2), "kg", "J/r&sup2; &middot; load ratio " + fmt(ratio,1) + "&times;")
+  ].join("");
+
+  var rows = [["X", [ax,0]], ["Y", [0,ay]], ["XY diagonal", null]];
+  var body = rows.map(function(row){
+    var acc = row[1];
+    if (!acc){ var ad = maxAccel(m,[1,1])/Math.SQRT2; acc = [ad,ad]; }
+    var t = slotTorques(m, acc).map(Math.abs);
+    var lim = t[0] >= t[1] ? 0 : 1;
+    return "<tr><td>" + row[0] + "</td>" +
+      cell(t[0], m.torque, lim===0) + cell(t[1], m.torque, lim===1) +
+      "<td><span class='tag " + (lim===0?"lim":"ok") + "'>motor " + lim + " limits</span></td></tr>";
+  }).join("");
+  $("motors").querySelector("tbody").innerHTML = body;
+
+  $("lane-note").innerHTML = state.kin === "markforged"
+    ? "Markforged is asymmetric. A pure X move turns only motor 0, but motor 1 must hold an equal and opposite belt torque or the reaction drags the gantry in Y. A pure Y move turns both, and loads only motor 1 &mdash; motor 0 carries nothing but its own rotor. Neither axis gets two motors&rsquo; worth of force."
+    : state.kin === "corexy"
+    ? "CoreXY splits every pure-axis move across both motors, so each carries half the belt load &mdash; the reason it accelerates harder than Markforged on the same drives."
+    : "Cartesian: one motor per axis, no coupling, no reaction torque on the other.";
+
+  drawChart(ax, ay);
+
+  var flags = [];
+  if (ratio > INERTIA_RATIO_WARN)
+    flags.push(note("bad", "Load-to-rotor inertia is " + fmt(ratio,0) + "&times;. The drive manual ties roughly 30&times; to <strong>A.13 overvoltage</strong> under acceleration &mdash; a bigger pulley or a lighter gantry, not a tuning fix."));
+  if (state.torque > 300)
+    flags.push(note("bad", "Above 300 % the drive clamps: <code>max_torque</code> accepts up to 400 because that is the CiA 402 <code>6072h</code> ceiling, but Pn401/Pn402 stop at 300."));
+  else if (state.torque > 150)
+    flags.push(note("", "At " + state.torque + " % a 40 mm pulley pulls on the order of " + fmt(m.torque/m.r,0) + " N. Bring the machine up at 100 and raise it because a move stalled, not before."));
+  if (m.reflected > m.mass[0])
+    flags.push(note("", "The rotor reflects " + fmt(m.reflected,2) + " kg to the belt &mdash; more than the " + fmt(m.mass[0],2) + " kg carriage. On a pure X move the rotor costs more torque than the load does; a larger pulley is the only lever that moves it."));
+  $("flags").innerHTML = flags.join("");
+
+  $("cfg").textContent =
+    "[motor motor_x]\n" +
+    "rotation_distance: " + fmt(m.rot,0) + "\n" +
+    "encoder_counts_per_rev: 1048576\n" +
+    "max_torque: " + state.torque + "\n" +
+    "following_error: 2.0\n\n" +
+    "[printer]\n" +
+    "# the planner's own ceiling, set well under the torque wall above\n" +
+    "max_velocity: " + fmt(Math.min(Math.min(vx,vy), 1000),0) + "\n" +
+    "max_accel: " + fmt(Math.min(Math.min(ax,ay)*0.25, 25000),0);
+}
+function ro(k,v,u,n){
+  return "<div class='ro'><div class='k'>"+k+"</div><div class='v'>"+v+" <span class='u'>"+u+"</span></div><div class='n'>"+n+"</div></div>";
+}
+function cell(t, limit, isLim){
+  var pct = Math.min(100, t/limit*100);
+  var col = isLim ? "var(--amber)" : "var(--cyan)";
+  return "<td class='num'>"+fmt(t,3)+" N&middot;m<div class='bar'><span style='width:"+pct+"%;background:"+col+"'></span></div></td>";
+}
+function note(kind, html){ return "<div class='note "+kind+"'>"+html+"</div>"; }
+
+function drawChart(curAx, curAy){
+  var W=680,H=250,L=58,R=16,T=14,B=38;
+  var teeth=[], xs=[], ys=[];
+  for (var n=16;n<=40;n++){
+    var mm = machine({teeth:n,gantry:state.gantry,carriage:state.carriage,torque:state.torque,rpm:state.rpm,kin:state.kin});
+    teeth.push(n); xs.push(maxAccel(mm,[1,0])/1000); ys.push(maxAccel(mm,[0,1])/1000);
+  }
+  var maxV = Math.max.apply(null, xs.concat(ys));
+  var step = Math.pow(10, Math.floor(Math.log10(maxV/3)));
+  var tick = Math.ceil(maxV/3/step)*step;
+  var top = Math.ceil(maxV/tick)*tick;
+  var px = function(i){ return L + (W-L-R) * i/(teeth.length-1); };
+  var py = function(v){ return T + (H-T-B) * (1 - v/top); };
+  var path = function(arr){ return arr.map(function(v,i){ return (i?"L":"M")+px(i).toFixed(1)+" "+py(v).toFixed(1); }).join(" "); };
+
+  var gridLines="", yLabels="";
+  for (var g=0; g<=top+1e-9; g+=tick){
+    gridLines += "<line x1='"+L+"' y1='"+py(g).toFixed(1)+"' x2='"+(W-R)+"' y2='"+py(g).toFixed(1)+"' stroke='var(--grid)' stroke-width='1'/>";
+    yLabels += "<text x='"+(L-8)+"' y='"+(py(g)+4).toFixed(1)+"' text-anchor='end' fill='var(--faint)' font-size='11' font-family='IBM Plex Mono, monospace'>"+fmt(g,0)+"</text>";
+  }
+  var xLabels="";
+  [16,20,24,28,32,36,40].forEach(function(t){
+    var i = teeth.indexOf(t);
+    xLabels += "<text x='"+px(i).toFixed(1)+"' y='"+(H-B+18)+"' text-anchor='middle' fill='var(--faint)' font-size='11' font-family='IBM Plex Mono, monospace'>"+t+"</text>";
+  });
+  var cur = teeth.indexOf(state.teeth);
+  var svg = "<svg viewBox='0 0 "+W+" "+H+"' role='img' aria-label='Acceleration against pulley teeth for the X and Y axes'>"
+    + gridLines + yLabels + xLabels
+    + "<text x='"+L+"' y='"+(H-4)+"' fill='var(--muted)' font-size='11'>pulley teeth (GT2)</text>"
+    + "<text transform='translate(14,"+(T+66)+") rotate(-90)' fill='var(--muted)' font-size='11'>m/s&sup2;</text>"
+    + "<line x1='"+px(cur).toFixed(1)+"' y1='"+T+"' x2='"+px(cur).toFixed(1)+"' y2='"+(H-B)+"' stroke='var(--line)' stroke-width='1' stroke-dasharray='3 3'/>"
+    + "<path d='"+path(xs)+"' fill='none' stroke='var(--cyan)' stroke-width='2.2' stroke-linejoin='round'/>"
+    + "<path d='"+path(ys)+"' fill='none' stroke='var(--amber)' stroke-width='2.2' stroke-linejoin='round'/>"
+    + "<circle cx='"+px(cur).toFixed(1)+"' cy='"+py(xs[cur]).toFixed(1)+"' r='4' fill='var(--cyan)'/>"
+    + "<circle cx='"+px(cur).toFixed(1)+"' cy='"+py(ys[cur]).toFixed(1)+"' r='4' fill='var(--amber)'/>"
+    + "</svg>";
+  $("chart").innerHTML = svg;
+  $("chart-cap").innerHTML = "<span style='color:var(--cyan);font-weight:600'>&mdash; X</span> (carriage only) and <span style='color:var(--amber);font-weight:600'>&mdash; Y</span> (gantry + carriage) at "+state.torque+" % torque. Force falls as 1/r, so a bigger pulley trades acceleration for top speed &mdash; at "+state.teeth+" T that is "+fmt(curAx/1000,0)+" and "+fmt(curAy/1000,0)+" m/s&sup2; against "+fmt(machine(state).free,0)+" mm/s of free speed.";
+}
+
+["teeth","gantry","carriage","torque","rpm"].forEach(function(id){
+  $(id).addEventListener("input", function(e){
+    state[id] = parseFloat(e.target.value); render();
+  });
+});
+$("kin").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-kin]"); if(!b) return;
+  state.kin = b.dataset.kin;
+  Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
+    x.setAttribute("aria-pressed", String(x === b));
+  });
+  render();
+});
+document.getElementById("controls").addEventListener("submit", function(e){ e.preventDefault(); });
+render();
+</script>
