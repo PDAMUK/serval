@@ -70,6 +70,9 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 53 | Neither CB2 document listed a single package to install. A minimal Armbian image carries none of what the steps need, and the path fails at four separate points: `./bootstrap` with no autotools, `make modules` with no kernel headers, the Rust build inside the `serialport` crate for want of `libudev-dev` — which surfaces as a Rust compile error and reads as a toolchain problem — and the firmware at `arm-none-eabi-gcc: No such file or directory` | `c737643` |
 | 54 | `build.rs` let the missing IgH master fail inside cc-rs. The headline was `error occurred in cc-rs: command did not execute successfully`, with `fatal error: ecrt.h: No such file or directory` demoted to a cargo warning above it. It now checks for the header before invoking cc and names the file, the document that installs the master, `IGH_DIR` for another prefix, and the stub build that needs no master | `c737643` |
 | 55 | `IGH_DIR` and `IGH_LIB_DIR` are read by `build.rs` and documented nowhere, so a master installed outside `/opt/etherlab` had no documented route | `c737643` |
+| 56 | Neither CB2 document ever got the repository onto the host. The IgH step runs `generate.py` out of `tools/`, the endpoint step builds in `rust/`, and the RT step writes a drop-in for a `klipper.service` that nothing created — so a reader following either page from a flashed image stops dead at the IgH build with no checkout and no klippy | `013e668` |
+| 57 | The same missing step had to name **this fork**: `Quickstart.md` points at `dderg/kalico`, which carries no markforged kinematics, no `estun-pronet` profile, no `[emergency_stop]` and none of the `pdo_*` options, so following it verbatim produces a checkout that rejects the Stage K config outright | `013e668` |
+| 58 | The prerequisites of finding 53 were placed *before* the step that erases them — the kernel step builds an Armbian image elsewhere and flashing it replaces the whole OS, so the Wi-Fi move and the package install were work done twice. Introduced by finding 53's own fix. Stage B is reordered kernel-first; on the host page the `eth0` move was an unnumbered preamble rather than a step, which is what let it drift there unnoticed | `013e668` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -297,6 +300,20 @@ smooth position display), the mains sequence — especially step 6, where `POWER
 staying lit while `CHARGE` drops is what proves control power is on the correct
 side of the contactor — `ethercat slaves` counting two in wired order, klippy
 parsing the config, and the coupling-sign test.
+
+### Followability, checked by walking the guide rather than reading it
+
+Findings 56-58 came from one question asked of each stage in turn: *what does
+this need that an earlier stage was supposed to provide?* It is a different
+question from "is this true", and it found what four rounds of truth-checking
+had not — a guide every statement of which was correct, and which could not be
+followed from a flashed image because nothing ever cloned the repository.
+
+`test_host_step_order.py` now holds both CB2 documents to the shape: steps
+numbered in the order they appear with no gap or repeat, the kernel step first
+with the `eth0` and package steps after it, a repository step before anything
+that builds inside one, this fork named with the reason base Serval will not
+do, and no reference to a step that does not exist.
 
 ### Readiness for the bench, checked by building rather than by reading
 
