@@ -138,24 +138,32 @@ def test_the_pulley_trade_off_depends_on_which_part_is_the_limit():
     the same belt tension accelerate more. Asserting the rule of thumb
     universally is how a model quietly recommends the wrong pulley."""
 
-    def y_accel(teeth, belt):
+    def y_accel(teeth, belt, ceiling):
         return mb.max_axis_accel_mm_s2(
-            mb.Machine(motor=mb.Motor(pulley_teeth=teeth), belt=belt), (0, 1)
+            mb.Machine(motor=mb.Motor(pulley_teeth=teeth), belt=belt),
+            (0, 1),
+            ceiling,
         )
 
     strong = mb.Belt("GT3", 12.0)
     assert (
-        mb.Machine(motor=mb.Motor(pulley_teeth=16), belt=strong).limiting_part
+        mb.Machine(
+            motor=mb.Motor(pulley_teeth=16), belt=strong
+        ).continuous_limiting_part
         == "motor"
     )
-    assert y_accel(16, strong) > y_accel(32, strong)
+    assert y_accel(16, strong, "continuous") > y_accel(32, strong, "continuous")
 
     weak = mb.Belt("GT2", 6.0)
     assert (
-        mb.Machine(motor=mb.Motor(pulley_teeth=16), belt=weak).limiting_part
+        mb.Machine(
+            motor=mb.Motor(pulley_teeth=16), belt=weak
+        ).continuous_limiting_part
         == "belt"
     )
-    assert y_accel(32, weak) > y_accel(16, weak)
+    assert y_accel(32, weak, "continuous") > y_accel(16, weak, "continuous")
+
+    assert y_accel(16, weak, "peak") > y_accel(32, weak, "peak")
 
 
 def test_a_bigger_pulley_always_raises_top_speed():
@@ -249,20 +257,59 @@ def test_epdm_buys_temperature_and_not_strength():
     assert standard.temperature_range_c == (-35.0, 80.0)
 
 
-def test_a_standard_2gt_6mm_belt_limits_this_machine_long_before_the_motor():
-    """The result that matters. At 20 teeth the belt takes 0.167 N·m against
-    the motor's 1.27 — it binds at about an eighth of what the servo can give,
-    so quoting the motor's acceleration overstates the machine sevenfold."""
+def test_a_standard_2gt_6mm_belt_sets_the_continuous_limit_not_the_peak():
+    """At 20 teeth the belt's allowable working tension is 0.167 N·m against
+    the motor's rated 1.27, so it sets what the machine can pull all day.
+
+    It does **not** set the peak. The catalog figure is a life rating — it
+    falls with rpm, and §24 compares it against a running torque already
+    carrying a 1.5-2.0 service factor — and §9.1 says an intermittent peak
+    above it is ordinarily carried without special consideration. Capping the
+    peak with it was this tool's own defect: it reported 8,844 mm/s² on Y
+    where the drive will deliver 67,284."""
     machine = mb.Machine(belt=mb.Belt("GT2", 6.0))
-    assert machine.limiting_part == "belt"
-    assert machine.belt_torque_ceiling_nm < machine.motor.torque_nm / 5
-    assert machine.torque_ceiling_nm == machine.belt_torque_ceiling_nm
+    assert machine.continuous_limiting_part == "belt"
+    assert machine.belt_continuous_torque_nm < machine.motor.rated_torque_nm / 5
+    assert machine.continuous_torque_nm == machine.belt_continuous_torque_nm
+    assert machine.peak_torque_nm == machine.motor.torque_nm
+
+    peak = mb.max_axis_accel_mm_s2(machine, (0, 1), "peak")
+    continuous = mb.max_axis_accel_mm_s2(machine, (0, 1), "continuous")
+    assert peak == pytest.approx(67284, rel=0.01)
+    assert continuous == pytest.approx(8844, rel=0.01)
+    assert peak > continuous
 
 
-def test_a_wide_gt3_belt_hands_the_limit_back_to_the_motor():
+def test_the_belt_duty_ratio_says_how_far_past_the_rating_a_peak_reaches():
+    """The number that replaces the false ceiling. It is not a pass/fail — the
+    catalog tolerates an intermittent peak over the rating — but 7.6× is the
+    figure that decides whether a wider belt is worth fitting."""
+    machine = mb.Machine(belt=mb.Belt("GT2", 6.0))
+    assert mb.belt_duty_ratio(machine, (0, 1)) == pytest.approx(7.6, abs=0.1)
+    wide = mb.Machine(belt=mb.Belt("GT3", 12.0))
+    assert mb.belt_duty_ratio(wide, (0, 1)) < 1.0
+
+
+def test_an_unknown_ceiling_is_refused_rather_than_guessed():
+    machine = mb.Machine()
+    with pytest.raises(ValueError, match="ceiling must be one of"):
+        mb.max_axis_accel_mm_s2(machine, (0, 1), "average")
+
+
+def test_the_source_table_records_that_the_belt_rating_is_continuous():
+    """The distinction that was wrong is the one most worth pinning: the
+    figure's meaning, and that nothing here quantifies the real peak."""
+    assert (
+        "intermittent peak torques" in mb.SOURCES["belt_tension_is_continuous"]
+    )
+    assert mb.SOURCES["belt_peak_is_ratcheting"].startswith("UNQUANTIFIED")
+    assert "tooth jumping" in mb.SOURCES["belt_peak_is_ratcheting"]
+
+
+def test_a_wide_gt3_belt_hands_the_continuous_limit_back_to_the_motor():
     machine = mb.Machine(belt=mb.Belt("GT3", 12.0))
-    assert machine.limiting_part == "motor"
-    assert machine.torque_ceiling_nm == machine.motor.torque_nm
+    assert machine.continuous_limiting_part == "motor"
+    assert machine.continuous_torque_nm == machine.motor.rated_torque_nm
 
 
 @pytest.mark.parametrize("teeth", [16, 20, 40, 140])

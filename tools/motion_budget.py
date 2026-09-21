@@ -32,7 +32,25 @@ SOURCES = {
     "torque_ceiling_pct": "docs/rewrite/*: Pn401/Pn402 run 0-300 %",
     "belt_tension": (
         "SDP/SI Technical Section Table 3, Allowable Working Tension of "
-        "Different Belt Constructions, neoprene column, per 25.4 mm width"
+        "Different Belt Constructions, neoprene column, per 25.4 mm width; "
+        "Table 33 rated torque agrees at a 20-groove 6 mm 2 mm-pitch pulley "
+        "(0.18 N·m at 10 rpm against 0.167 from the tension), and Table 30 "
+        "belt-stock working tension agrees at both pitches"
+    ),
+    "belt_tension_is_continuous": (
+        "SDP/SI Technical Section 9.1: 'While intermittent peak torques can "
+        "often be carried by synchronous drives without special "
+        "considerations, high cyclic peak torque loading should be carefully "
+        "reviewed.' The rated figure falls with rpm, which is a life rating, "
+        "and Section 24 compares it against Tpeak = T x a 1.5-2.0 service "
+        "factor for a drive running continuously"
+    ),
+    "belt_peak_is_ratcheting": (
+        "UNQUANTIFIED — SDP/SI 9.1 names tooth jumping, not cord tension, as "
+        "what bounds an intermittent peak, and gives no threshold for it: it "
+        "turns on installation tension and teeth in mesh. Table 9 gives only "
+        "the minimum installation tension (2 mm GT3, 6 mm: 2.1 lbf/9.3 N per "
+        "span). No primary source here sets the force at which a belt jumps"
     ),
     "belt_temperature": "Gates PowerGrip GT3 and 2GT EPDM published ranges",
     "gt15_tension": "ESTIMATE — Gates publishes no 1.5 mm pitch; see BELTS",
@@ -163,20 +181,33 @@ class Machine:
         return self.motor.max_rpm / 60.0 * self.rotation_distance_mm
 
     @property
-    def belt_torque_ceiling_nm(self) -> float:
-        """The belt's allowable tension seen as a torque at this pulley, so it
-        compares directly with the motor's limit."""
+    def belt_continuous_torque_nm(self) -> float:
+        """The belt's allowable working tension seen as a torque at this
+        pulley. A *continuous* rating: it is a life figure, it falls with
+        rpm, and the catalog compares it against a running torque already
+        multiplied by a 1.5-2.0 service factor. It is not the force at which
+        a belt lets go, and an intermittent peak above it is ordinary."""
         return self.belt.allowable_tension_n * self.pulley_radius_m
 
     @property
-    def torque_ceiling_nm(self) -> float:
-        return min(self.motor.torque_nm, self.belt_torque_ceiling_nm)
+    def peak_torque_nm(self) -> float:
+        """What the drive will deliver in a burst: the configured torque
+        limit, which is all that bounds an acceleration the machine holds for
+        a few hundred milliseconds. Above the belt's continuous rating the
+        wall is tooth ratcheting, and no source here quantifies it."""
+        return self.motor.torque_nm
 
     @property
-    def limiting_part(self) -> str:
+    def continuous_torque_nm(self) -> float:
+        """What the machine can pull indefinitely: the motor's rated torque
+        or the belt's working tension, whichever gives out first."""
+        return min(self.motor.rated_torque_nm, self.belt_continuous_torque_nm)
+
+    @property
+    def continuous_limiting_part(self) -> str:
         return (
             "belt"
-            if self.belt_torque_ceiling_nm < self.motor.torque_nm
+            if self.belt_continuous_torque_nm < self.motor.rated_torque_nm
             else "motor"
         )
 
@@ -220,9 +251,31 @@ def slot_torques_nm(machine: Machine, axis_accel_mm_s2):
     return torques
 
 
-def max_axis_accel_mm_s2(machine: Machine, direction) -> float:
-    """Largest acceleration along `direction` before any motor is asked for
-    more torque than its limit. Linear in accel, so one probe scales."""
+CEILINGS = ("peak", "continuous")
+
+
+def torque_ceiling_nm(machine: Machine, ceiling: str) -> float:
+    if ceiling not in CEILINGS:
+        raise ValueError(
+            "ceiling must be one of %r, not %r" % (CEILINGS, ceiling)
+        )
+    if ceiling == "peak":
+        return machine.peak_torque_nm
+    return machine.continuous_torque_nm
+
+
+def max_axis_accel_mm_s2(
+    machine: Machine, direction, ceiling: str = "peak"
+) -> float:
+    """Largest acceleration along `direction` before a motor is asked for more
+    torque than the chosen ceiling allows. Linear in accel, so one probe
+    scales.
+
+    The default is the peak, because that is what the question "how hard can
+    this machine accelerate" asks: a print move's acceleration lasts
+    milliseconds, and the drive's torque limit is the only thing bounding it.
+    `continuous` is the one to quote for a load the machine holds.
+    """
     norm = math.hypot(*direction)
     if norm == 0.0:
         raise ValueError("direction must be non-zero")
@@ -231,7 +284,18 @@ def max_axis_accel_mm_s2(machine: Machine, direction) -> float:
     worst = max(abs(t) for t in probe)
     if worst == 0.0:
         return math.inf
-    return 1000.0 * machine.torque_ceiling_nm / worst
+    return 1000.0 * torque_ceiling_nm(machine, ceiling) / worst
+
+
+def belt_duty_ratio(machine: Machine, direction) -> float:
+    """How many times its continuous rating the belt carries at the peak. The
+    number the catalog's "intermittent peak" caveat applies to: fine for a
+    burst, not for a pull the machine holds."""
+    peak = max_axis_accel_mm_s2(machine, direction, "peak")
+    torques = slot_torques_nm(
+        machine, [d / math.hypot(*direction) * peak for d in direction]
+    )
+    return max(abs(t) for t in torques) / machine.belt_continuous_torque_nm
 
 
 def max_axis_velocity_mm_s(machine: Machine, direction) -> float:

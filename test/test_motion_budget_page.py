@@ -161,15 +161,35 @@ def test_the_page_applies_the_rotor_term_like_the_model():
     assert "belt*m.r" in PAGE.replace(" ", "")
 
 
-def test_the_page_takes_the_lower_of_the_two_ceilings():
-    """`Machine.torque_ceiling_nm` is a min of motor and belt, and
-    `limiting_part` names which bound bit. A page that kept only the motor
-    term would read the same until someone fitted a narrow belt."""
+def test_the_page_separates_the_peak_from_the_continuous_ceiling():
+    """The belt's allowable working tension is a life rating, not a wall, so
+    it bounds `continuous` and never `peak`. A page that fed it back into the
+    peak would report 8,844 mm/s² on Y where the drive gives 67,284."""
     flat = PAGE.replace(" ", "")
     assert "tension=belt.tensionPerInch*s.width/MM_PER_INCH" in flat
     assert "beltTorque=tension*r" in flat
-    assert "torque:Math.min(motorTorque,beltTorque)" in flat
-    assert 'limiter:beltTorque<motorTorque?"belt":"motor"' in flat
+    assert "peak:motorTorque" in flat
+    assert "continuous:Math.min(RATED_TORQUE_NM,beltTorque)" in flat
+    assert 'contLimiter:beltTorque<RATED_TORQUE_NM?"belt":"motor"' in flat
+    assert 'ceiling==="continuous"?m.continuous:m.peak' in flat
+
+
+def test_the_page_quotes_the_catalog_on_intermittent_peaks():
+    """The sentence the whole distinction rests on. Without it the page is
+    asserting that a belt may be worked past its rating, on its own say-so."""
+    flat = re.sub(r"\s+", " ", PAGE)
+    assert "intermittent peak torques can often be carried" in flat
+    assert "tooth ratcheting" in flat
+    assert "installation tension and teeth in mesh" in flat
+
+
+def test_the_page_does_not_claim_a_peak_it_cannot_source():
+    """No primary source here gives the force at which a belt jumps teeth, so
+    the page says the peak assumes the belt does not, rather than implying a
+    wall it has not established."""
+    flat = re.sub(r"\s+", " ", PAGE)
+    assert "No source here puts a number on it" in flat
+    assert "assumes a properly tensioned belt that does not jump" in flat
 
 
 def test_the_page_opens_from_disk_without_reaching_out():
@@ -314,9 +334,9 @@ def test_the_torque_caution_is_not_gated_on_the_motor_being_the_limit():
     flat = re.sub(r"\s+", " ", PAGE)
     assert "if (state.torque > 100)" in flat
     assert 'state.torque > 150 && m.limiter === "motor"' not in flat
-    assert "peak torque, not continuous" in flat
+    assert "burst torque, not continuous" in flat
     assert "8.4 A against 2.8 A continuous" in flat
-    assert "the belt is what gives way" in flat
+    assert "ratcheting is the failure this invites" in flat
 
 
 @pytest.mark.skipif(
@@ -338,7 +358,8 @@ def test_the_config_the_page_hands_over_is_a_config_klippy_can_read():
         "var out = " + json.dumps(CASES) + ".map(function(s){\n"
         "  var m = machine(s);\n"
         "  return cfgText(s, m, maxVel(m,[1,0]), maxVel(m,[0,1]),\n"
-        "                 maxAccel(m,[1,0]), maxAccel(m,[0,1]));\n"
+        "                 maxAccel(m,[1,0],'continuous'),\n"
+        "                 maxAccel(m,[0,1],'continuous'));\n"
         "});\n"
         "console.log(JSON.stringify(out));\n"
     )
@@ -364,8 +385,8 @@ def test_the_config_the_page_hands_over_is_a_config_klippy_can_read():
         )
         assert float(values["max_torque"]) == case["torque"]
         assert float(values["max_accel"]) <= min(
-            mb.max_axis_accel_mm_s2(machine, (1.0, 0.0)),
-            mb.max_axis_accel_mm_s2(machine, (0.0, 1.0)),
+            mb.max_axis_accel_mm_s2(machine, (1.0, 0.0), "continuous"),
+            mb.max_axis_accel_mm_s2(machine, (0.0, 1.0), "continuous"),
         )
         assert float(values["max_velocity"]) <= min(
             mb.max_axis_velocity_mm_s(machine, (1.0, 0.0)),
@@ -373,10 +394,17 @@ def test_the_config_the_page_hands_over_is_a_config_klippy_can_read():
         )
 
 
+def test_a_suggested_ceiling_rounds_down_never_up():
+    """`max_accel` is derived from a limit, so rounding it up publishes a
+    config a hair over the number it was derived from."""
+    assert "cfgnum(Math.floor(Math.min(Math.min(cx,cy), 25000)))" in PAGE
+    assert "cfgnum(Math.floor(Math.min(Math.min(vx,vy), 1000)))" in PAGE
+
+
 def test_a_raised_torque_limit_is_labelled_in_the_config_it_writes():
     """A pasted `max_torque: 300` with no comment reads like a setting someone
     chose. It is the drive's burst ceiling, and the guide ships 100."""
-    assert "peak, not continuous; the guide ships 100" in PAGE
+    assert "burst, not continuous; the guide ships 100" in PAGE
 
 
 @pytest.mark.skipif(
@@ -389,10 +417,12 @@ def test_the_page_computes_what_the_model_computes():
         + json.dumps(CASES)
         + ".map(function(s){\n"
         "  var m = machine(s);\n"
-        "  return {ax: maxAccel(m,[1,0]), ay: maxAccel(m,[0,1]),\n"
+        "  return {ax: maxAccel(m,[1,0],'peak'), ay: maxAccel(m,[0,1],'peak'),\n"
         "          vx: maxVel(m,[1,0]), vy: maxVel(m,[0,1]),\n"
         "          beltTorque: m.beltTorque, motorTorque: m.motorTorque,\n"
-        "          torque: m.torque, limiter: m.limiter,\n"
+        "          peak: m.peak, continuous: m.continuous,\n"
+        "          contLimiter: m.contLimiter, duty: beltDuty(m,[0,1]),\n"
+        "          cont: maxAccel(m,[0,1],'continuous'),\n"
         "          reflected: m.reflected, rot: m.rot};\n"
         "});\n"
         "console.log(JSON.stringify(out));\n"
@@ -407,19 +437,27 @@ def test_the_page_computes_what_the_model_computes():
         assert page["rot"] == pytest.approx(machine.rotation_distance_mm)
         assert page["motorTorque"] == pytest.approx(machine.motor.torque_nm)
         assert page["beltTorque"] == pytest.approx(
-            machine.belt_torque_ceiling_nm
+            machine.belt_continuous_torque_nm
         )
-        assert page["torque"] == pytest.approx(machine.torque_ceiling_nm)
-        assert page["limiter"] == machine.limiting_part
+        assert page["peak"] == pytest.approx(machine.peak_torque_nm)
+        assert page["continuous"] == pytest.approx(machine.continuous_torque_nm)
+        assert page["contLimiter"] == machine.continuous_limiting_part
+        assert page["duty"] == pytest.approx(
+            mb.belt_duty_ratio(machine, (0.0, 1.0))
+        )
         assert page["reflected"] == pytest.approx(
             mb.reflected_rotor_mass_kg(machine)
         )
         assert page["ax"] == pytest.approx(
-            mb.max_axis_accel_mm_s2(machine, (1.0, 0.0))
+            mb.max_axis_accel_mm_s2(machine, (1.0, 0.0), "peak")
         ), case
         assert page["ay"] == pytest.approx(
-            mb.max_axis_accel_mm_s2(machine, (0.0, 1.0))
+            mb.max_axis_accel_mm_s2(machine, (0.0, 1.0), "peak")
         ), case
+        assert page["cont"] == pytest.approx(
+            mb.max_axis_accel_mm_s2(machine, (0.0, 1.0), "continuous")
+        ), case
+        assert page["ay"] >= page["cont"], case
         assert page["vx"] == pytest.approx(
             mb.max_axis_velocity_mm_s(machine, (1.0, 0.0))
         ), case
