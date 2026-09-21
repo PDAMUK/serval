@@ -25,7 +25,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PAGE = (ROOT / "tools" / "motion_budget.html").read_text(encoding="utf-8")
 
 sys.path.insert(0, str(ROOT))
+from klippy import configfile  # noqa: E402
 from tools import motion_budget as mb  # noqa: E402
+
+ConfigDocument = configfile._config_doc.ConfigDocument
 
 
 def js_number(name):
@@ -208,6 +211,16 @@ def test_the_page_names_its_sources():
         assert path in PAGE, "the page does not credit %s" % path
 
 
+def test_the_torque_slider_stops_where_the_drive_does_not_the_config_field():
+    """`max_torque` validates to 400 — the CiA 402 `6072h` ceiling — but
+    ProNet clamps to `Pn401`/`Pn402`, which run 0-300 % of rated. A slider
+    that reached 400 would plot torque the drive will never deliver; one that
+    stopped at 100 would hide the range the drive actually has."""
+    slider = re.search(r'id="torque"[^>]*min="(\d+)"[^>]*max="(\d+)"', PAGE)
+    assert slider, "the page no longer has a torque slider"
+    assert int(slider.group(2)) == 300
+
+
 def test_the_page_flags_the_drive_limits_the_guide_establishes():
     flat = re.sub(r"\s+", " ", PAGE)
     assert "Pn401/Pn402 stop at 300" in flat
@@ -290,6 +303,80 @@ def machine_for(case):
         gantry_mass_kg=case["gantry"],
         carriage_mass_kg=case["carriage"],
     )
+
+
+def test_the_torque_caution_is_not_gated_on_the_motor_being_the_limit():
+    """The dangerous case is the *belt* being the limit: the drive then pulls
+    more than the belt carries and no number on the page moves, so a reader
+    who raises the limit sees nothing happen and concludes it was harmless.
+    Gating the caution on `limiter === "motor"` silenced it in exactly that
+    case, which is how it was found."""
+    flat = re.sub(r"\s+", " ", PAGE)
+    assert "if (state.torque > 100)" in flat
+    assert 'state.torque > 150 && m.limiter === "motor"' not in flat
+    assert "peak torque, not continuous" in flat
+    assert "8.4 A against 2.8 A continuous" in flat
+    assert "the belt is what gives way" in flat
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None, reason="no JavaScript engine to run the page"
+)
+def test_the_config_the_page_hands_over_is_a_config_klippy_can_read():
+    """`fmt` is `toLocaleString`, so the block printed `max_accel: 2,211`,
+    which klippy's reader hands back with the comma still in it — and in a
+    comma-decimal locale it prints `2.211`, which reads as valid and is a
+    thousand times too small. Config values go through `cfgnum`, which
+    localises nothing; the monkeypatch below is what proves it.
+
+    Parsed with the reader klippy actually uses, so the trailing `#` comments
+    are held to the same rule the machine will hold them to."""
+    driver = (
+        page_physics_source()
+        + "\nNumber.prototype.toLocaleString = function(){"
+        "  throw new Error('a config value was formatted for a reader'); };\n"
+        "var out = " + json.dumps(CASES) + ".map(function(s){\n"
+        "  var m = machine(s);\n"
+        "  return cfgText(s, m, maxVel(m,[1,0]), maxVel(m,[0,1]),\n"
+        "                 maxAccel(m,[1,0]), maxAccel(m,[0,1]));\n"
+        "});\n"
+        "console.log(JSON.stringify(out));\n"
+    )
+    result = subprocess.run(
+        ["node", "-e", driver], capture_output=True, text=True, check=True
+    )
+    for case, text in zip(CASES, json.loads(result.stdout)):
+        doc = ConfigDocument.parse(text, "motion_budget.html")
+        machine = machine_for(case)
+        values = {
+            option: doc.get(section, option)
+            for section, option in (
+                ("motor motor_x", "rotation_distance"),
+                ("motor motor_x", "max_torque"),
+                ("printer", "max_velocity"),
+                ("printer", "max_accel"),
+            )
+        }
+        for option, raw in values.items():
+            assert re.fullmatch(r"[0-9]+", raw), "%s: %r" % (option, raw)
+        assert float(values["rotation_distance"]) == pytest.approx(
+            machine.rotation_distance_mm
+        )
+        assert float(values["max_torque"]) == case["torque"]
+        assert float(values["max_accel"]) <= min(
+            mb.max_axis_accel_mm_s2(machine, (1.0, 0.0)),
+            mb.max_axis_accel_mm_s2(machine, (0.0, 1.0)),
+        )
+        assert float(values["max_velocity"]) <= min(
+            mb.max_axis_velocity_mm_s(machine, (1.0, 0.0)),
+            mb.max_axis_velocity_mm_s(machine, (0.0, 1.0)),
+        )
+
+
+def test_a_raised_torque_limit_is_labelled_in_the_config_it_writes():
+    """A pasted `max_torque: 300` with no comment reads like a setting someone
+    chose. It is the drive's burst ceiling, and the guide ships 100."""
+    assert "peak, not continuous; the guide ships 100" in PAGE
 
 
 @pytest.mark.skipif(

@@ -293,6 +293,23 @@ function maxVel(m, dir){
   return fastest === 0 ? Infinity : m.free/fastest;
 }
 
+// printer.cfg is parsed by configparser, which takes no thousands separator
+// and in a comma-decimal locale would read a grouped 2.211 as 2.211 mm/s2.
+// Config values are therefore never formatted for a human reader.
+function cfgnum(v){ return String(Math.round(v)); }
+function cfgText(s, m, vx, vy, ax, ay){
+  var peak = s.torque > 100 ? "   # peak, not continuous; the guide ships 100" : "";
+  return "[motor motor_x]\n" +
+    "rotation_distance: " + cfgnum(m.rot) + "   # " + s.teeth + "T " + s.profile + "\n" +
+    "encoder_counts_per_rev: 1048576\n" +
+    "max_torque: " + cfgnum(s.torque) + peak + "\n" +
+    "following_error: 2.0\n\n" +
+    "[printer]\n" +
+    "# the planner's own ceiling, set well under the wall above\n" +
+    "max_velocity: " + cfgnum(Math.min(Math.min(vx,vy), 1000)) + "\n" +
+    "max_accel: " + cfgnum(Math.min(Math.min(ax,ay)*0.25, 25000));
+}
+
 var state = {teeth:20, gantry:1.6, carriage:0.6, torque:100, rpm:5000,
              kin:"markforged", profile:"GT2", width:6, material:"standard"};
 var $ = function(id){ return document.getElementById(id); };
@@ -359,24 +376,20 @@ function render(){
     flags.push(note("bad", "<strong>GT1.5 has no published Gates tension.</strong> Gates does not make a 1.5 mm pitch, so the " + fmt(BELTS["GT1.5"].tensionPerInch,0) + " N per 25.4 mm used here is a linear extrapolation from the 2 mm figure, not a datasheet value. Treat every belt-limited number on this page as indicative until you have the maker&rsquo;s own rating."));
   if (ratio > INERTIA_RATIO_WARN)
     flags.push(note("bad", "Load-to-rotor inertia is " + fmt(ratio,0) + "&times;. The drive manual ties roughly 30&times; to <strong>A.13 overvoltage</strong> under acceleration &mdash; a bigger pulley or a lighter gantry, not a tuning fix."));
-  if (state.torque > 150 && m.limiter === "motor")
-    flags.push(note("", "At " + state.torque + " % the belt sees " + fmt(m.motorTorque/m.r,0) + " N. Bring the machine up at 100 and raise it because a move stalled, not before."));
+  if (state.torque > 100)
+    flags.push(note(m.limiter === "belt" ? "bad" : "", "<strong>" + state.torque + " % is peak torque, not continuous.</strong> "
+      + "Pn401/Pn402 accept 0&ndash;300 %, but 3&times; rated is the motor&rsquo;s burst rating &mdash; 8.4 A against 2.8 A continuous &mdash; so holding this limit ends in a drive overload rather than in the acceleration above. "
+      + (m.limiter === "belt"
+        ? "And the belt is the limit here, so raising it moves nothing on this page while letting the drive pull " + fmt(m.motorTorque/m.r,0) + " N through a belt rated for " + fmt(m.tension,0) + " N. Nothing stops that but the belt, and the belt is what gives way."
+        : "At " + state.torque + " % the belt sees " + fmt(m.motorTorque/m.r,0) + " N against its " + fmt(m.tension,0) + " N rating.")
+      + " Bring the machine up at 100 and raise it because a move stalled, not before."));
   if (m.reflected > m.mass[0])
     flags.push(note("", "The rotor reflects " + fmt(m.reflected,2) + " kg to the belt &mdash; more than the " + fmt(m.mass[0],2) + " kg carriage. A larger pulley is the only lever that shrinks it."));
   if (state.material === "epdm")
     flags.push(note("", "<strong>EPDM buys temperature, not strength.</strong> Both compounds carry the same fibreglass tensile cord, so the allowable tension is identical &mdash; what changes is the range, " + mat.min + " to " + mat.max + " &deg;C against " + MATERIALS.standard.min + " to " + MATERIALS.standard.max + " &deg;C. Worth it for a heated chamber; it will not let you accelerate harder."));
   $("flags").innerHTML = flags.join("");
 
-  $("cfg").textContent =
-    "[motor motor_x]\n" +
-    "rotation_distance: " + fmt(m.rot,0) + "   # " + state.teeth + "T " + state.profile + "\n" +
-    "encoder_counts_per_rev: 1048576\n" +
-    "max_torque: " + state.torque + "\n" +
-    "following_error: 2.0\n\n" +
-    "[printer]\n" +
-    "# the planner's own ceiling, set well under the wall above\n" +
-    "max_velocity: " + fmt(Math.min(Math.min(vx,vy), 1000),0) + "\n" +
-    "max_accel: " + fmt(Math.min(Math.min(ax,ay)*0.25, 25000),0);
+  $("cfg").textContent = cfgText(state, m, vx, vy, ax, ay);
 }
 function ro(k,v,u,n){
   return "<div class='ro'><div class='k'>"+k+"</div><div class='v'>"+v+" <span class='u'>"+u+"</span></div><div class='n'>"+n+"</div></div>";
