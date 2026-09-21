@@ -72,6 +72,12 @@ Never rewrite git history, never amend commits, never force-push.
 absolute. Public vendor repositories (`bigtreetech/manta-m8p` and similar) and
 general web research are fine and have been used freely.
 
+**Work stays in the repository, and nothing is published outside it.** No
+artifacts, no hosted pages, no gists, no uploads — a deliverable is a file on a
+branch, and an interactive one is an HTML file in `tools/` that opens from
+disk. Reading the web is fine; putting this machine's work on it is not. Offer
+the file, never a link to somewhere else.
+
 Work lands on `claude/ethercat-support-ke49we`.
 
 Sessions are sometimes given a different branch in their own instructions —
