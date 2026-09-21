@@ -1,5 +1,4 @@
 <title>Markforged Torque Budget</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 :root{
   --bg:#e9edf1; --panel:#ffffff; --panel-2:#f4f7f9; --line:#ccd6df;
@@ -116,8 +115,37 @@ footer a{color:var(--cyan)}
 
       <div class="ctl">
         <div class="ctl-head"><label for="teeth">Pulley teeth</label><span class="val" id="teeth-v">20 T</span></div>
-        <input type="range" id="teeth" min="16" max="40" step="1" value="20">
-        <div class="hint">GT2 &middot; sets <code>rotation_distance</code></div>
+        <input type="range" id="teeth" min="16" max="140" step="1" value="20">
+        <div class="hint">Sets <code>rotation_distance</code> with the pitch</div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="profile">Belt pitch</label></div>
+        <div class="seg" id="profile" role="group" aria-label="Belt pitch">
+          <button type="button" data-profile="GT1.5" aria-pressed="false">GT1.5</button>
+          <button type="button" data-profile="GT2" aria-pressed="true">GT2</button>
+          <button type="button" data-profile="GT3" aria-pressed="false">GT3</button>
+        </div>
+        <div class="hint" id="profile-hint"></div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="width">Belt width</label></div>
+        <div class="seg" id="width" role="group" aria-label="Belt width">
+          <button type="button" data-width="6" aria-pressed="true">6 mm</button>
+          <button type="button" data-width="9" aria-pressed="false">9 mm</button>
+          <button type="button" data-width="12" aria-pressed="false">12 mm</button>
+        </div>
+        <div class="hint" id="width-hint"></div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="material">Belt compound</label></div>
+        <div class="seg" id="material" role="group" aria-label="Belt compound">
+          <button type="button" data-material="standard" aria-pressed="true">Standard</button>
+          <button type="button" data-material="epdm" aria-pressed="false">EPDM</button>
+        </div>
+        <div class="hint" id="material-hint"></div>
       </div>
 
       <div class="ctl">
@@ -156,6 +184,7 @@ footer a{color:var(--cyan)}
     </form>
 
     <div style="display:flex;flex-direction:column;gap:22px;min-width:0">
+      <div id="limiter"></div>
       <div class="readouts" id="readouts"></div>
 
       <section class="panel">
@@ -187,7 +216,7 @@ footer a{color:var(--cyan)}
   </div>
 
   <footer>
-    <p style="margin:0 0 8px"><strong>This is the torque ceiling, not a print acceleration.</strong> It answers one question &mdash; at what acceleration does a motor hit its configured torque limit &mdash; and ignores everything that binds first on a real machine: belt stretch and gantry resonance, the planner&rsquo;s own <code>max_accel</code> and corner budget, and whether the regenerative resistor can absorb the deceleration. Treat a number here as the wall you cannot pass, not the speed you will print at.</p>
+    <p style="margin:0 0 8px"><strong>This is the torque ceiling, not a print acceleration.</strong> It answers one question &mdash; at what acceleration does the motor or the belt hit its limit &mdash; and ignores everything that binds first on a real machine: belt stretch (the belt controls set what a belt can <em>carry</em>, not how stiff it is) and gantry resonance, the planner&rsquo;s own <code>max_accel</code> and corner budget, and whether the regenerative resistor can absorb the deceleration. Treat a number here as the wall you cannot pass, not the speed you will print at.</p>
     <p class="src" style="margin:0">Lane mixing <code>rust/motion-core/src/kinematics.rs</code> &middot; torque model <code>rust/ethercat-rt/src/dynamics.rs</code> &middot; stepper ceiling <code>klippy/motion_setup.py</code> &middot; motor data from the build guide&rsquo;s ProNet section &middot; mirrored and tested in <code>tools/motion_budget.py</code></p>
   </footer>
 </div>
@@ -203,22 +232,42 @@ var FRAMES = {
 };
 var RATED_TORQUE_NM = 1.27;      // EMJ-04AFD22, build guide
 var ROTOR_INERTIA = 0.31e-4;     // kg m^2, build guide
-var BELT_PITCH_MM = 2.0;         // GT2
+var MM_PER_INCH = 25.4;
 var INERTIA_RATIO_WARN = 30;     // A.13, drive manual
+
+// Allowable working tension per 25.4 mm of width, neoprene: SDP/SI Technical
+// Section Table 3. 1.5 mm is not a Gates pitch and has no published figure.
+var BELTS = {
+  "GT1.5": {pitch: 1.5, tensionPerInch: 83.0,  estimated: true},
+  "GT2":   {pitch: 2.0, tensionPerInch: 111.0, estimated: false},
+  "GT3":   {pitch: 3.0, tensionPerInch: 507.0, estimated: false}
+};
+// Same fibreglass tensile cord in both, so EPDM moves temperature, not force.
+var MATERIALS = {
+  standard: {label: "Standard (neoprene)", min: -35, max: 80},
+  epdm:     {label: "EPDM high-temp",      min: -45, max: 135}
+};
 
 function axisToMotor(f){
   var det = f[0][0]*f[1][1] - f[0][1]*f[1][0];
   return [[f[1][1]/det, -f[0][1]/det], [-f[1][0]/det, f[0][0]/det]];
 }
 function machine(s){
-  var rot = s.teeth * BELT_PITCH_MM;
+  var belt = BELTS[s.profile];
+  var rot = s.teeth * belt.pitch;
   var r = rot / (2*Math.PI) / 1000;
+  var motorTorque = RATED_TORQUE_NM * s.torque / 100;
+  var tension = belt.tensionPerInch * s.width / MM_PER_INCH;
+  var beltTorque = tension * r;
   return {
     frame: FRAMES[s.kin], a2m: axisToMotor(FRAMES[s.kin]), rot: rot, r: r,
-    torque: RATED_TORQUE_NM * s.torque / 100,
+    motorTorque: motorTorque, tension: tension, beltTorque: beltTorque,
+    torque: Math.min(motorTorque, beltTorque),
+    limiter: beltTorque < motorTorque ? "belt" : "motor",
     mass: [s.carriage, s.gantry + s.carriage],
     reflected: ROTOR_INERTIA / (r*r),
-    free: s.rpm/60 * rot
+    free: s.rpm/60 * rot,
+    estimated: belt.estimated
   };
 }
 // dynamics.rs eval: mode force = mass * (frame . accel), lifted by frame[mode][slot].
@@ -244,7 +293,8 @@ function maxVel(m, dir){
   return fastest === 0 ? Infinity : m.free/fastest;
 }
 
-var state = {teeth:20, gantry:1.6, carriage:0.6, torque:100, rpm:5000, kin:"markforged"};
+var state = {teeth:20, gantry:1.6, carriage:0.6, torque:100, rpm:5000,
+             kin:"markforged", profile:"GT2", width:6, material:"standard"};
 var $ = function(id){ return document.getElementById(id); };
 var fmt = function(v, d){ return v.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}); };
 
@@ -253,33 +303,48 @@ function render(){
   var ax = maxAccel(m,[1,0]), ay = maxAccel(m,[0,1]);
   var vx = maxVel(m,[1,0]), vy = maxVel(m,[0,1]);
   var ratio = Math.max(m.mass[0],m.mass[1]) / m.reflected;
+  var mat = MATERIALS[state.material];
 
   $("teeth-v").textContent = state.teeth + " T";
   $("gantry-v").textContent = fmt(state.gantry,2) + " kg";
   $("carriage-v").textContent = fmt(state.carriage,2) + " kg";
   $("torque-v").textContent = state.torque + " %";
   $("rpm-v").textContent = state.rpm + " rpm";
+  $("profile-hint").innerHTML = BELTS[state.profile].pitch + " mm pitch &middot; "
+    + (m.estimated ? "<strong>no published Gates tension</strong>" : fmt(BELTS[state.profile].tensionPerInch,0) + " N per 25.4 mm");
+  $("width-hint").innerHTML = "Allowable working tension " + fmt(m.tension,1) + " N";
+  $("material-hint").innerHTML = mat.label + " &middot; " + mat.min + " to " + mat.max + " &deg;C";
+
+  var lim = m.limiter === "belt";
+  $("limiter").innerHTML = note(lim ? "bad" : "",
+    "<strong>" + (lim ? "The belt is the limit, not the motor." : "The motor is the limit.") + "</strong> "
+    + "The " + state.profile + " " + state.width + " mm belt holds " + fmt(m.tension,1) + " N, which at a "
+    + state.teeth + "&nbsp;T pulley is " + fmt(m.beltTorque,3) + " N&middot;m against the motor&rsquo;s "
+    + fmt(m.motorTorque,3) + " N&middot;m at " + state.torque + " % torque. "
+    + (lim
+       ? "Every acceleration below is the belt&rsquo;s; the servo is being asked for "
+         + fmt(m.motorTorque/m.beltTorque,1) + "&times; what the belt will carry."
+       : "The belt has headroom, so the servo sets the ceiling."));
 
   $("readouts").innerHTML = [
-    ro("rotation_distance", fmt(m.rot,0), "mm/rev", state.teeth + "T &times; " + BELT_PITCH_MM + " mm"),
-    ro("X acceleration", fmt(ax/1000,1), "m/s&sup2;", fmt(ax/9806.65,1) + " g &middot; carriage only"),
-    ro("Y acceleration", fmt(ay/1000,1), "m/s&sup2;", fmt(ay/9806.65,1) + " g &middot; gantry + carriage"),
-    ro("Top speed", fmt(Math.min(vx,vy),0), "mm/s", fmt(m.torque,2) + " N&middot;m at the belt"),
-    ro("Belt force", fmt(m.torque/m.r,0), "N", "per motor, at " + state.torque + " %"),
+    ro("rotation_distance", fmt(m.rot,0), "mm/rev", state.teeth + "T &times; " + BELTS[state.profile].pitch + " mm"),
+    ro("X acceleration", fmt(ax/1000,1), "m/s&sup2;", fmt(ax/9806.65,2) + " g &middot; carriage only"),
+    ro("Y acceleration", fmt(ay/1000,1), "m/s&sup2;", fmt(ay/9806.65,2) + " g &middot; gantry + carriage"),
+    ro("Top speed", fmt(Math.min(vx,vy),0), "mm/s", fmt(m.free,0) + " mm/s at the belt"),
+    ro("Belt tension limit", fmt(m.tension,1), "N", m.estimated ? "estimated &mdash; see below" : "SDP/SI Table 3, neoprene"),
     ro("Reflected rotor", fmt(m.reflected,2), "kg", "J/r&sup2; &middot; load ratio " + fmt(ratio,1) + "&times;")
   ].join("");
 
   var rows = [["X", [ax,0]], ["Y", [0,ay]], ["XY diagonal", null]];
-  var body = rows.map(function(row){
+  $("motors").querySelector("tbody").innerHTML = rows.map(function(row){
     var acc = row[1];
     if (!acc){ var ad = maxAccel(m,[1,1])/Math.SQRT2; acc = [ad,ad]; }
     var t = slotTorques(m, acc).map(Math.abs);
-    var lim = t[0] >= t[1] ? 0 : 1;
+    var which = t[0] >= t[1] ? 0 : 1;
     return "<tr><td>" + row[0] + "</td>" +
-      cell(t[0], m.torque, lim===0) + cell(t[1], m.torque, lim===1) +
-      "<td><span class='tag " + (lim===0?"lim":"ok") + "'>motor " + lim + " limits</span></td></tr>";
+      cell(t[0], m.torque, which===0) + cell(t[1], m.torque, which===1) +
+      "<td><span class='tag " + (which===0?"lim":"ok") + "'>motor " + which + " limits</span></td></tr>";
   }).join("");
-  $("motors").querySelector("tbody").innerHTML = body;
 
   $("lane-note").innerHTML = state.kin === "markforged"
     ? "Markforged is asymmetric. A pure X move turns only motor 0, but motor 1 must hold an equal and opposite belt torque or the reaction drags the gantry in Y. A pure Y move turns both, and loads only motor 1 &mdash; motor 0 carries nothing but its own rotor. Neither axis gets two motors&rsquo; worth of force."
@@ -287,27 +352,29 @@ function render(){
     ? "CoreXY splits every pure-axis move across both motors, so each carries half the belt load &mdash; the reason it accelerates harder than Markforged on the same drives."
     : "Cartesian: one motor per axis, no coupling, no reaction torque on the other.";
 
-  drawChart(ax, ay);
+  drawChart(m, ax, ay);
 
   var flags = [];
+  if (m.estimated)
+    flags.push(note("bad", "<strong>GT1.5 has no published Gates tension.</strong> Gates does not make a 1.5 mm pitch, so the " + fmt(BELTS["GT1.5"].tensionPerInch,0) + " N per 25.4 mm used here is a linear extrapolation from the 2 mm figure, not a datasheet value. Treat every belt-limited number on this page as indicative until you have the maker&rsquo;s own rating."));
   if (ratio > INERTIA_RATIO_WARN)
     flags.push(note("bad", "Load-to-rotor inertia is " + fmt(ratio,0) + "&times;. The drive manual ties roughly 30&times; to <strong>A.13 overvoltage</strong> under acceleration &mdash; a bigger pulley or a lighter gantry, not a tuning fix."));
-  if (state.torque > 300)
-    flags.push(note("bad", "Above 300 % the drive clamps: <code>max_torque</code> accepts up to 400 because that is the CiA 402 <code>6072h</code> ceiling, but Pn401/Pn402 stop at 300."));
-  else if (state.torque > 150)
-    flags.push(note("", "At " + state.torque + " % a 40 mm pulley pulls on the order of " + fmt(m.torque/m.r,0) + " N. Bring the machine up at 100 and raise it because a move stalled, not before."));
+  if (state.torque > 150 && m.limiter === "motor")
+    flags.push(note("", "At " + state.torque + " % the belt sees " + fmt(m.motorTorque/m.r,0) + " N. Bring the machine up at 100 and raise it because a move stalled, not before."));
   if (m.reflected > m.mass[0])
-    flags.push(note("", "The rotor reflects " + fmt(m.reflected,2) + " kg to the belt &mdash; more than the " + fmt(m.mass[0],2) + " kg carriage. On a pure X move the rotor costs more torque than the load does; a larger pulley is the only lever that moves it."));
+    flags.push(note("", "The rotor reflects " + fmt(m.reflected,2) + " kg to the belt &mdash; more than the " + fmt(m.mass[0],2) + " kg carriage. A larger pulley is the only lever that shrinks it."));
+  if (state.material === "epdm")
+    flags.push(note("", "<strong>EPDM buys temperature, not strength.</strong> Both compounds carry the same fibreglass tensile cord, so the allowable tension is identical &mdash; what changes is the range, " + mat.min + " to " + mat.max + " &deg;C against " + MATERIALS.standard.min + " to " + MATERIALS.standard.max + " &deg;C. Worth it for a heated chamber; it will not let you accelerate harder."));
   $("flags").innerHTML = flags.join("");
 
   $("cfg").textContent =
     "[motor motor_x]\n" +
-    "rotation_distance: " + fmt(m.rot,0) + "\n" +
+    "rotation_distance: " + fmt(m.rot,0) + "   # " + state.teeth + "T " + state.profile + "\n" +
     "encoder_counts_per_rev: 1048576\n" +
     "max_torque: " + state.torque + "\n" +
     "following_error: 2.0\n\n" +
     "[printer]\n" +
-    "# the planner's own ceiling, set well under the torque wall above\n" +
+    "# the planner's own ceiling, set well under the wall above\n" +
     "max_velocity: " + fmt(Math.min(Math.min(vx,vy), 1000),0) + "\n" +
     "max_accel: " + fmt(Math.min(Math.min(ax,ay)*0.25, 25000),0);
 }
@@ -321,17 +388,18 @@ function cell(t, limit, isLim){
 }
 function note(kind, html){ return "<div class='note "+kind+"'>"+html+"</div>"; }
 
-function drawChart(curAx, curAy){
+function drawChart(cur, curAx, curAy){
   var W=680,H=250,L=58,R=16,T=14,B=38;
   var teeth=[], xs=[], ys=[];
-  for (var n=16;n<=40;n++){
-    var mm = machine({teeth:n,gantry:state.gantry,carriage:state.carriage,torque:state.torque,rpm:state.rpm,kin:state.kin});
+  for (var n=16;n<=140;n+=2){
+    var st = Object.assign({}, state, {teeth:n});
+    var mm = machine(st);
     teeth.push(n); xs.push(maxAccel(mm,[1,0])/1000); ys.push(maxAccel(mm,[0,1])/1000);
   }
   var maxV = Math.max.apply(null, xs.concat(ys));
-  var step = Math.pow(10, Math.floor(Math.log10(maxV/3)));
+  var step = Math.pow(10, Math.floor(Math.log10(Math.max(maxV/3, 1e-6))));
   var tick = Math.ceil(maxV/3/step)*step;
-  var top = Math.ceil(maxV/tick)*tick;
+  var top = Math.max(Math.ceil(maxV/tick)*tick, tick);
   var px = function(i){ return L + (W-L-R) * i/(teeth.length-1); };
   var py = function(v){ return T + (H-T-B) * (1 - v/top); };
   var path = function(arr){ return arr.map(function(v,i){ return (i?"L":"M")+px(i).toFixed(1)+" "+py(v).toFixed(1); }).join(" "); };
@@ -342,37 +410,43 @@ function drawChart(curAx, curAy){
     yLabels += "<text x='"+(L-8)+"' y='"+(py(g)+4).toFixed(1)+"' text-anchor='end' fill='var(--faint)' font-size='11' font-family='IBM Plex Mono, monospace'>"+fmt(g,0)+"</text>";
   }
   var xLabels="";
-  [16,20,24,28,32,36,40].forEach(function(t){
-    var i = teeth.indexOf(t);
+  [16,40,60,80,100,120,140].forEach(function(t){
+    var i = teeth.indexOf(t); if (i < 0) return;
     xLabels += "<text x='"+px(i).toFixed(1)+"' y='"+(H-B+18)+"' text-anchor='middle' fill='var(--faint)' font-size='11' font-family='IBM Plex Mono, monospace'>"+t+"</text>";
   });
-  var cur = teeth.indexOf(state.teeth);
+  var ci = 0, best = Infinity;
+  teeth.forEach(function(t,i){ var d=Math.abs(t-state.teeth); if(d<best){best=d;ci=i;} });
   var svg = "<svg viewBox='0 0 "+W+" "+H+"' role='img' aria-label='Acceleration against pulley teeth for the X and Y axes'>"
     + gridLines + yLabels + xLabels
-    + "<text x='"+L+"' y='"+(H-4)+"' fill='var(--muted)' font-size='11'>pulley teeth (GT2)</text>"
+    + "<text x='"+L+"' y='"+(H-4)+"' fill='var(--muted)' font-size='11'>pulley teeth ("+state.profile+")</text>"
     + "<text transform='translate(14,"+(T+66)+") rotate(-90)' fill='var(--muted)' font-size='11'>m/s&sup2;</text>"
-    + "<line x1='"+px(cur).toFixed(1)+"' y1='"+T+"' x2='"+px(cur).toFixed(1)+"' y2='"+(H-B)+"' stroke='var(--line)' stroke-width='1' stroke-dasharray='3 3'/>"
+    + "<line x1='"+px(ci).toFixed(1)+"' y1='"+T+"' x2='"+px(ci).toFixed(1)+"' y2='"+(H-B)+"' stroke='var(--line)' stroke-width='1' stroke-dasharray='3 3'/>"
     + "<path d='"+path(xs)+"' fill='none' stroke='var(--cyan)' stroke-width='2.2' stroke-linejoin='round'/>"
     + "<path d='"+path(ys)+"' fill='none' stroke='var(--amber)' stroke-width='2.2' stroke-linejoin='round'/>"
-    + "<circle cx='"+px(cur).toFixed(1)+"' cy='"+py(xs[cur]).toFixed(1)+"' r='4' fill='var(--cyan)'/>"
-    + "<circle cx='"+px(cur).toFixed(1)+"' cy='"+py(ys[cur]).toFixed(1)+"' r='4' fill='var(--amber)'/>"
+    + "<circle cx='"+px(ci).toFixed(1)+"' cy='"+py(xs[ci]).toFixed(1)+"' r='4' fill='var(--cyan)'/>"
+    + "<circle cx='"+px(ci).toFixed(1)+"' cy='"+py(ys[ci]).toFixed(1)+"' r='4' fill='var(--amber)'/>"
     + "</svg>";
   $("chart").innerHTML = svg;
-  $("chart-cap").innerHTML = "<span style='color:var(--cyan);font-weight:600'>&mdash; X</span> (carriage only) and <span style='color:var(--amber);font-weight:600'>&mdash; Y</span> (gantry + carriage) at "+state.torque+" % torque. Force falls as 1/r, so a bigger pulley trades acceleration for top speed &mdash; at "+state.teeth+" T that is "+fmt(curAx/1000,0)+" and "+fmt(curAy/1000,0)+" m/s&sup2; against "+fmt(machine(state).free,0)+" mm/s of free speed.";
+  $("chart-cap").innerHTML = "<span style='color:var(--cyan);font-weight:600'>&mdash; X</span> (carriage only) and <span style='color:var(--amber);font-weight:600'>&mdash; Y</span> (gantry + carriage). "
+    + (cur.limiter === "belt"
+       ? "Belt-limited, so the curve <em>rises</em> with pulley size: the tension ceiling is fixed and a bigger pulley shrinks the reflected rotor. The usual &ldquo;smaller pulley accelerates harder&rdquo; only holds once the motor is the limit."
+       : "Motor-limited, so force falls as 1/r and a bigger pulley trades acceleration for speed.")
+    + " At " + state.teeth + "&nbsp;T that is " + fmt(curAx/1000,1) + " and " + fmt(curAy/1000,1) + " m/s&sup2; against " + fmt(cur.free,0) + " mm/s of free speed.";
 }
 
 ["teeth","gantry","carriage","torque","rpm"].forEach(function(id){
-  $(id).addEventListener("input", function(e){
-    state[id] = parseFloat(e.target.value); render();
-  });
+  $(id).addEventListener("input", function(e){ state[id] = parseFloat(e.target.value); render(); });
 });
-$("kin").addEventListener("click", function(e){
-  var b = e.target.closest("button[data-kin]"); if(!b) return;
-  state.kin = b.dataset.kin;
-  Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
-    x.setAttribute("aria-pressed", String(x === b));
+[["kin","kin"],["profile","profile"],["width","width"],["material","material"]].forEach(function(pair){
+  $(pair[0]).addEventListener("click", function(e){
+    var b = e.target.closest("button[data-"+pair[1]+"]"); if(!b) return;
+    var v = b.dataset[pair[1]];
+    state[pair[1]] = pair[1] === "width" ? parseFloat(v) : v;
+    Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
+      x.setAttribute("aria-pressed", String(x === b));
+    });
+    render();
   });
-  render();
 });
 document.getElementById("controls").addEventListener("submit", function(e){ e.preventDefault(); });
 render();

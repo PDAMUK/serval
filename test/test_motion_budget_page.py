@@ -5,19 +5,24 @@ so the numbers can be twiddled in a browser. Two implementations of the same
 physics is exactly the arrangement that rots quietly: the tested one stays
 right and the one people actually look at stops matching it.
 
-These pin the constants and the shape of the algebra. They do not run the JS —
-what they catch is a figure edited in one file and not the other.
+Most of these pin the constants and the shape of the algebra by reading the
+page as text. The last one goes further where a JavaScript engine is around:
+it runs the page's own physics prelude and compares its answers with the
+module's, which is the only check that catches an edit to the algebra rather
+than to a number.
 """
 
+import json
 import pathlib
 import re
+import shutil
+import subprocess
+import sys
 
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PAGE = (ROOT / "tools" / "motion_budget.html").read_text(encoding="utf-8")
-
-import sys  # noqa: E402
 
 sys.path.insert(0, str(ROOT))
 from tools import motion_budget as mb  # noqa: E402
@@ -29,17 +34,103 @@ def js_number(name):
     return float(match.group(1))
 
 
+def js_object(name):
+    match = re.search(r"var %s\s*=\s*\{(.*?)\n\};" % name, PAGE, re.S)
+    assert match, "the page no longer defines %s" % name
+    return match.group(1)
+
+
+def page_belts():
+    entries = re.findall(
+        r'"([^"]+)":\s*\{pitch:\s*([0-9.]+),\s*tensionPerInch:\s*([0-9.]+),'
+        r"\s*estimated:\s*(true|false)\}",
+        js_object("BELTS"),
+    )
+    return {
+        name: {
+            "pitch_mm": float(pitch),
+            "tension_n_per_inch": float(tension),
+            "estimated": estimated == "true",
+        }
+        for name, pitch, tension, estimated in entries
+    }
+
+
+def page_materials():
+    entries = re.findall(
+        r'(\w+):\s*\{label:\s*"([^"]*)",\s*min:\s*(-?[0-9.]+),'
+        r"\s*max:\s*(-?[0-9.]+)\}",
+        js_object("MATERIALS"),
+    )
+    return {
+        name: {"label": label, "min_c": float(low), "max_c": float(high)}
+        for name, label, low, high in entries
+    }
+
+
 @pytest.mark.parametrize(
     "js_name,py_value",
     [
         ("MARKFORGED_Y_COUPLING", mb.MARKFORGED_Y_COUPLING),
         ("RATED_TORQUE_NM", mb.Motor().rated_torque_nm),
         ("ROTOR_INERTIA", mb.Motor().rotor_inertia_kgm2),
-        ("BELT_PITCH_MM", mb.Motor().belt_pitch_mm),
+        ("MM_PER_INCH", mb.MM_PER_INCH),
     ],
 )
 def test_the_page_uses_the_same_constants_as_the_model(js_name, py_value):
     assert js_number(js_name) == pytest.approx(py_value)
+
+
+def test_the_page_carries_the_same_belt_table():
+    """Pitch sets `rotation_distance`, tension sets the belt ceiling, and the
+    estimated flag is what keeps GT1.5 from reading like a datasheet."""
+    assert page_belts() == mb.BELTS
+
+
+def test_the_page_carries_the_same_belt_compounds():
+    page = page_materials()
+    assert set(page) == set(mb.BELT_MATERIALS)
+    for name, spec in mb.BELT_MATERIALS.items():
+        assert page[name]["label"] == spec["label"], name
+        assert (page[name]["min_c"], page[name]["max_c"]) == (
+            spec["min_c"],
+            spec["max_c"],
+        ), name
+
+
+def test_the_page_offers_the_widths_the_model_knows():
+    widths = [float(w) for w in re.findall(r'data-width="([0-9.]+)"', PAGE)]
+    assert widths == list(mb.BELT_WIDTHS_MM)
+
+
+def test_the_page_offers_every_belt_profile_and_kinematic():
+    assert re.findall(r'data-profile="([^"]+)"', PAGE) == list(mb.BELTS)
+    assert re.findall(r'data-kin="([^"]+)"', PAGE) == list(mb.FRAMES)
+    assert re.findall(r'data-material="([^"]+)"', PAGE) == list(
+        mb.BELT_MATERIALS
+    )
+
+
+def test_the_pulley_slider_and_the_chart_cover_the_same_teeth():
+    """A slider that reaches further than the chart plots leaves the reader
+    dragging past the end of the curve they are reading."""
+    slider = re.search(r'id="teeth"[^>]*min="(\d+)"[^>]*max="(\d+)"', PAGE)
+    assert slider, "the page no longer has a pulley-teeth slider"
+    chart = re.search(r"for \(var n=(\d+);n<=(\d+);n\+=\d+\)", PAGE)
+    assert chart, "the page no longer sweeps teeth for the chart"
+    assert (chart.group(1), chart.group(2)) == (
+        slider.group(1),
+        slider.group(2),
+    )
+    assert int(slider.group(2)) == 140
+
+
+def test_the_chart_axis_labels_end_where_the_sweep_ends():
+    labels = re.search(r"\[([0-9,]+)\]\.forEach", PAGE)
+    assert labels, "the page no longer labels the teeth axis"
+    ticks = [int(t) for t in labels.group(1).split(",")]
+    chart = re.search(r"for \(var n=(\d+);n<=(\d+);n\+=\d+\)", PAGE)
+    assert (ticks[0], ticks[-1]) == (int(chart.group(1)), int(chart.group(2)))
 
 
 def test_the_page_carries_the_same_frames():
@@ -67,12 +158,44 @@ def test_the_page_applies_the_rotor_term_like_the_model():
     assert "belt*m.r" in PAGE.replace(" ", "")
 
 
+def test_the_page_takes_the_lower_of_the_two_ceilings():
+    """`Machine.torque_ceiling_nm` is a min of motor and belt, and
+    `limiting_part` names which bound bit. A page that kept only the motor
+    term would read the same until someone fitted a narrow belt."""
+    flat = PAGE.replace(" ", "")
+    assert "tension=belt.tensionPerInch*s.width/MM_PER_INCH" in flat
+    assert "beltTorque=tension*r" in flat
+    assert "torque:Math.min(motorTorque,beltTorque)" in flat
+    assert 'limiter:beltTorque<motorTorque?"belt":"motor"' in flat
+
+
+def test_the_page_opens_from_disk_without_reaching_out():
+    """It is opened from a checkout on a workshop machine, which may have no
+    route off itself, and nothing this repository produces phones anywhere.
+    A webfont link costs a blocked request and a reflow for a face that every
+    `font-family` here already falls back from."""
+    for attr, value in re.findall(r'\b(href|src)="([^"]*)"', PAGE):
+        assert "//" not in value, "%s=%s leaves the machine" % (attr, value)
+    assert "@import" not in PAGE
+    assert "fetch(" not in PAGE and "XMLHttpRequest" not in PAGE
+
+
 def test_the_page_says_what_it_is_not():
     """The number is a torque ceiling. A reader who takes it for a print
     acceleration will set max_accel an order of magnitude too high."""
     flat = re.sub(r"\s+", " ", PAGE)
     assert "torque ceiling, not a print acceleration" in flat
     assert "belt stretch" in flat and "resonance" in flat
+    assert "carry</em>, not how stiff it is" in flat
+
+
+def test_the_page_flags_the_extrapolated_tension():
+    """GT1.5 has no Gates rating. The page must say so where the number is
+    used, not only in a source comment nobody opens."""
+    flat = re.sub(r"\s+", " ", PAGE)
+    assert mb.BELTS["GT1.5"]["estimated"]
+    assert "no published Gates tension" in flat
+    assert "linear extrapolation" in flat
 
 
 def test_the_page_names_its_sources():
@@ -89,4 +212,130 @@ def test_the_page_flags_the_drive_limits_the_guide_establishes():
     flat = re.sub(r"\s+", " ", PAGE)
     assert "Pn401/Pn402 stop at 300" in flat
     assert "A.13" in flat
-    assert str(int(mb.Motor().rated_torque_nm * 100)) or True
+
+
+PHYSICS_START = "var MARKFORGED_Y_COUPLING"
+PHYSICS_END = "var state = {"
+
+CASES = [
+    {
+        "teeth": 20,
+        "gantry": 1.6,
+        "carriage": 0.6,
+        "torque": 100,
+        "rpm": 5000,
+        "kin": "markforged",
+        "profile": "GT2",
+        "width": 6,
+        "material": "standard",
+    },
+    {
+        "teeth": 140,
+        "gantry": 1.6,
+        "carriage": 0.6,
+        "torque": 300,
+        "rpm": 3000,
+        "kin": "markforged",
+        "profile": "GT3",
+        "width": 12,
+        "material": "epdm",
+    },
+    {
+        "teeth": 16,
+        "gantry": 4.0,
+        "carriage": 1.2,
+        "torque": 100,
+        "rpm": 5000,
+        "kin": "corexy",
+        "profile": "GT1.5",
+        "width": 9,
+        "material": "standard",
+    },
+    {
+        "teeth": 60,
+        "gantry": 0.9,
+        "carriage": 0.3,
+        "torque": 150,
+        "rpm": 4000,
+        "kin": "cartesian",
+        "profile": "GT3",
+        "width": 6,
+        "material": "epdm",
+    },
+]
+
+
+def page_physics_source():
+    start = PAGE.find(PHYSICS_START)
+    end = PAGE.find(PHYSICS_END)
+    assert start >= 0 and end > start, "the page's physics prelude has moved"
+    return PAGE[start:end]
+
+
+def machine_for(case):
+    motor = mb.Motor(
+        torque_limit_pct=case["torque"],
+        max_rpm=case["rpm"],
+        pulley_teeth=case["teeth"],
+    )
+    belt = mb.Belt(
+        profile=case["profile"],
+        width_mm=case["width"],
+        material=case["material"],
+    )
+    return mb.Machine(
+        kinematics=case["kin"],
+        motor=motor,
+        belt=belt,
+        gantry_mass_kg=case["gantry"],
+        carriage_mass_kg=case["carriage"],
+    )
+
+
+@pytest.mark.skipif(
+    shutil.which("node") is None, reason="no JavaScript engine to run the page"
+)
+def test_the_page_computes_what_the_model_computes():
+    driver = (
+        page_physics_source()
+        + "\nvar out = "
+        + json.dumps(CASES)
+        + ".map(function(s){\n"
+        "  var m = machine(s);\n"
+        "  return {ax: maxAccel(m,[1,0]), ay: maxAccel(m,[0,1]),\n"
+        "          vx: maxVel(m,[1,0]), vy: maxVel(m,[0,1]),\n"
+        "          beltTorque: m.beltTorque, motorTorque: m.motorTorque,\n"
+        "          torque: m.torque, limiter: m.limiter,\n"
+        "          reflected: m.reflected, rot: m.rot};\n"
+        "});\n"
+        "console.log(JSON.stringify(out));\n"
+    )
+    result = subprocess.run(
+        ["node", "-e", driver], capture_output=True, text=True, check=True
+    )
+    got = json.loads(result.stdout)
+    assert len(got) == len(CASES)
+    for case, page in zip(CASES, got):
+        machine = machine_for(case)
+        assert page["rot"] == pytest.approx(machine.rotation_distance_mm)
+        assert page["motorTorque"] == pytest.approx(machine.motor.torque_nm)
+        assert page["beltTorque"] == pytest.approx(
+            machine.belt_torque_ceiling_nm
+        )
+        assert page["torque"] == pytest.approx(machine.torque_ceiling_nm)
+        assert page["limiter"] == machine.limiting_part
+        assert page["reflected"] == pytest.approx(
+            mb.reflected_rotor_mass_kg(machine)
+        )
+        assert page["ax"] == pytest.approx(
+            mb.max_axis_accel_mm_s2(machine, (1.0, 0.0))
+        ), case
+        assert page["ay"] == pytest.approx(
+            mb.max_axis_accel_mm_s2(machine, (0.0, 1.0))
+        ), case
+        assert page["vx"] == pytest.approx(
+            mb.max_axis_velocity_mm_s(machine, (1.0, 0.0))
+        ), case
+        assert page["vy"] == pytest.approx(
+            mb.max_axis_velocity_mm_s(machine, (0.0, 1.0))
+        ), case

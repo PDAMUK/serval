@@ -568,13 +568,21 @@ carrying over but the build artifacts, which are regenerated:
 scripts/build-native.sh          # klippy/_*.so — klippy will not start without them
 cargo install cargo-nextest --locked   # if absent; the Rust suite needs it
 ./scripts/ci.sh quick            # expect 5 pass
-uv run pytest test/ -q           # expect 1046 passed, 5 skipped
+uv run pytest test/ -q           # expect 1251 passed, 8 skipped
 ```
 
 `test_ethercat_claim_stub.py` and `test_pdo_map.py` need artifacts the first
 line does not build: the stub endpoint (`make -f Makefile.rust ethercat-stub`)
 and a C compiler. Both skip cleanly when they are absent, so a short count
 there means a missing artifact, not a regression.
+
+The pytest figure is the count at the tip of this branch and it only grows as
+findings land, so a *larger* number is new tests and a *smaller* one is a
+missing artifact. The eight skips are five matplotlib plot tests, one
+self-exempting doc-reference test, and two documents that legitimately carry
+nothing for the rule being checked. `test_motion_budget_page.py` also runs the
+page's own JavaScript where `node` is on PATH and skips where it is not, so
+that one is a skip on a bare container and a pass on a developer's.
 
 Use `uv run`, not ad-hoc `pip install` — every dependency is already declared
 in `pyproject.toml`.

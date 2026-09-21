@@ -81,7 +81,7 @@ def test_a_markforged_move_loads_the_two_motors_differently_by_axis():
     So neither axis gets two motors' worth of force — unlike CoreXY — and the
     limiting motor differs per axis."""
     machine = mb.Machine(kinematics="markforged")
-    r = machine.motor.pulley_radius_m
+    r = machine.pulley_radius_m
     j = machine.motor.rotor_inertia_kgm2
     m_x, m_y = machine.mode_mass_kg()
 
@@ -103,7 +103,7 @@ def test_the_rotor_outweighs_the_belt_load_on_a_light_carriage():
     term. Anyone sizing this machine by carriage mass alone is reading the
     smaller half of the problem."""
     machine = mb.Machine()
-    r = machine.motor.pulley_radius_m
+    r = machine.pulley_radius_m
     belt = machine.carriage_mass_kg * 1.0 * r
     rotor = machine.motor.rotor_inertia_kgm2 * 1.0 / r
     assert rotor > belt
@@ -122,21 +122,49 @@ def test_the_rotor_is_a_real_share_of_a_light_gantry():
     """J/r² at a 20-tooth GT2 pulley is 0.77 kg — more than a typical carriage.
     A model that drops it overstates acceleration on exactly the machines
     people try to make fast."""
-    motor = mb.Motor()
-    assert motor.reflected_mass_kg == pytest.approx(0.765, abs=0.01)
-    assert motor.reflected_mass_kg > mb.Machine().carriage_mass_kg
+    machine = mb.Machine()
+    assert mb.reflected_rotor_mass_kg(machine) == pytest.approx(0.765, abs=0.01)
+    assert mb.reflected_rotor_mass_kg(machine) > machine.carriage_mass_kg
 
 
-def test_a_bigger_pulley_trades_acceleration_for_speed():
-    """The whole point of the teeth control: force falls as 1/r, free speed
-    rises as r."""
+def test_the_pulley_trade_off_depends_on_which_part_is_the_limit():
+    """The rule of thumb — smaller pulley, more acceleration — only holds while
+    the *motor* is the limit. Force falls as 1/r, so a smaller pulley pulls
+    harder on a fixed torque.
+
+    Once the *belt* is the limit it inverts. The ceiling is then the belt's
+    allowable tension, which does not care about r, and the accel works out at
+    T_allow / (m + J/r²): a bigger pulley shrinks the reflected rotor and lets
+    the same belt tension accelerate more. Asserting the rule of thumb
+    universally is how a model quietly recommends the wrong pulley."""
+
+    def y_accel(teeth, belt):
+        return mb.max_axis_accel_mm_s2(
+            mb.Machine(motor=mb.Motor(pulley_teeth=teeth), belt=belt), (0, 1)
+        )
+
+    strong = mb.Belt("GT3", 12.0)
+    assert (
+        mb.Machine(motor=mb.Motor(pulley_teeth=16), belt=strong).limiting_part
+        == "motor"
+    )
+    assert y_accel(16, strong) > y_accel(32, strong)
+
+    weak = mb.Belt("GT2", 6.0)
+    assert (
+        mb.Machine(motor=mb.Motor(pulley_teeth=16), belt=weak).limiting_part
+        == "belt"
+    )
+    assert y_accel(32, weak) > y_accel(16, weak)
+
+
+def test_a_bigger_pulley_always_raises_top_speed():
+    """The half of the trade-off that is unconditional: free speed is
+    rotation_distance per revolution."""
     small = mb.Machine(motor=mb.Motor(pulley_teeth=16))
     large = mb.Machine(motor=mb.Motor(pulley_teeth=32))
-    assert mb.max_axis_accel_mm_s2(small, (0, 1)) > mb.max_axis_accel_mm_s2(
-        large, (0, 1)
-    )
-    assert mb.max_axis_velocity_mm_s(small, (0, 1)) < mb.max_axis_velocity_mm_s(
-        large, (0, 1)
+    assert mb.max_axis_velocity_mm_s(large, (0, 1)) > mb.max_axis_velocity_mm_s(
+        small, (0, 1)
     )
 
 
@@ -183,3 +211,63 @@ def test_every_number_not_from_the_repo_is_labelled():
         assert "docs/rewrite" in mb.SOURCES[key]
     for key in ("markforged_frame", "torque_model", "stepper_ceiling"):
         assert re.match(r"(rust|klippy)/", mb.SOURCES[key])
+
+
+def test_the_belt_tensions_are_the_published_ones():
+    """SDP/SI Technical Section Table 3, neoprene column, per 25.4 mm of width.
+    The MXL row (2.03 mm, 80 N) and HTD 3 mm (285 N) bracket these and agree in
+    scale, which is the sanity check that the GT3 rows were read correctly."""
+    assert mb.BELTS["GT2"]["tension_n_per_inch"] == 111.0
+    assert mb.BELTS["GT3"]["tension_n_per_inch"] == 507.0
+    assert mb.Belt("GT2", 6.0).allowable_tension_n == pytest.approx(
+        26.2, abs=0.1
+    )
+    assert mb.Belt("GT3", 9.0).allowable_tension_n == pytest.approx(
+        179.6, abs=0.1
+    )
+
+
+def test_only_the_unpublished_pitch_is_marked_estimated():
+    """Gates does not make a 1.5 mm pitch, so there is no figure to quote and
+    the extrapolation has to admit it. The two real ones must not be marked
+    estimated, or the flag stops meaning anything."""
+    assert mb.Belt("GT1.5").tension_estimated is True
+    assert mb.Belt("GT2").tension_estimated is False
+    assert mb.Belt("GT3").tension_estimated is False
+    assert "ESTIMATE" in mb.SOURCES["gt15_tension"]
+
+
+def test_epdm_buys_temperature_and_not_strength():
+    """Both constructions carry the same fibreglass tensile cord, so the
+    allowable tension is identical and only the rubber's range moves. A tool
+    that made EPDM stronger would recommend it for the wrong reason."""
+    standard = mb.Belt("GT2", 9.0, "standard")
+    epdm = mb.Belt("GT2", 9.0, "epdm")
+    assert epdm.allowable_tension_n == standard.allowable_tension_n
+    assert epdm.temperature_range_c[1] > standard.temperature_range_c[1]
+    assert epdm.temperature_range_c == (-45.0, 135.0)
+    assert standard.temperature_range_c == (-35.0, 80.0)
+
+
+def test_a_standard_2gt_6mm_belt_limits_this_machine_long_before_the_motor():
+    """The result that matters. At 20 teeth the belt takes 0.167 N·m against
+    the motor's 1.27 — it binds at about an eighth of what the servo can give,
+    so quoting the motor's acceleration overstates the machine sevenfold."""
+    machine = mb.Machine(belt=mb.Belt("GT2", 6.0))
+    assert machine.limiting_part == "belt"
+    assert machine.belt_torque_ceiling_nm < machine.motor.torque_nm / 5
+    assert machine.torque_ceiling_nm == machine.belt_torque_ceiling_nm
+
+
+def test_a_wide_gt3_belt_hands_the_limit_back_to_the_motor():
+    machine = mb.Machine(belt=mb.Belt("GT3", 12.0))
+    assert machine.limiting_part == "motor"
+    assert machine.torque_ceiling_nm == machine.motor.torque_nm
+
+
+@pytest.mark.parametrize("teeth", [16, 20, 40, 140])
+def test_the_teeth_range_the_tool_offers_stays_computable(teeth):
+    machine = mb.Machine(motor=mb.Motor(pulley_teeth=teeth))
+    assert mb.max_axis_accel_mm_s2(machine, (0, 1)) > 0
+    assert math.isfinite(mb.max_axis_velocity_mm_s(machine, (1, 0)))
+    assert machine.rotation_distance_mm == teeth * 2.0
