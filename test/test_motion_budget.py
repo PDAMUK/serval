@@ -312,6 +312,93 @@ def test_a_wide_gt3_belt_hands_the_continuous_limit_back_to_the_motor():
     assert machine.continuous_torque_nm == machine.motor.rated_torque_nm
 
 
+def test_a_reduction_levers_torque_and_squares_the_rotor():
+    """The whole point of the stage, and the half people forget. Torque at the
+    gantry pulley scales with the ratio; the rotor referred through it scales
+    with the square, because the motor both turns faster and is levered."""
+    direct = mb.Machine()
+    geared = mb.Machine(gearing=mb.Gearing(20, 40))
+    assert geared.gearing.ratio == 2.0
+    assert geared.gearing.is_reduction
+    assert geared.output_peak_torque_nm == pytest.approx(
+        direct.output_peak_torque_nm * 2.0
+    )
+    assert mb.reflected_rotor_mass_kg(geared) == pytest.approx(
+        mb.reflected_rotor_mass_kg(direct) * 4.0
+    )
+    assert geared.rotation_distance_mm == pytest.approx(
+        direct.rotation_distance_mm / 2.0
+    )
+    assert geared.pulley_radius_m == pytest.approx(direct.pulley_radius_m)
+
+
+def test_an_overdrive_runs_every_term_the_other_way():
+    """A big pulley on the servo driving a small one: speed for torque."""
+    over = mb.Machine(gearing=mb.Gearing(40, 20))
+    assert over.gearing.ratio == 0.5
+    assert not over.gearing.is_reduction
+    assert over.free_speed_mm_s == pytest.approx(
+        mb.Machine().free_speed_mm_s * 2.0
+    )
+    assert mb.max_axis_velocity_mm_s(over, (0, 1)) > mb.max_axis_velocity_mm_s(
+        mb.Machine(), (0, 1)
+    )
+    assert mb.max_axis_accel_mm_s2(
+        over, (0, 1), "peak"
+    ) < mb.max_axis_accel_mm_s2(mb.Machine(), (0, 1), "peak")
+
+
+def test_peak_acceleration_maxes_out_where_the_inertia_matches():
+    """Not asserted anywhere in the model — it falls out of torque scaling by
+    the ratio and the rotor by its square. The best ratio for a 20 T servo
+    pulley puts the reflected rotor on top of the moving mass, which is the
+    textbook result and the reason a bigger reduction stops helping."""
+    best = max(
+        range(10, 101),
+        key=lambda driven: mb.max_axis_accel_mm_s2(
+            mb.Machine(gearing=mb.Gearing(20, driven)), (0, 1), "peak"
+        ),
+    )
+    machine = mb.Machine(gearing=mb.Gearing(20, best))
+    reflected = mb.reflected_rotor_mass_kg(machine)
+    moving = max(machine.mode_mass_kg())
+    assert reflected == pytest.approx(moving, rel=0.1)
+    assert mb.max_axis_accel_mm_s2(
+        machine, (0, 1), "peak"
+    ) > mb.max_axis_accel_mm_s2(mb.Machine(), (0, 1), "peak")
+
+
+def test_a_gear_stage_needs_real_teeth():
+    with pytest.raises(ValueError, match="positive teeth counts"):
+        mb.Gearing(20, 0)
+    with pytest.raises(ValueError, match="positive teeth counts"):
+        mb.Gearing(-1, 20)
+
+
+def test_fifteen_millimetres_is_a_gt3_width_and_not_a_gt2_one():
+    """Tension scales with any width asked for, so only the catalog list
+    knows that a 15 mm 2GT belt is arithmetic rather than a part."""
+    assert 15.0 in mb.BELT_WIDTHS_MM
+    assert mb.Belt("GT3", 15.0).width_is_catalogued
+    assert not mb.Belt("GT2", 15.0).width_is_catalogued
+    assert not mb.Belt("GT1.5", 6.0).width_is_catalogued
+    assert mb.Belt("GT2", 6.0).width_is_catalogued
+    assert mb.Belt("GT3", 15.0).allowable_tension_n == pytest.approx(
+        507.0 * 15.0 / 25.4, abs=0.1
+    )
+
+
+def test_the_source_table_records_what_the_gear_stage_leaves_out():
+    assert mb.SOURCES["gear_stage_inertia"].startswith("NOT MODELLED")
+    assert (
+        "rotation_distance"
+        in mb.SOURCES["gearing_folds_into_rotation_distance"]
+    )
+    assert (
+        "parse_gear_ratio" in mb.SOURCES["gearing_folds_into_rotation_distance"]
+    )
+
+
 @pytest.mark.parametrize("teeth", [16, 20, 40, 140])
 def test_the_teeth_range_the_tool_offers_stays_computable(teeth):
     machine = mb.Machine(motor=mb.Motor(pulley_teeth=teeth))

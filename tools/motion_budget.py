@@ -54,6 +54,24 @@ SOURCES = {
     ),
     "belt_temperature": "Gates PowerGrip GT3 and 2GT EPDM published ranges",
     "gt15_tension": "ESTIMATE — Gates publishes no 1.5 mm pitch; see BELTS",
+    "catalog_widths": (
+        "SDP/SI Table 9 Belt Tensioning Force lists the widths each pitch is "
+        "made in: 2 mm GT3 in 4/6/9/12, 3 mm GT3 in 6/9/12/15. A width "
+        "outside its pitch's list scales arithmetically and is not a belt "
+        "you can buy in that pitch"
+    ),
+    "gearing_folds_into_rotation_distance": (
+        "docs/rewrite/ethercat-bench-bringup.md: rotation_distance is 'mm of "
+        "axis travel per motor revolution', so a reduction belongs in it. "
+        "gear_ratio is parsed only by klippy/stepper.py parse_gear_ratio; no "
+        "gearing term exists anywhere in the servo path, and the config "
+        "reader accepts the option on a servo [motor] without applying it"
+    ),
+    "gear_stage_inertia": (
+        "NOT MODELLED — the reduction's own two pulleys, its belt and its "
+        "losses. Reflecting only the rotor makes a geared setup look better "
+        "than it is, by more as the reduction grows"
+    ),
 }
 
 # klippy/motion_setup.py
@@ -88,7 +106,16 @@ BELT_MATERIALS = {
     "epdm": {"label": "EPDM high-temp", "min_c": -45.0, "max_c": 135.0},
 }
 
-BELT_WIDTHS_MM = (6.0, 9.0, 12.0)
+BELT_WIDTHS_MM = (6.0, 9.0, 12.0, 15.0)
+
+# The widths each pitch is actually made in, from Table 9. Tension scales with
+# width whatever you ask for, so the arithmetic never objects — this is the
+# only thing that knows 15 mm 2GT is not a belt you can order.
+CATALOG_WIDTHS_MM = {
+    "GT1.5": (),
+    "GT2": (4.0, 6.0, 9.0, 12.0),
+    "GT3": (6.0, 9.0, 12.0, 15.0),
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -114,6 +141,10 @@ class Belt:
     def temperature_range_c(self):
         spec = BELT_MATERIALS[self.material]
         return (spec["min_c"], spec["max_c"])
+
+    @property
+    def width_is_catalogued(self) -> bool:
+        return self.width_mm in CATALOG_WIDTHS_MM[self.profile]
 
 
 # Slot-to-axis ("frame" in dynamics.rs, motor_to_axis in kinematics.rs), XY only.
@@ -155,26 +186,76 @@ class Motor:
 
 
 @dataclasses.dataclass(frozen=True)
+class Gearing:
+    """A stage between the servo shaft and the shaft the gantry pulley is on:
+    `motor_teeth` on the servo driving `driven_teeth` on the layshaft.
+
+    Equal teeth is no stage at all. More teeth on the driven side is a
+    reduction — torque up, speed down, and the rotor reflected through the
+    *square* of the ratio, which is what stops a reduction being free.
+    """
+
+    motor_teeth: int = 20
+    driven_teeth: int = 20
+
+    def __post_init__(self):
+        if self.motor_teeth <= 0 or self.driven_teeth <= 0:
+            raise ValueError(
+                "a gear stage needs positive teeth counts, not %r:%r"
+                % (self.motor_teeth, self.driven_teeth)
+            )
+
+    @property
+    def ratio(self) -> float:
+        """Output turns per motor turn, inverted: >1 reduces, <1 overdrives."""
+        return self.driven_teeth / self.motor_teeth
+
+    @property
+    def is_reduction(self) -> bool:
+        return self.driven_teeth > self.motor_teeth
+
+
+@dataclasses.dataclass(frozen=True)
 class Machine:
     kinematics: str = "markforged"
     motor: Motor = dataclasses.field(default_factory=Motor)
     belt: Belt = dataclasses.field(default_factory=Belt)
+    gearing: Gearing = dataclasses.field(default_factory=Gearing)
     gantry_mass_kg: float = 1.6
     carriage_mass_kg: float = 0.6
 
     @property
-    def rotation_distance_mm(self) -> float:
-        """`[motor] rotation_distance` — mm of belt per motor revolution."""
+    def pulley_circumference_mm(self) -> float:
+        """Belt drawn off the gantry pulley in one turn *of that pulley*."""
         return self.motor.pulley_teeth * self.belt.pitch_mm
 
     @property
+    def rotation_distance_mm(self) -> float:
+        """`[motor] rotation_distance` — mm of axis travel per *motor*
+        revolution, which is where a reduction has to go: nothing in the servo
+        path reads a gear ratio, so the ratio lives in this number."""
+        return self.pulley_circumference_mm / self.gearing.ratio
+
+    @property
     def pulley_radius_m(self) -> float:
-        return self.rotation_distance_mm / (2.0 * math.pi) / 1000.0
+        return self.pulley_circumference_mm / (2.0 * math.pi) / 1000.0
+
+    @property
+    def output_peak_torque_nm(self) -> float:
+        """Motor torque seen at the gantry pulley, multiplied by the stage."""
+        return self.motor.torque_nm * self.gearing.ratio
+
+    @property
+    def effective_rotor_inertia_kgm2(self) -> float:
+        """The rotor referred to the gantry pulley. The stage multiplies it by
+        the square of the ratio: the motor turns `ratio` times faster, and the
+        torque that spins it is levered by `ratio` again."""
+        return self.motor.rotor_inertia_kgm2 * self.gearing.ratio**2
 
     @property
     def belt_force_n(self) -> float:
         """Belt force the motor can produce at its configured torque limit."""
-        return self.motor.torque_nm / self.pulley_radius_m
+        return self.output_peak_torque_nm / self.pulley_radius_m
 
     @property
     def free_speed_mm_s(self) -> float:
@@ -195,19 +276,23 @@ class Machine:
         limit, which is all that bounds an acceleration the machine holds for
         a few hundred milliseconds. Above the belt's continuous rating the
         wall is tooth ratcheting, and no source here quantifies it."""
-        return self.motor.torque_nm
+        return self.output_peak_torque_nm
 
     @property
     def continuous_torque_nm(self) -> float:
         """What the machine can pull indefinitely: the motor's rated torque
         or the belt's working tension, whichever gives out first."""
-        return min(self.motor.rated_torque_nm, self.belt_continuous_torque_nm)
+        return min(
+            self.motor.rated_torque_nm * self.gearing.ratio,
+            self.belt_continuous_torque_nm,
+        )
 
     @property
     def continuous_limiting_part(self) -> str:
         return (
             "belt"
-            if self.belt_continuous_torque_nm < self.motor.rated_torque_nm
+            if self.belt_continuous_torque_nm
+            < self.motor.rated_torque_nm * self.gearing.ratio
             else "motor"
         )
 
@@ -246,7 +331,7 @@ def slot_torques_nm(machine: Machine, axis_accel_mm_s2):
         belt_force = sum(
             frame[k][slot] * masses[k] * accel_m_s2[k] for k in range(2)
         )
-        rotor = machine.motor.rotor_inertia_kgm2 * slot_accel[slot] / radius
+        rotor = machine.effective_rotor_inertia_kgm2 * slot_accel[slot] / radius
         torques.append(belt_force * radius + rotor)
     return torques
 
@@ -332,7 +417,7 @@ def corner_deviation_from_scv(scv_mm_s, accel_mm_s2):
 
 
 def reflected_rotor_mass_kg(machine: Machine) -> float:
-    return machine.motor.rotor_inertia_kgm2 / (machine.pulley_radius_m**2)
+    return machine.effective_rotor_inertia_kgm2 / (machine.pulley_radius_m**2)
 
 
 def inertia_ratio(machine: Machine) -> float:

@@ -114,9 +114,21 @@ footer a{color:var(--cyan)}
       <h2>Machine</h2>
 
       <div class="ctl">
-        <div class="ctl-head"><label for="teeth">Pulley teeth</label><span class="val" id="teeth-v">20 T</span></div>
+        <div class="ctl-head"><label for="teeth">Gantry pulley</label><span class="val" id="teeth-v">20 T</span></div>
         <input type="range" id="teeth" min="16" max="140" step="1" value="20">
-        <div class="hint">Sets <code>rotation_distance</code> with the pitch</div>
+        <div class="hint">The one the gantry belt runs on</div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="gmotor">Reduction &mdash; servo side</label><span class="val" id="gmotor-v">20 T</span></div>
+        <input type="range" id="gmotor" min="10" max="140" step="1" value="20">
+        <div class="hint">Pulley on the servo shaft</div>
+      </div>
+
+      <div class="ctl">
+        <div class="ctl-head"><label for="gdriven">Reduction &mdash; layshaft</label><span class="val" id="gdriven-v">20 T</span></div>
+        <input type="range" id="gdriven" min="10" max="140" step="1" value="20">
+        <div class="hint" id="gear-hint"></div>
       </div>
 
       <div class="ctl">
@@ -135,6 +147,7 @@ footer a{color:var(--cyan)}
           <button type="button" data-width="6" aria-pressed="true">6 mm</button>
           <button type="button" data-width="9" aria-pressed="false">9 mm</button>
           <button type="button" data-width="12" aria-pressed="false">12 mm</button>
+          <button type="button" data-width="15" aria-pressed="false">15 mm</button>
         </div>
         <div class="hint" id="width-hint"></div>
       </div>
@@ -237,6 +250,9 @@ var INERTIA_RATIO_WARN = 30;     // A.13, drive manual
 
 // Allowable working tension per 25.4 mm of width, neoprene: SDP/SI Technical
 // Section Table 3. 1.5 mm is not a Gates pitch and has no published figure.
+// The widths each pitch is made in (SDP/SI Table 9). Tension scales with any
+// width you ask for, so only this knows 15 mm 2GT is not orderable.
+var CATALOG_WIDTHS = {"GT1.5": [], "GT2": [4,6,9,12], "GT3": [6,9,12,15]};
 var BELTS = {
   "GT1.5": {pitch: 1.5, tensionPerInch: 83.0,  estimated: true},
   "GT2":   {pitch: 2.0, tensionPerInch: 111.0, estimated: false},
@@ -254,21 +270,28 @@ function axisToMotor(f){
 }
 function machine(s){
   var belt = BELTS[s.profile];
-  var rot = s.teeth * belt.pitch;
-  var r = rot / (2*Math.PI) / 1000;
+  // The reduction turns the gantry pulley `ratio` times slower than the servo,
+  // so torque is levered by it and the rotor is referred through its square.
+  var ratio = s.gdriven / s.gmotor;
+  var circ = s.teeth * belt.pitch;
+  var rot = circ / ratio;
+  var r = circ / (2*Math.PI) / 1000;
   var motorTorque = RATED_TORQUE_NM * s.torque / 100;
+  var rotorJ = ROTOR_INERTIA * ratio * ratio;
   var tension = belt.tensionPerInch * s.width / MM_PER_INCH;
   var beltTorque = tension * r;
   return {
     frame: FRAMES[s.kin], a2m: axisToMotor(FRAMES[s.kin]), rot: rot, r: r,
+    ratio: ratio, circ: circ, rotorJ: rotorJ,
     motorTorque: motorTorque, tension: tension, beltTorque: beltTorque,
-    peak: motorTorque,
-    continuous: Math.min(RATED_TORQUE_NM, beltTorque),
-    contLimiter: beltTorque < RATED_TORQUE_NM ? "belt" : "motor",
+    peak: motorTorque * ratio,
+    continuous: Math.min(RATED_TORQUE_NM * ratio, beltTorque),
+    contLimiter: beltTorque < RATED_TORQUE_NM * ratio ? "belt" : "motor",
     mass: [s.carriage, s.gantry + s.carriage],
-    reflected: ROTOR_INERTIA / (r*r),
+    reflected: rotorJ / (r*r),
     free: s.rpm/60 * rot,
-    estimated: belt.estimated
+    estimated: belt.estimated,
+    catalogued: CATALOG_WIDTHS[s.profile].indexOf(s.width) >= 0
   };
 }
 // dynamics.rs eval: mode force = mass * (frame . accel), lifted by frame[mode][slot].
@@ -278,7 +301,7 @@ function slotTorques(m, axisAccelMmS2){
   return [0,1].map(function(slot){
     var belt = 0;
     for (var k=0;k<2;k++) belt += m.frame[k][slot] * m.mass[k] * a[k];
-    return belt*m.r + ROTOR_INERTIA*slotAcc[slot]/m.r;
+    return belt*m.r + m.rotorJ*slotAcc[slot]/m.r;
   });
 }
 function maxAccel(m, dir, ceiling){
@@ -307,10 +330,15 @@ function maxVel(m, dir){
 // and in a comma-decimal locale would read a grouped 2.211 as 2.211 mm/s2.
 // Config values are therefore never formatted for a human reader.
 function cfgnum(v){ return String(Math.round(v)); }
+// rotation_distance is a mechanical fact, not a ceiling: keep the decimals a
+// reduction puts in it, and round to nearest rather than down.
+function cfgdec(v){ return String(Math.round(v*10000)/10000); }
 function cfgText(s, m, vx, vy, cx, cy){
   var burst = s.torque > 100 ? "   # burst, not continuous; the guide ships 100" : "";
   return "[motor motor_x]\n" +
-    "rotation_distance: " + cfgnum(m.rot) + "   # " + s.teeth + "T " + s.profile + "\n" +
+    "rotation_distance: " + cfgdec(m.rot) + "   # " + s.teeth + "T " + s.profile
+      + (m.ratio === 1 ? "" : ", " + s.gmotor + ":" + s.gdriven + (m.ratio > 1 ? " reduction" : " overdrive") + " folded in") + "\n" +
+    (m.ratio === 1 ? "" : "# no gear_ratio: the servo path never reads it\n") +
     "encoder_counts_per_rev: 1048576\n" +
     "max_torque: " + cfgnum(s.torque) + burst + "\n" +
     "following_error: 2.0\n\n" +
@@ -320,7 +348,8 @@ function cfgText(s, m, vx, vy, cx, cy){
     "max_accel: " + cfgnum(Math.floor(Math.min(Math.min(cx,cy), 25000)));
 }
 
-var state = {teeth:20, gantry:1.6, carriage:0.6, torque:100, rpm:5000,
+var state = {teeth:20, gmotor:20, gdriven:20, gantry:1.6, carriage:0.6,
+             torque:100, rpm:5000,
              kin:"markforged", profile:"GT2", width:6, material:"standard"};
 var $ = function(id){ return document.getElementById(id); };
 var fmt = function(v, d){ return v.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}); };
@@ -335,13 +364,21 @@ function render(){
   var mat = MATERIALS[state.material];
 
   $("teeth-v").textContent = state.teeth + " T";
+  $("gmotor-v").textContent = state.gmotor + " T";
+  $("gdriven-v").textContent = state.gdriven + " T";
+  $("gear-hint").innerHTML = m.ratio === 1
+    ? "1:1 &mdash; no stage. Direct drive off the servo shaft."
+    : (m.ratio > 1
+       ? fmt(m.ratio,2) + ":1 <strong>reduction</strong> &mdash; torque &times;" + fmt(m.ratio,2) + ", speed &divide;" + fmt(m.ratio,2) + ", rotor &times;" + fmt(m.ratio*m.ratio,2)
+       : "1:" + fmt(1/m.ratio,2) + " <strong>overdrive</strong> &mdash; torque &divide;" + fmt(1/m.ratio,2) + ", speed &times;" + fmt(1/m.ratio,2) + ", rotor &divide;" + fmt(1/(m.ratio*m.ratio),2));
   $("gantry-v").textContent = fmt(state.gantry,2) + " kg";
   $("carriage-v").textContent = fmt(state.carriage,2) + " kg";
   $("torque-v").textContent = state.torque + " %";
   $("rpm-v").textContent = state.rpm + " rpm";
   $("profile-hint").innerHTML = BELTS[state.profile].pitch + " mm pitch &middot; "
     + (m.estimated ? "<strong>no published Gates tension</strong>" : fmt(BELTS[state.profile].tensionPerInch,0) + " N per 25.4 mm");
-  $("width-hint").innerHTML = "Allowable working tension " + fmt(m.tension,1) + " N &middot; continuous";
+  $("width-hint").innerHTML = "Allowable working tension " + fmt(m.tension,1) + " N &middot; continuous"
+    + (m.catalogued ? "" : " &middot; <strong>not a catalogued width in this pitch</strong>");
   $("material-hint").innerHTML = mat.label + " &middot; " + mat.min + " to " + mat.max + " &deg;C";
 
   var lim = m.contLimiter === "belt";
@@ -363,7 +400,9 @@ function render(){
     ro("Y peak accel", fmt(ay/1000,1), "m/s&sup2;", fmt(ay/9806.65,1) + " g &middot; drive limit, gantry + carriage"),
     ro("X continuous", fmt(cx/1000,1), "m/s&sup2;", "held indefinitely &middot; " + m.contLimiter + "-limited"),
     ro("Y continuous", fmt(cy/1000,1), "m/s&sup2;", "held indefinitely &middot; " + m.contLimiter + "-limited"),
-    ro("rotation_distance", fmt(m.rot,0), "mm/rev", state.teeth + "T &times; " + BELTS[state.profile].pitch + " mm"),
+    ro("rotation_distance", fmt(m.rot,1), "mm/rev", m.ratio === 1
+       ? state.teeth + "T &times; " + BELTS[state.profile].pitch + " mm, direct"
+       : fmt(m.circ,0) + " mm &divide; " + fmt(m.ratio,2) + " &middot; per <em>motor</em> turn"),
     ro("Top speed", fmt(Math.min(vx,vy),0), "mm/s", fmt(m.free,0) + " mm/s at the belt"),
     ro("Belt, continuous", fmt(m.tension,1), "N", m.estimated ? "estimated &mdash; see below" : "SDP/SI Table 3, neoprene"),
     ro("Reflected rotor", fmt(m.reflected,2), "kg", "J/r&sup2; &middot; load ratio " + fmt(ratio,1) + "&times;")
@@ -395,16 +434,30 @@ function render(){
     flags.push(note("bad", "Load-to-rotor inertia is " + fmt(ratio,0) + "&times;. The drive manual ties roughly 30&times; to <strong>A.13 overvoltage</strong> under acceleration &mdash; a bigger pulley or a lighter gantry, not a tuning fix."));
   if (duty > 4)
     flags.push(note("bad", "<strong>The belt carries " + fmt(duty,1) + "&times; its continuous rating at the peak.</strong> "
-      + "That is " + fmt(m.motorTorque/m.r,0) + " N through a belt the catalog rates at " + fmt(m.tension,0) + " N for sustained duty. "
+      + "That is " + fmt(m.peak/m.r,0) + " N through a belt the catalog rates at " + fmt(m.tension,0) + " N for sustained duty. "
       + "A burst is what the rating tolerates; repeated hard corners are the high cyclic peak loading &sect;9.1 says to review. "
-      + "A wider or coarser belt, or a lower torque limit, closes the gap &mdash; and tension it properly, because ratcheting is the failure this invites."));
+      + "A wider or coarser belt, a lower torque limit, or less reduction closes the gap &mdash; and tension it properly, because ratcheting is the failure this invites."));
   if (state.torque > 100)
     flags.push(note("", "<strong>" + state.torque + " % is burst torque, not continuous.</strong> "
       + "Pn401/Pn402 accept 0&ndash;300 %, but 3&times; rated is the motor&rsquo;s burst rating &mdash; 8.4 A against 2.8 A continuous &mdash; so holding this limit ends in a drive overload rather than in the peak above. "
-      + "At " + state.torque + " % the belt sees " + fmt(m.motorTorque/m.r,0) + " N against its " + fmt(m.tension,0) + " N continuous rating. "
+      + "At " + state.torque + " % the belt sees " + fmt(m.peak/m.r,0) + " N against its " + fmt(m.tension,0) + " N continuous rating. "
       + "Bring the machine up at 100 and raise it because a move stalled, not before."));
-  if (m.reflected > m.mass[0])
-    flags.push(note("", "The rotor reflects " + fmt(m.reflected,2) + " kg to the belt &mdash; more than the " + fmt(m.mass[0],2) + " kg carriage. A larger pulley is the only lever that shrinks it."));
+  if (!m.catalogued)
+    flags.push(note("bad", "<strong>" + state.width + " mm is not a width " + state.profile + " is made in.</strong> "
+      + "SDP/SI Table 9 lists " + (CATALOG_WIDTHS[state.profile].length ? CATALOG_WIDTHS[state.profile].join(", ") + " mm for this pitch" : "no widths for this pitch at all")
+      + ". The tension above is the per-inch figure scaled to " + state.width + " mm, which is arithmetic, not a belt you can order."));
+  if (m.ratio !== 1)
+    flags.push(note("", "<strong>The reduction&rsquo;s own parts are not in these numbers.</strong> "
+      + "Its two pulleys and belt add inertia the rotor term does not carry, and each mesh costs a little torque, so a geared setup reads better here than it will measure &mdash; and by more as the ratio grows. "
+      + "What <em>is</em> modelled is the part that bites: torque scales with the ratio and the rotor with its square, which is why " + fmt(m.ratio,2) + ":1 reflects " + fmt(m.reflected,2) + " kg."));
+  if (m.ratio !== 1)
+    flags.push(note("", "<strong>The ratio goes in <code>rotation_distance</code>, not in <code>gear_ratio</code>.</strong> "
+      + "<code>gear_ratio</code> is parsed by <code>klippy/stepper.py</code> for steppers; no gearing term exists anywhere in the servo path, and the config reader takes the option on a servo <code>[motor]</code> without ever applying it. "
+      + "The block below has it folded in already."));
+  if (Math.abs(m.reflected - m.mass[1]) / m.mass[1] < 0.15)
+    flags.push(note("", "<strong>Inertia is matched.</strong> The rotor reflects " + fmt(m.reflected,2) + " kg against " + fmt(m.mass[1],2) + " kg of gantry and carriage, which is where peak acceleration maxes out &mdash; half the torque goes into the load and half into the rotor, and no ratio does better."));
+  else if (m.reflected > m.mass[0])
+    flags.push(note("", "The rotor reflects " + fmt(m.reflected,2) + " kg to the belt &mdash; more than the " + fmt(m.mass[0],2) + " kg carriage. A larger gantry pulley shrinks it; so does gearing the other way."));
   if (state.material === "epdm")
     flags.push(note("", "<strong>EPDM buys temperature, not strength.</strong> Both compounds carry the same fibreglass tensile cord, so the allowable tension is identical &mdash; what changes is the range, " + mat.min + " to " + mat.max + " &deg;C against " + MATERIALS.standard.min + " to " + MATERIALS.standard.max + " &deg;C. Worth it for a heated chamber; it will not let you accelerate harder."));
   $("flags").innerHTML = flags.join("");
@@ -468,7 +521,7 @@ function drawChart(cur, curAx, curAy){
     + " At " + state.teeth + "&nbsp;T the peak is " + fmt(curAx/1000,1) + " and " + fmt(curAy/1000,1) + " m/s&sup2;, against " + fmt(cur.free,0) + " mm/s of free speed.";
 }
 
-["teeth","gantry","carriage","torque","rpm"].forEach(function(id){
+["teeth","gmotor","gdriven","gantry","carriage","torque","rpm"].forEach(function(id){
   $(id).addEventListener("input", function(e){ state[id] = parseFloat(e.target.value); render(); });
 });
 [["kin","kin"],["profile","profile"],["width","width"],["material","material"]].forEach(function(pair){

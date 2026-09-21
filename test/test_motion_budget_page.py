@@ -104,6 +104,55 @@ def test_the_page_carries_the_same_belt_compounds():
 def test_the_page_offers_the_widths_the_model_knows():
     widths = [float(w) for w in re.findall(r'data-width="([0-9.]+)"', PAGE)]
     assert widths == list(mb.BELT_WIDTHS_MM)
+    assert 15.0 in widths
+
+
+def test_the_page_knows_which_widths_each_pitch_is_made_in():
+    """A width the pitch is not made in still computes, so the page has to say
+    so; the arithmetic never will."""
+    block = re.search(r"var CATALOG_WIDTHS = \{(.*?)\};", PAGE)
+    assert block, "the page no longer carries the catalogued widths"
+    page = {}
+    for name, body in re.findall(r'"([^"]+)":\s*\[([^\]]*)\]', block.group(1)):
+        page[name] = tuple(float(v) for v in body.split(",") if v.strip())
+    assert page == mb.CATALOG_WIDTHS_MM
+    flat = re.sub(r"\s+", " ", PAGE)
+    assert "not a catalogued width in this pitch" in flat
+
+
+def test_the_page_gears_the_torque_by_the_ratio_and_the_rotor_by_its_square():
+    """Both halves or neither. A page that levered the torque and left the
+    rotor alone would show a reduction as free acceleration."""
+    flat = PAGE.replace(" ", "")
+    assert "varratio=s.gdriven/s.gmotor;" in flat
+    assert "varrotorJ=ROTOR_INERTIA*ratio*ratio;" in flat
+    assert "peak:motorTorque*ratio," in flat
+    assert "continuous:Math.min(RATED_TORQUE_NM*ratio,beltTorque)" in flat
+    assert "varrot=circ/ratio;" in flat
+
+
+def test_the_page_says_where_the_ratio_goes_in_the_config():
+    """`gear_ratio` is a stepper option. The config reader takes it on a servo
+    motor and the servo path never reads it, so a reader who puts it there
+    gets silently wrong motion."""
+    flat = re.sub(r"\s+", " ", PAGE)
+    assert "goes in <code>rotation_distance</code>" in flat
+    assert "no gearing term exists anywhere in the servo path" in flat
+    assert "no gear_ratio: the servo path never reads it" in flat
+
+
+def test_the_belt_force_the_flags_quote_is_the_geared_one():
+    """The belt hangs off the gantry pulley, so it sees torque the stage has
+    already multiplied. Quoting `motorTorque/r` understated it by the ratio,
+    and read as a contradiction beside a duty figure computed correctly."""
+    assert "m.motorTorque/m.r" not in PAGE.replace(" ", "")
+    assert PAGE.replace(" ", "").count("fmt(m.peak/m.r,0)") == 2
+
+
+def test_the_page_admits_the_gear_stage_is_only_half_modelled():
+    flat = re.sub(r"\s+", " ", PAGE)
+    assert "reduction&rsquo;s own parts are not in these numbers" in flat
+    assert "each mesh costs a little torque" in flat
 
 
 def test_the_page_offers_every_belt_profile_and_kinematic():
@@ -157,7 +206,7 @@ def test_the_page_applies_the_rotor_term_like_the_model():
     """`belt*m.r + ROTOR_INERTIA*slotAcc[slot]/m.r` is the SI form of
     dynamics.rs's lift plus the rotor the fitted profile folds into its mass.
     Losing the second half silently overstates every acceleration."""
-    assert "ROTOR_INERTIA*slotAcc[slot]/m.r" in PAGE.replace(" ", "")
+    assert "m.rotorJ*slotAcc[slot]/m.r" in PAGE.replace(" ", "")
     assert "belt*m.r" in PAGE.replace(" ", "")
 
 
@@ -168,9 +217,9 @@ def test_the_page_separates_the_peak_from_the_continuous_ceiling():
     flat = PAGE.replace(" ", "")
     assert "tension=belt.tensionPerInch*s.width/MM_PER_INCH" in flat
     assert "beltTorque=tension*r" in flat
-    assert "peak:motorTorque" in flat
-    assert "continuous:Math.min(RATED_TORQUE_NM,beltTorque)" in flat
-    assert 'contLimiter:beltTorque<RATED_TORQUE_NM?"belt":"motor"' in flat
+    assert "peak:motorTorque*ratio," in flat
+    assert "continuous:Math.min(RATED_TORQUE_NM*ratio,beltTorque)" in flat
+    assert 'contLimiter:beltTorque<RATED_TORQUE_NM*ratio?"belt":"motor"' in flat
     assert 'ceiling==="continuous"?m.continuous:m.peak' in flat
 
 
@@ -251,50 +300,84 @@ PHYSICS_START = "var MARKFORGED_Y_COUPLING"
 PHYSICS_END = "var state = {"
 
 CASES = [
-    {
-        "teeth": 20,
-        "gantry": 1.6,
-        "carriage": 0.6,
-        "torque": 100,
-        "rpm": 5000,
-        "kin": "markforged",
-        "profile": "GT2",
-        "width": 6,
-        "material": "standard",
-    },
-    {
-        "teeth": 140,
-        "gantry": 1.6,
-        "carriage": 0.6,
-        "torque": 300,
-        "rpm": 3000,
-        "kin": "markforged",
-        "profile": "GT3",
-        "width": 12,
-        "material": "epdm",
-    },
-    {
-        "teeth": 16,
-        "gantry": 4.0,
-        "carriage": 1.2,
-        "torque": 100,
-        "rpm": 5000,
-        "kin": "corexy",
-        "profile": "GT1.5",
-        "width": 9,
-        "material": "standard",
-    },
-    {
-        "teeth": 60,
-        "gantry": 0.9,
-        "carriage": 0.3,
-        "torque": 150,
-        "rpm": 4000,
-        "kin": "cartesian",
-        "profile": "GT3",
-        "width": 6,
-        "material": "epdm",
-    },
+    dict(
+        teeth=20,
+        gmotor=20,
+        gdriven=20,
+        gantry=1.6,
+        carriage=0.6,
+        torque=100,
+        rpm=5000,
+        kin="markforged",
+        profile="GT2",
+        width=6,
+        material="standard",
+    ),
+    dict(
+        teeth=140,
+        gmotor=20,
+        gdriven=20,
+        gantry=1.6,
+        carriage=0.6,
+        torque=300,
+        rpm=3000,
+        kin="markforged",
+        profile="GT3",
+        width=12,
+        material="epdm",
+    ),
+    dict(
+        teeth=16,
+        gmotor=20,
+        gdriven=20,
+        gantry=4.0,
+        carriage=1.2,
+        torque=100,
+        rpm=5000,
+        kin="corexy",
+        profile="GT1.5",
+        width=9,
+        material="standard",
+    ),
+    dict(
+        teeth=60,
+        gmotor=20,
+        gdriven=20,
+        gantry=0.9,
+        carriage=0.3,
+        torque=150,
+        rpm=4000,
+        kin="cartesian",
+        profile="GT3",
+        width=6,
+        material="epdm",
+    ),
+    dict(
+        teeth=20,
+        gmotor=20,
+        gdriven=60,
+        gantry=1.6,
+        carriage=0.6,
+        torque=100,
+        rpm=5000,
+        kin="markforged",
+        profile="GT3",
+        width=15,
+        material="standard",
+    ),
+    dict(
+        teeth=30,
+        gmotor=48,
+        gdriven=16,
+        gantry=2.4,
+        carriage=0.8,
+        torque=200,
+        rpm=4500,
+        kin="corexy",
+        profile="GT2",
+        width=15,
+        material="epdm",
+    ),
 ]
 
 
@@ -320,6 +403,7 @@ def machine_for(case):
         kinematics=case["kin"],
         motor=motor,
         belt=belt,
+        gearing=mb.Gearing(case["gmotor"], case["gdriven"]),
         gantry_mass_kg=case["gantry"],
         carriage_mass_kg=case["carriage"],
     )
@@ -379,7 +463,10 @@ def test_the_config_the_page_hands_over_is_a_config_klippy_can_read():
             )
         }
         for option, raw in values.items():
-            assert re.fullmatch(r"[0-9]+", raw), "%s: %r" % (option, raw)
+            assert re.fullmatch(r"[0-9]+(\.[0-9]+)?", raw), "%s: %r" % (
+                option,
+                raw,
+            )
         assert float(values["rotation_distance"]) == pytest.approx(
             machine.rotation_distance_mm
         )
@@ -423,7 +510,8 @@ def test_the_page_computes_what_the_model_computes():
         "          peak: m.peak, continuous: m.continuous,\n"
         "          contLimiter: m.contLimiter, duty: beltDuty(m,[0,1]),\n"
         "          cont: maxAccel(m,[0,1],'continuous'),\n"
-        "          reflected: m.reflected, rot: m.rot};\n"
+        "          reflected: m.reflected, rot: m.rot,\n"
+        "          ratio: m.ratio, rotorJ: m.rotorJ};\n"
         "});\n"
         "console.log(JSON.stringify(out));\n"
     )
@@ -435,7 +523,12 @@ def test_the_page_computes_what_the_model_computes():
     for case, page in zip(CASES, got):
         machine = machine_for(case)
         assert page["rot"] == pytest.approx(machine.rotation_distance_mm)
+        assert page["ratio"] == pytest.approx(machine.gearing.ratio)
+        assert page["rotorJ"] == pytest.approx(
+            machine.effective_rotor_inertia_kgm2
+        )
         assert page["motorTorque"] == pytest.approx(machine.motor.torque_nm)
+        assert page["peak"] == pytest.approx(machine.output_peak_torque_nm)
         assert page["beltTorque"] == pytest.approx(
             machine.belt_continuous_torque_nm
         )
