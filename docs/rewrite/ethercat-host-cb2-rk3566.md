@@ -25,58 +25,6 @@ printer for the first time should use a Pi 5, get the machine working, and come
 back to this afterwards — that way a fault has one candidate cause instead of
 two.
 
-## Get off `eth0` first
-
-Step 5 gives `eth0` to the EtherCAT master, and once it does the interface
-leaves the normal network stack. On a CB2 in a Manta socket there is often no
-display attached, so **if SSH is on `eth0` when that happens, the board becomes
-unreachable** — and the handover runs at every boot from then on.
-
-Before Step 5, put SSH on the CB2's Wi-Fi, reboot, and confirm you can still
-log in with the Ethernet cable unplugged:
-
-```sh
-ip route get 1.1.1.1      # must not leave via eth0
-```
-
-Keep a serial console to hand regardless. Recovering a headless board whose only
-route went to the EtherCAT master otherwise means pulling the eMMC.
-
-## What to install on the CB2 first
-
-A minimal Armbian image has none of this, and the steps below fail at four
-different points without it. Install it all in one go rather than discovering
-each one:
-
-```sh
-sudo apt update
-sudo apt install -y \
-    build-essential pkg-config git curl ca-certificates \
-    autoconf automake libtool \
-    libudev-dev libffi-dev \
-    python3 python3-dev python3-pip python3-venv \
-    gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-. "$HOME/.cargo/env"
-```
-
-What each is for, because a missing one fails somewhere that does not name it:
-
-| Needed by | Without it |
-| --- | --- |
-| `autoconf automake libtool` | IgH's `./bootstrap` (step 3) has nothing to run |
-| kernel headers for the running kernel | `make modules` (step 3) cannot build against it — Armbian ships them as `linux-headers-*` for the branch you built |
-| `libudev-dev pkg-config` | the Rust build (step 8) fails in the `serialport` crate, which links `libudev`. This one is easy to mistake for a Rust problem |
-| `python3-dev libffi-dev` | klippy's `chelper` cannot compile its C at first start |
-| `gcc-arm-none-eabi` and friends | the Manta firmware build stops at `arm-none-eabi-gcc: No such file or directory` |
-| `rustup` | `rust/rust-toolchain.toml` pins Rust **1.85.0** and the `thumbv7em-none-eabi` target, so rustup fetches both on first build. A distro `rustc` is the wrong version and has no ARM target |
-
-**The firmware build is the one no gate covers.** `ci.sh rust-mcu-h7` compiles
-the Rust half of the MCU for `thumbv7em-none-eabi`; nothing in CI compiles the
-C firmware or links `out/klipper.bin`, because no CI image carries an ARM
-toolchain. A green gate therefore does not mean the firmware builds — the
-first machine to find out is this one.
-
 ## Why the kernel version is not negotiable
 
 Two independent requirements happen to meet at 6.12:
@@ -131,7 +79,83 @@ A kernel that boots but reports `PREEMPT` rather than `PREEMPT_RT` is the
 ordinary low-latency kernel and is **not** sufficient — it is exactly the
 configuration that holds cadence on an idle bench and drops frames under load.
 
-## Step 2 — Isolate a core for the DC loop
+## Step 2 — Get off `eth0`, on the newly booted image
+
+Step 8 gives `eth0` to the EtherCAT master, and once it does the interface
+leaves the normal network stack. On a CB2 in a Manta socket there is often no
+display attached, so **if SSH is on `eth0` when that happens, the board becomes
+unreachable** — and the handover runs at every boot from then on.
+
+Put SSH on the CB2's Wi-Fi, reboot, and confirm you can still
+log in with the Ethernet cable unplugged:
+
+```sh
+ip route get 1.1.1.1      # must not leave via eth0
+```
+
+Keep a serial console to hand regardless. Recovering a headless board whose only
+route went to the EtherCAT master otherwise means pulling the eMMC.
+
+## Step 3 — What to install on the CB2 first
+
+A minimal Armbian image has none of this, and the steps below fail at four
+different points without it. Install it all in one go rather than discovering
+each one:
+
+```sh
+sudo apt update
+sudo apt install -y \
+    build-essential pkg-config git curl ca-certificates \
+    autoconf automake libtool \
+    libudev-dev libffi-dev \
+    python3 python3-dev python3-pip python3-venv \
+    gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+. "$HOME/.cargo/env"
+```
+
+What each is for, because a missing one fails somewhere that does not name it:
+
+| Needed by | Without it |
+| --- | --- |
+| `autoconf automake libtool` | IgH's `./bootstrap` (step 6) has nothing to run |
+| kernel headers for the running kernel | `make modules` (step 6) cannot build against it — Armbian ships them as `linux-headers-*` for the branch you built |
+| `libudev-dev pkg-config` | the Rust build (step 11) fails in the `serialport` crate, which links `libudev`. This one is easy to mistake for a Rust problem |
+| `python3-dev libffi-dev` | klippy's `chelper` cannot compile its C at first start |
+| `gcc-arm-none-eabi` and friends | the Manta firmware build stops at `arm-none-eabi-gcc: No such file or directory` |
+| `rustup` | `rust/rust-toolchain.toml` pins Rust **1.85.0** and the `thumbv7em-none-eabi` target, so rustup fetches both on first build. A distro `rustc` is the wrong version and has no ARM target |
+
+**The firmware build is the one no gate covers.** `ci.sh rust-mcu-h7` compiles
+the Rust half of the MCU for `thumbv7em-none-eabi`; nothing in CI compiles the
+C firmware or links `out/klipper.bin`, because no CI image carries an ARM
+toolchain. A green gate therefore does not mean the firmware builds — the
+first machine to find out is this one.
+
+## Step 4 — Get this repository, and a klippy to run it
+
+Everything after this runs inside a checkout, and nothing so far has made one:
+step 6 runs `generate.py` out of `tools/`, step 11 builds in `rust/`, and step 9
+writes a drop-in for a `klipper.service` that does not exist yet.
+
+Install Klipper or Kalico first, by whatever route you normally would —
+[KIAUH](../Installation.md#installing-via-kiauh) is the usual one on an SBC.
+That creates `~/printer_data/`, the klippy virtualenv and the `klipper.service`
+the RT drop-in extends. Then bring it onto this fork:
+
+```sh
+cd ~/klipper
+git remote add serval https://github.com/PDAMUK/serval.git
+git fetch serval
+git checkout <the branch carrying this document>
+```
+
+**It must be this fork.** `docs/Quickstart.md` points at `dderg/kalico`, the
+upstream this is built on, which carries no markforged kinematics, no
+`estun-pronet` drive profile, no `[emergency_stop]` section and none of the
+`pdo_*` options. If you are reading this from a checkout you are already on the
+right branch.
+
+## Step 5 — Isolate a core for the DC loop
 
 The endpoint pins its cycle loop to one CPU and needs that CPU contention-free.
 Add to the kernel command line (on Armbian, `/boot/armbianEnv.txt`, via
@@ -159,7 +183,7 @@ a cold boot under load.
 cat /sys/devices/system/cpu/isolated     # 3
 ```
 
-## Step 3 — Build the IgH master with `ec_dwmac-rk`
+## Step 6 — Build the IgH master with `ec_dwmac-rk`
 
 Kernel headers matching the running kernel must be installed first; Armbian
 ships them as `linux-headers-*` for the branch that was built.
@@ -223,7 +247,7 @@ expects: a missing rename map, or an anchor it cannot find exactly once in
 half-wired tree. That is the guard against pointing `--igh` at the wrong
 checkout.
 
-## Step 4 — Find the MAC's device path
+## Step 7 — Find the MAC's device path
 
 The handover script needs the **platform device name of the CB2's GMAC**, which
 is a property of the board and must be read off it rather than copied from a
@@ -234,7 +258,7 @@ ls -l /sys/bus/platform/drivers/rk_gmac-dwmac/
 ```
 
 The entry that is not `bind`, `unbind`, `uevent` or `module` is the device —
-something of the form `<address>.ethernet`. Record it; Step 5 needs it.
+something of the form `<address>.ethernet`. Record it; Step 8 needs it.
 
 Cross-check that it is the interface carrying `eth0`:
 
@@ -244,11 +268,11 @@ basename "$(readlink -f /sys/class/net/eth0/device)"
 
 Both commands must name the same device.
 
-## Step 5 — Hand the NIC to `ec_dwmac-rk` at boot
+## Step 8 — Hand the NIC to `ec_dwmac-rk` at boot
 
 The in-tree `stmmac` driver claims the MAC at boot, so a service must hand it
 over before the master starts. Install as `/usr/local/sbin/ethercat-dwmac-up.sh`
-(root, `chmod 755`), replacing `DEV` with the value from Step 4:
+(root, `chmod 755`), replacing `DEV` with the value from Step 7:
 
 ```bash
 #!/bin/bash
@@ -349,7 +373,7 @@ ip link show eth0          # the interface should no longer be managed normally
 `eth0` disappearing from the normal network stack is **correct** — the master
 owns it now. This is why SSH must be on Wi-Fi before starting.
 
-## Step 6 — Real-time capabilities for the endpoint
+## Step 9 — Real-time capabilities for the endpoint
 
 Identical to the Pi 5 path. The endpoint needs `CAP_SYS_NICE` (for
 `SCHED_FIFO`) and `CAP_IPC_LOCK` (for `mlockall`), granted on the klipper
@@ -375,7 +399,7 @@ chrt -p $pid                              # SCHED_FIFO priority 80
 grep Cpus_allowed_list /proc/$pid/status  # 3
 ```
 
-## Step 7 — Confirm the bus before trusting it
+## Step 10 — Confirm the bus before trusting it
 
 With drives wired and powered:
 
@@ -390,7 +414,7 @@ not-quite-real-time kernel — will both survive a warm restart on an idle bench
 and fail under boot load. Power the machine down fully, boot it, and watch for
 `A.70` on the drives. A warm restart proves nothing.
 
-## Step 8 — Build the kalico endpoint
+## Step 11 — Build the kalico endpoint
 
 klippy spawns the endpoint itself at claim time and never launches it by hand,
 so the binary has to exist before the first claim. `[ethercat_node].endpoint`
