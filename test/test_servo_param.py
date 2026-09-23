@@ -354,3 +354,49 @@ def test_the_torque_gate_code_matches_the_rust_constant():
         re.search(r"ERR_PIECES_WHILE_PARKED: i32 = (-?\d+)", source)[1]
     )
     assert ethercat_node.TORQUE_GATE_FAULT_CODE == declared & 0xFFFF
+
+
+@pytest.mark.parametrize(
+    "code,explains",
+    [
+        (ethercat_node.FRAME_LATE_FAULT_CODE, "frame-timing fault"),
+        (ethercat_node.CYCLE_SKIP_FAULT_CODE, "cycle-skip fault"),
+    ],
+)
+def test_host_stall_faults_are_not_reported_as_drive_alarms(code, explains):
+    """Both codes mean the host's realtime loop was late, not that a drive
+    tripped. Falling through to the generic arm would print them as a drive
+    fault and send someone to the drive's alarm table for a CPU stall."""
+    engine = FakeEngine(take_drive_fault=[code])
+    node = make_node_for_fault_poll(engine)
+
+    node._poll_drive_fault(7.0)
+
+    msg = node.printer.shutdown_reasons[0]
+    assert explains in msg
+    assert "not a drive alarm" in msg
+
+
+@pytest.mark.parametrize(
+    "host_name,rust_name",
+    [
+        ("FRAME_LATE_FAULT_CODE", "FRAME_LATE_FAULT_CODE"),
+        ("CYCLE_SKIP_FAULT_CODE", "CYCLE_SKIP_FAULT_CODE"),
+    ],
+)
+def test_the_host_stall_codes_match_the_rust_constants(host_name, rust_name):
+    """The endpoint latches these into the heartbeat's drive-error field and
+    the host picks its explanation by value. Change one side alone and a
+    host stall is reported as a drive alarm."""
+    source = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "rust"
+        / "ethercat-rt"
+        / "src"
+        / "endpoint"
+        / "cycle.rs"
+    ).read_text(encoding="utf-8")
+    declared = int(
+        re.search(r"%s: u16 = 0x([0-9A-Fa-f]+);" % rust_name, source)[1], 16
+    )
+    assert getattr(ethercat_node, host_name) == declared

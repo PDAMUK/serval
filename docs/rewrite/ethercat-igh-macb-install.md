@@ -127,30 +127,84 @@ nproc                    # one fewer than physical cores (the isolated one is ou
 cat /proc/cmdline        # shows isolcpus=…,3 nohz_full=3 …
 ```
 
-## Step 2 — Get the IgH source + the `ec_macb` driver
+## Step 2 — What to install on the Pi first
 
-The master is **IgH EtherLab `stable-1.6`** plus the `ec_macb` native driver.
-Both live together in a **published fork** of the upstream IgH repo — `ec_macb`
-is a fork addition proposed back to upstream through an open merge request. Clone
-the fork (not `gitlab.com/etherlab.org/ethercat.git`, which does not yet carry
-`ec_macb`):
+Raspberry Pi OS carries none of the build tools the later steps need, and each
+missing one fails at a point that does not name it. Install them in one go:
 
 ```sh
-git clone <fork-url> -b <fork-branch> ~/ethercat-igh
+sudo apt update
+sudo apt install -y \
+    build-essential pkg-config git curl ca-certificates \
+    autoconf automake libtool \
+    libudev-dev libffi-dev \
+    python3 python3-dev python3-pip python3-venv \
+    gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+. "$HOME/.cargo/env"
 ```
 
-- **Fork:** `<fork-url>`
-- **Merge request (upstream):** `<merge-request-url>`
+| Needed by | Without it |
+| --- | --- |
+| `autoconf automake libtool` | IgH's `./bootstrap` (step 5) has nothing to run |
+| the kernel headers from step 1 | `make modules` (step 5) cannot build against the running kernel |
+| `libudev-dev pkg-config` | the klippy modules (step 8) fail in the `serialport` crate, which links `libudev`. This one is easy to mistake for a Rust problem |
+| `python3-dev libffi-dev` | klippy's `chelper` cannot compile its C at first start |
+| `gcc-arm-none-eabi` and friends | the Manta firmware build stops at `arm-none-eabi-gcc: No such file or directory` |
+| `rustup` | `rust/rust-toolchain.toml` pins Rust **1.85.0** and the `thumbv7em-none-eabi` target, so rustup fetches both on first build. A distro `rustc` is the wrong version and has no ARM target |
 
-The `ec_macb` driver is already in that tree at `devices/macb/` — you add no
-files by hand. It carries the 6.18.33 file set (`macb.h`, `macb_main.c`,
-`macb_ptp.c` as `*-6.18-orig.*` and `*-6.18-ethercat.*`, plus `Kbuild`,
-`Makefile.am`, `update.sh`, and `PORTING-NOTES.md`). To (re)generate it for a
+## Step 3 — Get this repository, and a klippy to run it
+
+Two later steps assume an install and a checkout that nothing so far has made:
+step 7 writes a drop-in for a `klipper.service` that does not exist yet, and
+step 8 builds in `rust/`.
+
+Install Klipper or Kalico first, by whatever route you normally would —
+[KIAUH](../Installation.md#installing-via-kiauh) is the usual one on a Pi. That
+creates `~/printer_data/`, the klippy virtualenv and the `klipper.service` the
+RT drop-in extends. Then bring it onto this fork:
+
+```sh
+cd ~/klipper
+git remote add serval https://github.com/PDAMUK/serval.git
+git fetch serval
+git checkout <the branch carrying this document>
+```
+
+**It must be this fork.** `docs/Quickstart.md` points at `dderg/kalico`, the
+upstream this is built on, which carries no markforged kinematics, no
+`estun-pronet` drive profile, no `[emergency_stop]` section and none of the
+`pdo_*` options. If you are reading this from a checkout you are already on the
+right branch.
+
+## Step 4 — Get the IgH master source, with `ec_macb`
+
+The master is **IgH EtherLab `stable-1.6`**, which ships `ec_macb` itself from
+release **1.6.10** on — no fork is needed:
+
+```sh
+git clone -b stable-1.6 https://gitlab.com/etherlab.org/ethercat.git ~/ethercat-igh
+git -C ~/ethercat-igh describe --tags     # 1.6.10 or later
+```
+
+An older tag has no `devices/macb/`, and `configure --enable-macb` has nothing to
+build.
+
+**This is not byte-for-byte what the bench ran.** The bench was exercised on
+the driver's pre-merge fork. Upstream has since made the EtherCAT receive path
+allocation-free (1.6.13 in its `NEWS.md`), which is a change to the cyclic path
+itself, so the cold-boot check under
+[Verify RT is actually in force](#verify-rt-is-actually-in-force) is what
+establishes it on your machine — not the bench's history.
+
+The driver is at `devices/macb/`: the 6.18 file set (`macb.h`, `macb_main.c` and
+`macb_ptp.c`, each as `*-6.18-orig.*` and `*-6.18-ethercat.*`) plus `Kbuild.in`,
+`Makefile.am` and `update.sh`. You add no files by hand. To (re)generate it for a
 different kernel, see
 [Obtaining or regenerating `ec_macb`](#obtaining-or-regenerating-ec_macb) — but note
 the driver is pinned to 6.18.33 for a reason.
 
-## Step 3 — Build and install the master
+## Step 5 — Build and install the master
 
 ```sh
 cd ~/ethercat-igh
@@ -197,7 +251,7 @@ DEVICE_MODULES="macb"
 
 (`ethercat --version` should now report `IgH EtherCAT master 1.6.x`.)
 
-## Step 4 — Hand `eth0` to `ec_macb` at boot
+## Step 6 — Hand `eth0` to `ec_macb` at boot
 
 The in-tree `macb` driver claims the NIC at boot, so a boot service must hand the
 platform device over to `ec_macb` before starting the master. Install this as
@@ -279,7 +333,7 @@ ls -l /dev/EtherCAT0                          # exists, group = your user
 ethercat master                               # "Ethernet devices … Link: UP"
 ```
 
-## Step 5 — RT capabilities for the endpoint
+## Step 7 — RT capabilities for the endpoint
 
 The endpoint's DC loop **must** run `SCHED_FIFO`, `mlockall`, pinned to the
 isolated core — otherwise it aborts the claim loudly (no silent `SCHED_OTHER`
@@ -298,14 +352,20 @@ LimitMEMLOCK=infinity
 cap_sys_nice,cap_ipc_lock+ep` on the binary — but re-run it after **every**
 rebuild, since `cargo` writes a fresh inode and drops file-caps.)
 
-## Step 6 — Build the kalico endpoint
+## Step 8 — Build the kalico endpoint
 
-From the repo, on the Pi (the `hw` build compiles the IgH C shim and links
+From the checkout, on the Pi (the `hw` build compiles the IgH C shim and links
 `libethercat` from `/opt/etherlab` — never cross-compile):
 
 ```sh
 make -f Makefile.rust ethercat-endpoint-hw     # -> rust/target/release/ethercat-rt
+scripts/build-native.sh                        # klippy/_*.so — klippy will not start without them
 ```
+
+The klippy modules have to come from this checkout, not from whatever install
+step 3 started with: the markforged kinematics compiles into
+`klippy/_motion_engine.so`, and klippy refuses a module that cannot report its
+markforged coupling constant.
 
 > **If the master is not at `/opt/etherlab`.** `build.rs` reads `IGH_DIR` for
 > the prefix and `IGH_LIB_DIR` for the library directory, defaulting to
@@ -318,7 +378,7 @@ For a **drive-off dry run** build the stub instead (`make -f Makefile.rust
 ethercat-stub`) and point `[ethercat_node].endpoint` at
 `rust/target/release/ethercat-rt-stub`.
 
-## Step 7 — Configure klippy and bring the drive up
+## Step 9 — Configure klippy and bring the drive up
 
 That is the boundary of this guide. Add `[ethercat_node]` + your servo config and
 follow [`ethercat-bench-bringup.md`](ethercat-bench-bringup.md) for the drive
@@ -385,7 +445,7 @@ The driver was ported from the Pi 4 `genet` native-driver recipe. The hooks are
 `devices/macb/update.sh <kernel-src-dir> <prev-ver> <new-ver>` regenerates the
 `-orig`/`-ethercat` pair for a new kernel by copying the mainline files and
 re-applying the previous version's diff, then you fix up any rejects by hand and
-add them to `Makefile.am`. Full detail is in `devices/macb/PORTING-NOTES.md`.
+add them to `Makefile.am`.
 
 ## Troubleshooting
 
@@ -394,8 +454,8 @@ add them to `Makefile.am`. Full detail is in `devices/macb/PORTING-NOTES.md`.
 | `configure: … kernel 6.XX not available for macb driver` | no `macb_main-6.XX-orig.c` in `devices/macb/` | install the matching file set, or `--with-macb-kernel=6.18` and run the 6.18.33 kernel |
 | `linux-headers-…-rt : Depends: gcc-14-for-host but it is not installable` | building on bookworm | upgrade to trixie (the 6.18 kernel + `gcc-14` live there) |
 | `ec_macb` won't bind / `eth0` still a normal netdev | the builtin `macb` grabbed the NIC, or NetworkManager re-claimed it | run `ethercat-macb-up.sh` (driver_override + unbind); mark `eth0` unmanaged in NM |
-| endpoint aborts claim `rc=-10/-11/-12` | missing `CAP_IPC_LOCK` / isolated core / `CAP_SYS_NICE` | install the klipper RT drop-in (Step 5); confirm the isolated core exists |
-| drive latches `ErC1.1` / `0x8700` / `al=0x001a`, "works once connected" | DC loop not truly `SCHED_FIFO` on an isolated core under cold-boot load | verify RT (Step 5); **power-cycle the drive** to clear the latch, then fix the RT cause |
+| endpoint aborts claim `rc=-10/-11/-12` | missing `CAP_IPC_LOCK` / isolated core / `CAP_SYS_NICE` | install the klipper RT drop-in (Step 7); confirm the isolated core exists |
+| drive latches `ErC1.1` / `0x8700` / `al=0x001a`, "works once connected" | DC loop not truly `SCHED_FIFO` on an isolated core under cold-boot load | verify RT (Step 7); **power-cycle the drive** to clear the latch, then fix the RT cause |
 | bringup `rc=-2` "no slaves responding" | drive powered off or cable | power the drive, check the cable, `FIRMWARE_RESTART` |
 
 ## See also
@@ -410,4 +470,3 @@ add them to `Makefile.am`. Full detail is in `devices/macb/PORTING-NOTES.md`.
 - [`ethercat-bench-bringup.md`](ethercat-bench-bringup.md) — drive bring-up, config, homing, faults.
 - [`servo-feedforward.md`](servo-feedforward.md) — velocity/torque feedforward.
 - [`servo-telemetry-capture.md`](servo-telemetry-capture.md) — `.scap` capture + dynamics fitting.
-- `devices/macb/PORTING-NOTES.md` (in the IgH tree) — `ec_macb` provenance and porting.

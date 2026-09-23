@@ -303,3 +303,22 @@ def test_both_guides_name_the_stop_category_and_the_alarm_it_latches(doc):
         "%s does not close off Pn000.3, which reads like an escape and is not"
         % doc.stem
     )
+
+
+COLLATED = DOCS / "markforged-cb2-complete-build.md"
+
+
+@pytest.mark.parametrize("doc", [GUIDE, COLLATED], ids=lambda p: p.stem)
+def test_the_cn2_pinout_is_listed_as_unverified_not_as_read_back(doc):
+    """Both guides say, where they give the CN2 table, that it is an inference
+    by elimination: the manual prints the serial pinout only under a 17-bit
+    heading. The setup guide then closed by listing "the CN2 pinout" among the
+    values read back out of the manual and found to match — the one place a
+    reader checks before crimping."""
+    text = doc.read_text(encoding="utf-8")
+    closing = text[text.index("Still unverified on hardware\n") :]
+    closing = closing[: closing.index("\n## ", 1)]
+    flat = re.sub(r"\s+", " ", closing)
+    unverified, _, read_back = flat.partition("Every other drive value")
+    assert "CN2 encoder pinout" in unverified
+    assert "CN2" not in read_back

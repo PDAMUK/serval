@@ -49,6 +49,7 @@ ABSENT_ON_PURPOSE = {
     "klippy/extras/manual_stepper.py",
     "klippy/extras/probe_eddy_current.py",
     "klippy/extras/trad_rack.py",
+    "rust/target/debug/incremental",
     "rust/target/release/ethercat-rt",
     "rust/target/release/ethercat-rt-stub",
 }

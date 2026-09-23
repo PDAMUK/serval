@@ -64,8 +64,8 @@ SOURCES = {
         "docs/rewrite/ethercat-bench-bringup.md: rotation_distance is 'mm of "
         "axis travel per motor revolution', so a reduction belongs in it. "
         "gear_ratio is parsed only by klippy/stepper.py parse_gear_ratio; no "
-        "gearing term exists anywhere in the servo path, and the config "
-        "reader accepts the option on a servo [motor] without applying it"
+        "gearing term exists anywhere in the servo path, and "
+        "klippy/extras/servo_axis.py ServoMotor refuses the option at startup"
     ),
     "gear_stage_inertia": (
         "NOT MODELLED — the reduction's own two pulleys, its belt and its "

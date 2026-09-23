@@ -141,8 +141,10 @@ The CB2 is a Rockchip **RK3566**, whose GbE is a Synopsys DesignWare MAC driven
 by `stmmac`/`rk_gmac-dwmac`. IgH ships native drivers for `e1000e`, `igb`,
 `r8169`, `genet` and `macb` — **none of which match it**. The `ec_macb` driver
 in the host install guide is specific to the Pi 5's RP1 Cadence GEM and does not
-apply here. A Raspberry Pi CM4 in the same socket does not help either: its
-GENET MAC has no native IgH driver.
+apply here. A Raspberry Pi CM4 in the same socket is a different case: its
+BCM2711 GENET MAC is exactly what IgH's `genet` driver is for, but that driver
+carries kernels 5.10 to 6.12 only and nothing in this repository has built or
+run it, so it is not one of the routes below.
 
 Three ways forward, in increasing order of risk:
 
@@ -1509,7 +1511,8 @@ under load is the failure mode the whole real-time setup exists to avoid; do not
 manufacture it with a test run.
 
 The CB2 does have to *build* — the native klippy modules and the endpoint, which
-Step 8 of the host page explains cannot be cross-compiled. That is unavoidable
+[Step 11 of the host page](ethercat-host-cb2-rk3566.md#step-11-build-the-kalico-endpoint)
+explains cannot be cross-compiled. That is unavoidable
 and is not this. Building links what the printer needs; `ci.sh quick` compiles
 and runs the test binaries of every crate in the workspace as well.
 
@@ -1739,10 +1742,15 @@ Carried forward honestly. None of the following has run on real hardware:
 - Three values that belong to the `-EC` variant and cannot be confirmed against
   the base ProNet manual: `Pn006.0 = 4` (that manual's `Pn006` range stops at
   `0x2133`), and the alarm codes **`A.70`** and **`A.71`** (its alarm table runs
-  `A.00` to `A.69`). Every other drive value in this document — the `A.06`,
-  `A.10`, `A.13`, `A.22` and `A.25` meanings, the CN2 pinout, the U/V/W to
-  A/B/C mapping, the encoder resolutions, and every `Pn` in Part 13 with its
-  unit and range — was read back out of that manual and matches.
+  `A.00` to `A.69`).
+- The CN2 encoder pinout, which is an inference by elimination rather than a
+  quotation — the manual prints it only under a 17-bit heading (Part 6,
+  *Encoder*).
+
+Every other drive value in this document — the `A.06`, `A.10`, `A.13`, `A.22`
+and `A.25` meanings, the U/V/W to A/B/C mapping, the encoder resolutions, and
+every `Pn` in Part 13 with its unit and range — was read back out of that
+manual and matches.
 
 ## See also
 

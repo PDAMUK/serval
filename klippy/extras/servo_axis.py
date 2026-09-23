@@ -104,6 +104,13 @@ class ServoMotor:
         self.rotation_distance = motor_config.getfloat(
             "rotation_distance", above=0.0
         )
+        if motor_config.get("gear_ratio", None) is not None:
+            raise motor_config.error(
+                "[%s]: gear_ratio is a stepper option and nothing in the "
+                "servo path applies it — fold the reduction into "
+                "rotation_distance, which is mm of axis travel per motor "
+                "revolution" % (motor_config.get_name(),)
+            )
         self.encoder_counts_per_rev = motor_config.getint(
             "encoder_counts_per_rev", minval=1
         )

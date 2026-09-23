@@ -132,13 +132,16 @@ def test_the_page_gears_the_torque_by_the_ratio_and_the_rotor_by_its_square():
 
 
 def test_the_page_says_where_the_ratio_goes_in_the_config():
-    """`gear_ratio` is a stepper option. The config reader takes it on a servo
-    motor and the servo path never reads it, so a reader who puts it there
-    gets silently wrong motion."""
+    """`gear_ratio` is a stepper option and the servo path never applies it,
+    so a servo motor refuses it at startup. The page has to say where the
+    reduction goes instead, or a reader gearing an axis is left with a config
+    that will not load and no hint of the fix."""
     flat = re.sub(r"\s+", " ", PAGE)
     assert "goes in <code>rotation_distance</code>" in flat
     assert "no gearing term exists anywhere in the servo path" in flat
     assert "no gear_ratio: the servo path never reads it" in flat
+    assert "refuses the option at startup" in flat
+    assert "without ever applying it" not in flat
 
 
 def test_the_belt_force_the_flags_quote_is_the_geared_one():

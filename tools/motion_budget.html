@@ -452,7 +452,7 @@ function render(){
       + "What <em>is</em> modelled is the part that bites: torque scales with the ratio and the rotor with its square, which is why " + fmt(m.ratio,2) + ":1 reflects " + fmt(m.reflected,2) + " kg."));
   if (m.ratio !== 1)
     flags.push(note("", "<strong>The ratio goes in <code>rotation_distance</code>, not in <code>gear_ratio</code>.</strong> "
-      + "<code>gear_ratio</code> is parsed by <code>klippy/stepper.py</code> for steppers; no gearing term exists anywhere in the servo path, and the config reader takes the option on a servo <code>[motor]</code> without ever applying it. "
+      + "<code>gear_ratio</code> is parsed by <code>klippy/stepper.py</code> for steppers; no gearing term exists anywhere in the servo path, so a servo <code>[motor]</code> refuses the option at startup rather than accept a ratio it would never apply. "
       + "The block below has it folded in already."));
   if (Math.abs(m.reflected - m.mass[1]) / m.mass[1] < 0.15)
     flags.push(note("", "<strong>Inertia is matched.</strong> The rotor reflects " + fmt(m.reflected,2) + " kg against " + fmt(m.mass[1],2) + " kg of gantry and carriage, which is where peak acceleration maxes out &mdash; half the torque goes into the load and half into the rotor, and no ratio does better."));

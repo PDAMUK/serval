@@ -579,7 +579,9 @@ through the Linux net stack, and that jitter is what makes a drive miss SYNC0
 and latch `A.70`. IgH ships native drivers for `e1000e`, `igb`, `r8169`,
 `genet` and `macb` — **none of which match the RK3566.** `ec_dwmac-rk` is
 generated for it by this repository's own tool. A Raspberry Pi CM4 in the same
-socket does not help either: its GENET MAC has no native IgH driver.
+socket is a different case: its BCM2711 GENET MAC is exactly what IgH's `genet`
+driver is for, but that driver carries kernels 5.10 to 6.12 only and nothing in
+this repository has built or run it.
 
 ## B1 — A 6.12 PREEMPT_RT kernel
 

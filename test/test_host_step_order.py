@@ -21,6 +21,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 COLLATED = ROOT / "docs" / "rewrite" / "markforged-cb2-complete-build.md"
 HOST = ROOT / "docs" / "rewrite" / "ethercat-host-cb2-rk3566.md"
+PI5 = ROOT / "docs" / "rewrite" / "ethercat-igh-macb-install.md"
 
 
 def steps(path, pattern):
@@ -34,6 +35,7 @@ def steps(path, pattern):
 CASES = [
     (COLLATED, r"^## B(\d+) — (.+)$", "B"),
     (HOST, r"^## Step (\d+) — (.+)$", "Step "),
+    (PI5, r"^## Step (\d+) — (.+)$", "Step "),
 ]
 
 

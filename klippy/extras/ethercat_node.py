@@ -36,6 +36,8 @@ DRIVE_FAULT_POLL_PERIOD = 1.0
 # ERR_PIECES_WHILE_PARKED in rust/ethercat-rt/src/torque.rs, truncated to the
 # u16 the heartbeat carries.
 TORQUE_GATE_FAULT_CODE = 0xFEC7
+FRAME_LATE_FAULT_CODE = 0xFE10
+CYCLE_SKIP_FAULT_CODE = 0xFE11
 
 EC_RT_MAX_SLAVES = 8
 
@@ -382,14 +384,14 @@ class EtherCatNode:
         fault = engine.take_drive_fault(self.engine_handle)
         if fault is None:
             return eventtime + DRIVE_FAULT_POLL_PERIOD
-        if fault == 0xFE10:
+        if fault == FRAME_LATE_FAULT_CODE:
             msg = (
                 "EtherCAT frame-timing fault on node %s: the realtime "
                 "endpoint sent a frame later than late_tolerance_us and "
                 "parked the drives (host CPU stall, not a drive alarm)"
                 % (self.name,)
             )
-        elif fault == 0xFE11:
+        elif fault == CYCLE_SKIP_FAULT_CODE:
             msg = (
                 "EtherCAT cycle-skip fault on node %s: the realtime "
                 "endpoint overran a full cycle and the drives coasted on "

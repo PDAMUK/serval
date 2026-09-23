@@ -32,6 +32,11 @@ SHARED_STEPS = {
     "the stub for the drive-off dry run": "ethercat-stub",
     "an isolated core for the DC loop": "isolcpus",
     "where to go next": "## See also",
+    "the autotools IgH's ./bootstrap runs": "autoconf automake libtool",
+    "the header the serialport crate links": "libudev-dev",
+    "the pinned Rust toolchain": "sh.rustup.rs",
+    "this fork, not the upstream it is built on": "PDAMUK/serval",
+    "the klippy modules built from that checkout": "scripts/build-native.sh",
 }
 
 
@@ -180,3 +185,70 @@ def test_no_host_page_offers_a_core_choice_nothing_can_honour():
             "%s no longer isolates CPU 3, which is the only core the endpoint "
             "will pin to" % rel
         )
+
+
+def test_every_clone_names_a_real_source():
+    """The Pi 5 page cloned the IgH master from `<fork-url> -b <fork-branch>`,
+    placeholders the page's own preamble presents as host values to fill in.
+    They were never host values: nothing the reader has supplies a fork URL, so
+    the recommended first-build path stopped at its second command. Upstream
+    `stable-1.6` has shipped `ec_macb` since 1.6.10, which is what the page
+    now clones."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for rel in [
+        "docs/rewrite/ethercat-igh-macb-install.md",
+        "docs/rewrite/ethercat-host-cb2-rk3566.md",
+        "docs/rewrite/markforged-cb2-complete-build.md",
+    ]:
+        text = (root / rel).read_text(encoding="utf-8")
+        for clone in re.findall(r"^git clone .*$", text, re.M):
+            assert "<" not in clone, "%s: %s" % (rel, clone)
+    pi5 = (root / "docs/rewrite/ethercat-igh-macb-install.md").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "git clone -b stable-1.6 https://gitlab.com/etherlab.org/ethercat.git"
+        in pi5
+    )
+    assert "1.6.10" in pi5, "the page no longer says which release has ec_macb"
+    assert "PORTING-NOTES.md" not in pi5, (
+        "upstream's devices/macb/ carries no PORTING-NOTES.md; that was the fork's"
+    )
+
+
+def test_no_page_denies_the_cm4_its_native_driver():
+    """Both build guides listed `genet` among IgH's native drivers and, a
+    sentence later, said a CM4's GENET MAC had none. IgH's `devices/genet/` is
+    the BCM2711 GENET driver, for kernels 5.10 to 6.12 — the Pi 4 recipe the
+    Pi 5 page says `ec_macb` was ported from."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for rel in [
+        "docs/rewrite/estun-pronet-markforged-setup.md",
+        "docs/rewrite/markforged-cb2-complete-build.md",
+    ]:
+        flat = re.sub(r"\s+", " ", (root / rel).read_text(encoding="utf-8"))
+        assert "GENET MAC has no native IgH driver" not in flat, rel
+        assert "IgH's `genet` driver is for" in flat, rel
+
+
+def test_a_step_cited_on_another_page_is_a_link():
+    """The setup guide sent the reader to "Step 8 of the host page" for why
+    the endpoint cannot be cross-compiled. The CB2 page's steps were reordered
+    kernel-first and that explanation moved to Step 11, while Step 8 became
+    the NIC hand-over — and plain prose has nothing to go stale against. As a
+    link, a renumber breaks the anchor, which the anchor check catches."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for path in sorted((root / "docs" / "rewrite").glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        flat = re.sub(r"\s+", " ", text)
+        bare = re.findall(r"(?<!\[)\b[Ss]tep \d+ of the [\w -]*?page\b", flat)
+        assert not bare, "%s cites %s as prose" % (path.name, bare)
