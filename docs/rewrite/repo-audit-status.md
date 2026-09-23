@@ -78,8 +78,16 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 61 | The motion budget's copyable `printer.cfg` block formatted its numbers for a reader: `max_velocity: 1,000` and `max_accel: 2,211`, which klippy's reader hands back with the separator still in them. Worse in a comma-decimal locale, where `toLocaleString` prints `2.211` — which parses cleanly and is a thousand times too small, so the machine crawls and nothing looks wrong. Config values now go through `cfgnum`, and the drift test runs the page's own `cfgText` with `toLocaleString` monkeypatched to throw | `ca011f6` |
 | 62 | The same page's caution against a raised torque limit was gated on `m.limiter === "motor"` — so it was silent in the one case that can break something. When the belt is the limit, raising `max_torque` moves no number on the page (the ceiling is the belt's) while letting the drive pull 598 N through a belt rated for 26 N, and the reader who sees nothing change concludes it was harmless. The caution now fires above 100 % either way, says 300 % is the motor's burst rating rather than something it holds, and the `max_torque` line it writes into the config carries that in a comment | `ca011f6` |
 | 63 | Finding 59's fix used the belt figure as a hard wall, so the tool reported **8,844 mm/s²** on Y as this machine's acceleration where the drive delivers **67,284**. SDP/SI's allowable working tension is a *continuous* rating: it falls with rpm (a life figure), §24 compares it against a running torque already carrying a 1.5-2.0 service factor, and §9.1 says outright that *intermittent peak torques can often be carried by synchronous drives without special considerations*. A print move's acceleration is exactly that intermittent peak. The model now carries `peak_torque_nm` and `continuous_torque_nm` separately, the page shows both, and what really bounds the peak — tooth ratcheting, which turns on installation tension and teeth in mesh — is named and recorded as unquantified rather than substituted for. The tension figure itself was re-verified and is right: Table 3's 111 N/inch, Table 33's 0.18 N·m at a 20-groove 6 mm pulley and Table 30's belt-stock tension all agree | `49ddb61` |
-| 64 | `gear_ratio` is parsed only by `klippy/stepper.py parse_gear_ratio`. No gearing term exists anywhere in the servo path — `bridge/ethercat_endpoint.rs` passes `rotation_distance` straight through — yet the config reader accepts the option on a servo `[motor]` without complaint. Someone gearing a servo axis writes `gear_ratio: 80:20`, the config loads, and every move is wrong by the ratio with nothing said. Not changed here (it is reader behaviour, not the tool's); the motion budget folds the ratio into `rotation_distance` as the bench guide defines it, and says in the page and in the config it writes that `gear_ratio` is not read | `1974da6` |
+| 64 | `gear_ratio` is parsed only by `klippy/stepper.py parse_gear_ratio`. No gearing term exists anywhere in the servo path — `bridge/ethercat_endpoint.rs` passes `rotation_distance` straight through — yet the config reader accepts the option on a servo `[motor]` without complaint. Someone gearing a servo axis writes `gear_ratio: 80:20`, the config loads, and every move is wrong by the ratio with nothing said. Not changed here (it is reader behaviour, not the tool's); the motion budget folds the ratio into `rotation_distance` as the bench guide defines it, and says in the page and in the config it writes that `gear_ratio` is not read. **The premise is wrong — see 66** | `1974da6` |
 | 65 | The belt-duty flag quoted `motorTorque/r` as the force through the belt, which is the torque at the *servo*, not at the gantry pulley the belt hangs off. With a reduction fitted it understated the force by the ratio and contradicted the duty multiple printed in the same sentence — 199 N beside a 12.9× that means 338 N. Introduced by this change and caught by rendering it rather than by reading it | `1974da6` |
+| 66 | Finding 64's premise was wrong, and the motion budget repeated it in its source table and on the page. klippy does not take `gear_ratio` on a servo `[motor]`: nothing reads it, so the unused-option accounting refuses it at startup — `Option 'gear_ratio' is not valid in section 'motor motor_x'`, checked by loading one rather than by reading the reader. What was real was narrower: that refusal names no remedy, and `[danger_options] error_on_unused_config_options: False` turns it into a log line, after which every move on the axis is wrong by the ratio. `ServoMotor` now refuses the option itself, whatever the danger options say, and names `rotation_distance` as where the reduction goes | `ee083fd` |
+| 67 | `test_every_repo_path_it_names_exists` failed on every checkout without a debug build. Both CB2 documents name `rust/target/debug/incremental` as the directory to clear on a full disk, and it exists only after a debug build — so the suite passed on a machine that had run `ci.sh quick` first and failed on a fresh one, including the `ci.sh py` container, which mounts a checkout with no `rust/target` at all. Found by running the suite on a fresh container before anything else had built | `ee083fd` |
+| 68 | The Pi 5 page — the route Part 2 calls "the path to use for a first build" — cloned the IgH master from `git clone <fork-url> -b <fork-branch>`. Its preamble presents angle brackets as host values to fill in, and these were not: nothing the reader has supplies a fork URL, so the recommended route stopped at its second command. The merge has since happened — IgH `stable-1.6` ships `ec_macb` from 1.6.10, derived from Linux 6.18.33 as the page's pin assumes — so the page clones upstream and names the release. It also dropped `PORTING-NOTES.md`, which the fork carried and upstream does not, and now says the bench ran the pre-merge fork rather than upstream's 1.6.13 receive-path rework | `ee083fd` |
+| 69 | The same page never installed a build tool, never got this fork onto the Pi and never built the klippy modules — findings 53, 56 and 57, fixed on the CB2 route only. `./bootstrap` fails without autotools, the RT drop-in extended a `klipper.service` nothing had created, the endpoint was built "from the repo" without saying which, and a checkout of `dderg/kalico` has no markforged kinematics. `test_host_docs_parity.py` checked eleven steps the pages share and none of these | `ee083fd` |
+| 70 | Both build guides listed `genet` among IgH's native drivers and a sentence later said a CM4's GENET MAC "has no native IgH driver". IgH's `devices/genet/` is the BCM2711 GENET driver, for kernels 5.10 to 6.12 — the Pi 4 recipe the Pi 5 page says `ec_macb` was ported from | `ee083fd` |
+| 71 | The setup guide sent the reader to "Step 8 of the host page" for why the endpoint cannot be cross-compiled. Finding 58 reordered the CB2 page kernel-first; the explanation moved to Step 11 and Step 8 became the NIC hand-over. A citation in plain prose has nothing to go stale against, so it is now a link and the anchor check catches the next renumber | `ee083fd` |
+| 72 | The setup guide says in Part 6 that the CN2 table is "an inference from elimination rather than a quotation", then closed by listing "the CN2 pinout" among the values read back out of the manual and found to match. The collated guide already listed it as unverified; the setup guide now does too, which makes six items — the count `.claude/CLAUDE.md` already gave | `ee083fd` |
+| 73 | The endpoint's two host-stall codes, `0xFE10` (frame late) and `0xFE11` (cycle skip), were bare literals in `ethercat_node.py` with no mirror check and no test of the messages they select. The torque-gate code beside them had both. Change either side alone and a CPU stall is reported as a drive alarm, which sends someone to the drive's alarm table | `ee083fd` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -292,6 +300,16 @@ Not defects. Recorded so the next pass does not spend the time again.
   Manta M8P V2 is an STM32H723. Worth knowing before anyone plans an RP2040 or
   SAMD toolboard on this fork — `lib/rp2040_flash` is still here, the SDK it
   flashes is not.
+- **IgH `stable-1.6` at 1.6.13, read against both host routes.** The Pi 5
+  page's `--enable-macb --with-macb-kernel=6.18` are upstream's own switches,
+  and `configure` refuses a kernel with no `devices/macb/macb_main-<X.Y>-orig.c`
+  exactly as the page says. Upstream's driver commit states the 6.18.33
+  derivation, so the page's kernel pin still holds. On the CB2 route, 1.6.11
+  reworked IgH's stmmac for a 6.12 API change after `generate.py` was written;
+  run against a fresh 1.6.13 clone it still finds its rename map, generates and
+  verifies all three pairs, and wires `configure.ac`, `Kbuild.in` and
+  `Makefile.am`. Whether the result *compiles* was not checked — that needs a
+  6.12 kernel tree, which this container does not have.
 
 ### Every verification step in the two build guides, evaluated
 
@@ -477,7 +495,7 @@ share lanes", which would newly admit markforged, and the call site was pinned
 to `kind != "corexy"` to hold upstream's behaviour. Right change, wrong reason
 recorded.
 
-**Three deliberate behavioural differences from upstream**, all toward safety,
+**Four deliberate behavioural differences from upstream**, all toward safety,
 all in the emergency-stop path — worth knowing before anyone calls this branch
 "upstream plus markforged":
 
@@ -531,6 +549,15 @@ in this repository — say so plainly rather than let the tally imply otherwise:
   `FAIL (1)` at the line that failed rather than `FAIL (125)` with docker's
   "invalid reference format" on top.
 
+Findings 66-73 came from two questions not asked before. One was put to the Pi 5
+page, the route the guide recommends, which had been treated as the known-good
+oracle and never itself asked what the CB2 route had been asked. The other was
+put to the suite: whether it passes on a checkout where nothing has been built.
+Neither route to a finding was a re-read of the servo path. As of `ee083fd`,
+`ci.sh quick` is 5 pass, the Rust suite 2488 passed / 5 skipped, the Python suite
+1297 passed / 8 skipped, and `py-typecheck` and `docs` pass. The Python figure
+now holds on a fresh checkout as well, which finding 67 shows it did not before.
+
 ## Not yet audited
 
 Rescoped once the upstream diff made it clear what is actually this branch's
@@ -559,12 +586,14 @@ job from auditing this branch.
   two `needs_elf` cases need the sim image, and Docker cannot build that image
   in this container for want of the proxy's CA. Those two were checked against
   the harness they call, not against a run.
-- **The five items in the guide's "Still unverified on hardware".** A drive on
+- **The six items in the guide's "Still unverified on hardware".** A drive on
   the bench settles them and nothing else does: the ESTUN vendor ID and product
   code, the Markforged belt-coupling sign, `ec_dwmac-rk` actually loading on the
   CB2, whether 60 W per drive is enough regenerative capacity for this gantry,
-  and the three `-EC`-only values (`Pn006.0 = 4`, `A.70`, `A.71`) the base
-  ProNet manual cannot confirm.
+  the three `-EC`-only values (`Pn006.0 = 4`, `A.70`, `A.71`) the base
+  ProNet manual cannot confirm, and the CN2 encoder pinout, which that manual
+  prints only under a 17-bit heading. Crimping one cable and reading the
+  position display settles the last.
 
 ## Resuming on a fresh container
 
@@ -572,10 +601,11 @@ Everything is committed and pushed; the branch is the state. Nothing needs
 carrying over but the build artifacts, which are regenerated:
 
 ```sh
+sudo apt install pkg-config libudev-dev   # if absent; the motion engine links libudev
 scripts/build-native.sh          # klippy/_*.so — klippy will not start without them
 cargo install cargo-nextest --locked   # if absent; the Rust suite needs it
 ./scripts/ci.sh quick            # expect 5 pass
-uv run pytest test/ -q           # expect 1251 passed, 8 skipped
+uv run pytest test/ -q           # expect 1297 passed, 8 skipped
 ```
 
 `test_ethercat_claim_stub.py` and `test_pdo_map.py` need artifacts the first

@@ -247,7 +247,10 @@ def test_a_step_cited_on_another_page_is_a_link():
     import re
 
     root = pathlib.Path(__file__).resolve().parents[1]
+    records_what_was_broken = "repo-audit-status.md"
     for path in sorted((root / "docs" / "rewrite").glob("*.md")):
+        if path.name == records_what_was_broken:
+            continue
         text = path.read_text(encoding="utf-8")
         flat = re.sub(r"\s+", " ", text)
         bare = re.findall(r"(?<!\[)\b[Ss]tep \d+ of the [\w -]*?page\b", flat)
