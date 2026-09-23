@@ -350,7 +350,8 @@ position_max: 250
 ```
 
 `max_torque` is a percentage of *rated* torque and accepts up to 400, so 300 is
-the EMJ-04A's full peak — roughly 600 N at a 40 mm pulley. Bring a machine up at
+the EMJ-04A's full peak — roughly 600 N at a 20-tooth pulley (40 mm of belt
+per turn). Bring a machine up at
 100 and raise it because a move stalled, not before. `following_error` has no
 default: leave it out and no session limit is written at all, and the drive
 keeps whatever the last session left in `6065h`.
@@ -476,7 +477,7 @@ endpoint: rust/target/release/ethercat-rt-stub
 - Do a small supervised jog. Watch for:
   - `engine_state == Fault (3)` in the `StatusHeartbeat` → the host pump fell behind >2 ms (`PieceStartInPast`). The endpoint latches the fault and propagates it so the host can shut down; the hw binary also disables the drive. This is expected on a gross stall, not on a healthy stream.
   - `wkc != 3` → EtherCAT bus working-counter fault (drive comms), the endpoint
-    halts and dumps `al=0x…`. `al=0x001a` is a DC sync loss (ErC1.1) — see the
+    halts and dumps `al_status=0x…`. `al_status=0x001a` is a DC sync loss (ErC1.1) — see the
     real-time scheduling section; the usual cause is the loop not running
     `SCHED_FIFO` on the isolated core.
 
@@ -535,7 +536,7 @@ is not best-effort. If it runs `SCHED_OTHER`, the loop keeps cadence on a warm,
 idle Pi but misses SYNC0 under boot load — and the drive latches **ErC1.1
 "synchronization loss"** (panel reads `ErC11`; CoE error register `0x8700`;
 EtherCAT AL status `0x001a`, visible in the endpoint's `ec_rt: slave1 …
-al=0x001a` dump on a working-counter halt). Because the drive is usually on its
+al_status=0x001a` dump on a working-counter halt). Because the drive is usually on its
 own always-on supply, that latch **survives every host reboot**, so klippy's
 auto-restart keeps re-claiming an already-faulted drive — only a **drive
 power-cycle** clears `0x8700`. Classic signature: fails on cold boot / right
@@ -587,7 +588,7 @@ took; only a **cold reboot** proves the loop holds cadence under boot load:
     chrt -p $pid                                     # want: SCHED_FIFO priority 80
     grep Cpus_allowed_list /proc/$pid/status         # want: 3 (the isolated core)
     /usr/sbin/getcap rust/target/release/ethercat-rt   # want: ...cap_sys_nice=ep
-    sudo journalctl -b | grep -c 'al=0x001a'         # want: 0
+    sudo journalctl -b | grep -c 'al_status=0x001a'         # want: 0
 
 `SCHED_OTHER` + `cpus 0-1` on the live endpoint is the bug, not health — the cap
 is not reaching it. (Endpoints sampled in their first ~200 ms read `SCHED_OTHER`

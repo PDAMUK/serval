@@ -42,14 +42,16 @@ cannot be used as-is.
 
 ## Step 1 — A 6.12 PREEMPT_RT kernel
 
-The CB2 is a supported Armbian board (`bigtreetech-cb2`), and its device tree
-`rk3566-bigtreetech-pi2.dts` is in mainline Linux. Build an image with the
-kernel configured for real time:
+The CB2 is a supported Armbian board (`bigtreetech-cb2`). Its device tree,
+`rk3566-bigtreetech-pi2.dts`, reached mainline Linux only in 6.14; on 6.12 it
+comes from Armbian's own patch set, which is one more reason to build the image
+with Armbian rather than from a plain 6.12 tree. Build an image with the kernel
+configured for real time:
 
 ```sh
-git clone --depth 1 https://github.com/armbian/build
+git clone --depth 1 --branch v25.11.1 https://github.com/armbian/build
 cd build
-./compile.sh BOARD=bigtreetech-cb2 RELEASE=trixie \
+./compile.sh BOARD=bigtreetech-cb2 BRANCH=current RELEASE=trixie \
              BUILD_MINIMAL=yes BUILD_DESKTOP=no \
              KERNEL_CONFIGURE=yes
 ```
@@ -63,9 +65,11 @@ cd build
 | same | `CONFIG_STMMAC_PLATFORM` | M |
 | same | `CONFIG_DWMAC_ROCKCHIP` | M |
 
-Pick a kernel branch that lands on **6.12**; Armbian's branch names move, so
-check what the build offers rather than assuming. Flash the resulting image and
-boot it.
+**The tag is what makes this 6.12.** Armbian's `current` branch for this board
+family moves with its releases, and `v25.11.1` is the last release where it is
+6.12: from `v26.2.1` it is 6.18, and on `main` the board offers only 6.18
+(`current`) and 7.2 (`edge`). IgH's stmmac set stops at 6.12, so an unpinned
+clone offers no branch this build can use. Flash the resulting image and boot it.
 
 **Verify.** On the booted CB2, all three must hold:
 
@@ -223,7 +227,7 @@ sudo ldconfig
 **Verify.**
 
 ```sh
-ls /lib/modules/$(uname -r)/extra/ec_dwmac-rk.ko   # or wherever modules_install put it
+ls /lib/modules/$(uname -r)/ethercat/devices/stmmac/ec_dwmac-rk.ko
 modinfo ec_dwmac-rk | head -5
 ```
 
@@ -234,7 +238,7 @@ kernel, so a module compiled against a different tree is an easy mistake and
 `modprobe` refuses it with nothing that names the cause.
 
 ```sh
-/usr/sbin/modinfo -F vermagic /lib/modules/$(uname -r)/extra/ec_dwmac-rk.ko
+/usr/sbin/modinfo -F vermagic /lib/modules/$(uname -r)/ethercat/devices/stmmac/ec_dwmac-rk.ko
 uname -r
 ```
 
@@ -283,17 +287,28 @@ DEV=<from-step-4>.ethernet          # e.g. fe010000.ethernet
 SYS=/sys/bus/platform
 
 [ -e "$SYS/devices/$DEV/driver_override" ] && \
-    echo ec_dwmac-rk > "$SYS/devices/$DEV/driver_override"
+    echo ec_rk_gmac-dwmac > "$SYS/devices/$DEV/driver_override"
 
 cur=$(basename "$(readlink "$SYS/devices/$DEV/driver" 2>/dev/null)" 2>/dev/null || true)
-if [ -n "$cur" ] && [ "$cur" != ec_dwmac-rk ]; then
+if [ -n "$cur" ] && [ "$cur" != ec_rk_gmac-dwmac ]; then
     echo "$DEV" > "$SYS/drivers/$cur/unbind" 2>/dev/null || true
 fi
 
-modprobe ec_dwmac-rk
-echo "$DEV" > "$SYS/drivers/ec_dwmac-rk/bind" 2>/dev/null || true
 /opt/etherlab/etc/init.d/ethercat start
 ```
+
+**The module and the driver it registers have different names.** The module
+is `ec_dwmac-rk`; the platform driver inside it is `ec_rk_gmac-dwmac`, the
+in-tree `rk_gmac-dwmac` with IgH's `ec_` prefix. `driver_override` matches the
+driver, so that is the name it takes.
+
+**The script loads no module itself.** `init.d/ethercat start` loads
+`ec_master` with `main_devices` set from `MASTER0_DEVICE`, then unloads the
+in-tree `dwmac-rk` and loads `ec_dwmac-rk` in its place, which binds through
+the override. A `modprobe ec_dwmac-rk` ahead of it would drag `ec_master` in as
+a dependency with no `main_devices`, and the init script's own load would then
+do nothing: a master with no device, which reads exactly like a wrong MAC. The
+Pi 5's `ec_macb` handover, the one that has run, has the same shape.
 
 Configure the master to expect this MAC, in
 `/opt/etherlab/etc/sysconfig/ethercat`:
@@ -365,6 +380,7 @@ sudo systemctl enable --now ethercat-dwmac.service
 **Verify.**
 
 ```sh
+basename "$(readlink /sys/bus/platform/devices/<DEV>/driver)"   # ec_rk_gmac-dwmac
 ethercat master            # must report the master up with a link
 ls -l /dev/EtherCAT0       # must exist, and be readable by the klipper user
 ip link show eth0          # the interface should no longer be managed normally
@@ -397,7 +413,11 @@ first 200 ms):
 pid=$(pgrep -f release/ethercat-rt)
 chrt -p $pid                              # SCHED_FIFO priority 80
 grep Cpus_allowed_list /proc/$pid/status  # 3
+sudo journalctl -b | grep -c 'al_status=0x001a'   # 0 — any hit is DC sync loss
 ```
+
+That needs drives in `OP`, which means a claimed node and a config: run it at
+the build guide's first real-endpoint step, and on a cold boot, not here.
 
 ## Step 10 — Confirm the bus before trusting it
 

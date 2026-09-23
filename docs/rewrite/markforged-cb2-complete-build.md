@@ -38,9 +38,10 @@ printer but never touched a servo drive.
 >    [Still unverified](#still-unverified-on-hardware) for the honest list.
 >
 > Servo motors are not steppers. A stepper that meets an obstruction slips. A
-> servo pushes harder until something yields, and on this gantry a drive at
-> its configured limit can pull on the order of several hundred newtons
-> through a 40 mm pulley. There is no skipped-step failure mode to save you.
+> servo pushes harder until something yields. On this gantry's 20-tooth
+> pulley — 40 mm of belt per turn — a drive at Stage K's 100 % limit pulls
+> about 200 N, and about 600 N at the 300 % the drive allows. There is no
+> skipped-step failure mode to save you.
 >
 > If you are reading this for ideas, take the ideas. Do not take the wiring.
 
@@ -408,7 +409,7 @@ the same duct or bundle. On this machine that means these, specifically:
 | Cable | Why it is sensitive | What it looks like when it goes wrong |
 | --- | --- | --- |
 | **Encoder**, drive `CN2` → motor (×2) | 20-bit serial data, and the most sensitive run on the machine | `A.10` / `A.22`, or a panel position display that jumps or freezes |
-| **EtherCAT patch leads**, host → `CN3`, `CN4` → `CN3` | 100BASE-TX is robust, but the failure is catastrophic rather than noisy | `A.70`, `al=0x001a`, endpoint halt on a working-counter fault |
+| **EtherCAT patch leads**, host → `CN3`, `CN4` → `CN3` | 100BASE-TX is robust, but the failure is catastrophic rather than noisy | `A.70`, `al_status=0x001a`, endpoint halt on a working-counter fault |
 | **Emergency-stop signal** to `^PF1` | The longest low-voltage run on the machine, held up through tens of kΩ | the machine stops mid-print for nothing |
 | **Endstops** to `^PF4` / `^PF3` / `^PF2` | The same pull-up impedance, shorter runs | homing against noise instead of the switch |
 | **Thermistors** to `PB0` / `PB1` | High-impedance analogue | temperature jitter, spurious heater errors |
@@ -602,13 +603,15 @@ Two independent requirements meet at 6.12:
 **BTT's own CB2 image ships Debian bookworm with kernel 6.1, which is too old
 on both counts and cannot be used as-is.**
 
-The CB2 is a supported Armbian board (`bigtreetech-cb2`) and its device tree
-`rk3566-bigtreetech-pi2.dts` is in mainline Linux:
+The CB2 is a supported Armbian board (`bigtreetech-cb2`). Its device tree,
+`rk3566-bigtreetech-pi2.dts`, reached mainline Linux only in 6.14; on 6.12 it
+comes from Armbian's own patch set, which is one more reason to build the image
+with Armbian rather than from a plain 6.12 tree:
 
 ```sh
-git clone --depth 1 https://github.com/armbian/build
+git clone --depth 1 --branch v25.11.1 https://github.com/armbian/build
 cd build
-./compile.sh BOARD=bigtreetech-cb2 RELEASE=trixie \
+./compile.sh BOARD=bigtreetech-cb2 BRANCH=current RELEASE=trixie \
              BUILD_MINIMAL=yes BUILD_DESKTOP=no \
              KERNEL_CONFIGURE=yes
 ```
@@ -622,8 +625,11 @@ cd build
 | same | `CONFIG_STMMAC_PLATFORM` | M |
 | same | `CONFIG_DWMAC_ROCKCHIP` | M |
 
-Pick a branch that lands on **6.12** — Armbian's branch names move, so check
-what the build offers rather than assuming. Flash the image and boot it.
+**The tag is what makes this 6.12.** Armbian's `current` branch for this board
+family moves with its releases, and `v25.11.1` is the last release where it is
+6.12: from `v26.2.1` it is 6.18, and on `main` the board offers only 6.18
+(`current`) and 7.2 (`edge`). IgH's stmmac set stops at 6.12, so an unpinned
+clone offers no branch this build can use. Flash the image and boot it.
 
 **✅ Check — all three must hold:**
 
@@ -794,7 +800,7 @@ sudo ldconfig
 **✅ Check:**
 
 ```sh
-ls /lib/modules/$(uname -r)/extra/ec_dwmac-rk.ko
+ls /lib/modules/$(uname -r)/ethercat/devices/stmmac/ec_dwmac-rk.ko
 modinfo ec_dwmac-rk | head -5
 ```
 
@@ -805,7 +811,7 @@ kernel, so a module compiled against a different tree is an easy mistake and
 `modprobe` refuses it with nothing that names the cause.
 
 ```sh
-/usr/sbin/modinfo -F vermagic /lib/modules/$(uname -r)/extra/ec_dwmac-rk.ko
+/usr/sbin/modinfo -F vermagic /lib/modules/$(uname -r)/ethercat/devices/stmmac/ec_dwmac-rk.ko
 uname -r
 ```
 
@@ -849,17 +855,28 @@ DEV=<from-above>.ethernet          # e.g. fe010000.ethernet
 SYS=/sys/bus/platform
 
 [ -e "$SYS/devices/$DEV/driver_override" ] && \
-    echo ec_dwmac-rk > "$SYS/devices/$DEV/driver_override"
+    echo ec_rk_gmac-dwmac > "$SYS/devices/$DEV/driver_override"
 
 cur=$(basename "$(readlink "$SYS/devices/$DEV/driver" 2>/dev/null)" 2>/dev/null || true)
-if [ -n "$cur" ] && [ "$cur" != ec_dwmac-rk ]; then
+if [ -n "$cur" ] && [ "$cur" != ec_rk_gmac-dwmac ]; then
     echo "$DEV" > "$SYS/drivers/$cur/unbind" 2>/dev/null || true
 fi
 
-modprobe ec_dwmac-rk
-echo "$DEV" > "$SYS/drivers/ec_dwmac-rk/bind" 2>/dev/null || true
 /opt/etherlab/etc/init.d/ethercat start
 ```
+
+**The module and the driver it registers have different names.** The module
+is `ec_dwmac-rk`; the platform driver inside it is `ec_rk_gmac-dwmac`, the
+in-tree `rk_gmac-dwmac` with IgH's `ec_` prefix. `driver_override` matches the
+driver, so that is the name it takes.
+
+**The script loads no module itself.** `init.d/ethercat start` loads
+`ec_master` with `main_devices` set from `MASTER0_DEVICE`, then unloads the
+in-tree `dwmac-rk` and loads `ec_dwmac-rk` in its place, which binds through
+the override. A `modprobe ec_dwmac-rk` ahead of it would drag `ec_master` in as
+a dependency with no `main_devices`, and the init script's own load would then
+do nothing: a master with no device, which reads exactly like a wrong MAC. The
+Pi 5's `ec_macb` handover, the one that has run, has the same shape.
 
 Configure the master to expect this MAC, in
 `/opt/etherlab/etc/sysconfig/ethercat`:
@@ -929,6 +946,7 @@ sudo systemctl enable --now ethercat-dwmac.service
 **✅ Check:**
 
 ```sh
+basename "$(readlink /sys/bus/platform/devices/<DEV>/driver)"   # ec_rk_gmac-dwmac
 ethercat master            # master up, with a link
 ls -l /dev/EtherCAT0       # exists, readable by the klipper user
 ip link show eth0          # no longer managed normally
@@ -987,7 +1005,7 @@ the first 200 ms, because `go_realtime()` runs just after `main()`:
 pid=$(pgrep -f release/ethercat-rt)
 chrt -p $pid                              # SCHED_FIFO priority 80
 grep Cpus_allowed_list /proc/$pid/status  # 3
-sudo journalctl -b | grep -c 'al=0x001a'  # 0
+sudo journalctl -b | grep -c 'al_status=0x001a'  # 0
 ```
 
 `SCHED_OTHER` with `cpus 0-1` on the live endpoint is the bug, not health.
@@ -1059,10 +1077,10 @@ enabled: False
 ```
 
 > **Stage B is not proved yet.** Everything above was built with no drives
-> wired, so nothing has tested the real-time setup against real EtherCAT
-> traffic. The gate is **Stage J1**, after the chain is wired: a cold boot with
-> both drives reaching `PREOP` and no `A.70`. Until then treat the host as
-> assembled, not working.
+> wired. **Stage J1** proves the NIC handover and the bus on a cold boot once
+> the chain is wired; the real-time loop itself is proved only at **Stage L
+> step 3**, the first point it runs against drives in `OP`. Until then treat
+> the host as assembled, not working.
 
 ## If the module will not load
 
@@ -1660,33 +1678,31 @@ reaching `PREOP`.
 
 ## J1 — Confirm the bus on a cold boot, before trusting any of it
 
-**This is the gate on Stage B, and it is the first moment it can be run** —
-the host was built with no drives wired, so nothing up to here has proved the
-real-time setup against real traffic. Do it now, before a line of
+**This is the first gate on Stage B, and the first moment it can be run** —
+the host was built with no drives wired. Do it now, before a line of
 `printer.cfg` is written.
 
 **Power the machine down fully, boot it, and watch.** Not a `systemctl
-restart`, not a `FIRMWARE_RESTART` — a cold boot.
+restart`, not a `FIRMWARE_RESTART` — a cold boot, because the handover runs at
+boot: a service that only works when started by hand, or loses a race with
+NetworkManager, passes a restart and fails here.
 
 | | Must hold after the cold boot |
 | --- | --- |
+| `basename "$(readlink /sys/bus/platform/devices/<DEV>/driver)"` | `ec_rk_gmac-dwmac` — the handover ran |
 | `ethercat master` | reports the master up, with a link |
 | `ethercat slaves` | both drives, in wired order, reaching `PREOP` |
-| the drives' panels | no `A.70` |
-| `chrt -p $(pgrep -f release/ethercat-rt)` | `SCHED_FIFO` priority 80 — once the endpoint is running |
-| `sudo journalctl -b \| grep -c 'al=0x001a'` | `0` |
 
-**A warm restart proves nothing here, and that is the whole point.**
-`ec_generic` and a kernel that reports `PREEMPT` rather than `PREEMPT_RT` will
-both hold cadence on an idle bench and drop frames under boot load. The
-failure they produce — `A.70`, latched in the drive and surviving host reboots
-until the drive is power-cycled — arrives on the first cold start of a machine
-that has passed every other step, which is the most expensive place to find
-it.
+If this fails, the fault is in B6 or B7 — the driver or the handover — and not
+in anything since.
 
-If this fails, the fault is in Stage B and not in anything since. Go back to
-B1 (is it really `PREEMPT_RT`?), B5 (is the core really isolated?) and B8 (is
-the endpoint really `SCHED_FIFO` on it?) before touching drive parameters.
+**What J1 cannot prove is the real-time loop, because nothing runs it yet.**
+klippy spawns the endpoint only when it claims a node, which needs Stage K's
+config. A drive sitting in `PREOP` has no SYNC0 to lose, so no `A.70` can
+appear here, and the endpoint that would log `al_status=0x001a` has not
+started. A clean panel at J1 says nothing about B1, B5 or B8. Those checks
+belong where the loop runs — [Stage L step 3](#3-real-endpoint-motors-uncoupled)
+— and they need a cold boot there too.
 
 ---
 
@@ -1887,7 +1903,8 @@ ceiling.**
 
 The EMJ-04AFD22 is a 400 W motor rated about 1.27 N·m, so at `max_torque: 300`
 — the motor's own peak, and the same 3× its 2.8 A continuous to 8.4 A maximum
-output current implies — a 40 mm pulley pulls on the order of **600 N**. The
+output current implies — a 20-tooth pulley, 40 mm of belt per turn, pulls on
+the order of **600 N**. The
 value here is `100` instead: full continuous torque, enough to move the gantry
 and short of anything that bends a part. **Raise it only once the machine homes
 and prints, and raise it because a move stalled, not pre-emptively.**
@@ -1991,6 +2008,32 @@ If the drive **is** found but fails the SAFE-OP/OP/CiA402-enable walk
 (`rc=-3..-5`) you get the per-drive variant instead. Fix the cause, then
 `FIRMWARE_RESTART` — klippy re-spawns the endpoint and re-runs the claim.
 
+**Then the real-time gate, on a cold boot.** This is the first point the loop
+runs against drives in `OP` with DC active, so it is the first point Stage B's
+real-time setup can fail. Power everything down, boot, let klippy claim, and
+leave it running for several minutes:
+
+```sh
+pid=$(pgrep -f release/ethercat-rt)
+chrt -p $pid                                     # SCHED_FIFO priority 80
+grep Cpus_allowed_list /proc/$pid/status         # 3
+sudo journalctl -b | grep -c 'al_status=0x001a'  # 0
+```
+
+and no `A.70` on either drive's panel.
+
+**A warm restart proves nothing here, and that is the whole point.**
+`ec_generic` and a kernel that reports `PREEMPT` rather than `PREEMPT_RT` will
+both hold cadence on an idle bench and drop frames under boot load. The
+failure they produce — `A.70`, latched in the drive and surviving host reboots
+until the drive is power-cycled — arrives on the first cold start of a machine
+that has passed every other step, which is the most expensive place to find
+it.
+
+If this fails, the fault is in Stage B and not in anything since. Go back to
+B1 (is it really `PREEMPT_RT`?), B5 (is the core really isolated?) and B8 (is
+the endpoint really `SCHED_FIFO` on it?) before touching drive parameters.
+
 ### 4. Torque on, no motion
 
 Both drives reach **Operation Enabled** and hold position. `engine_state` stays
@@ -2016,7 +2059,7 @@ Watch for:
   and propagates it so the host can shut down; the hw binary also disables the
   drive. Expected on a gross stall, not on a healthy stream.
 - **`wkc != 3`** — EtherCAT working-counter fault. The endpoint halts and dumps
-  `al=0x…`. **`al=0x001a` is DC sync loss**, and the usual cause is the loop not
+  `al_status=0x…`. **`al_status=0x001a` is DC sync loss**, and the usual cause is the loop not
   running `SCHED_FIFO` on the isolated core.
 
 ### 6. Check the coupling sign

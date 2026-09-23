@@ -403,7 +403,7 @@ holds cadence under boot load. With the servo claimed:
 pid=$(pgrep -f release/ethercat-rt)
 chrt -p "$pid"                          # SCHED_FIFO priority 80
 grep Cpus_allowed_list /proc/$pid/status  # the isolated core (e.g. 3)
-sudo journalctl -b | grep -c 'al=0x001a'  # 0  (any hits = DC sync loss)
+sudo journalctl -b | grep -c 'al_status=0x001a'  # 0  (any hits = DC sync loss)
 ```
 
 ---
@@ -455,7 +455,7 @@ add them to `Makefile.am`.
 | `linux-headers-…-rt : Depends: gcc-14-for-host but it is not installable` | building on bookworm | upgrade to trixie (the 6.18 kernel + `gcc-14` live there) |
 | `ec_macb` won't bind / `eth0` still a normal netdev | the builtin `macb` grabbed the NIC, or NetworkManager re-claimed it | run `ethercat-macb-up.sh` (driver_override + unbind); mark `eth0` unmanaged in NM |
 | endpoint aborts claim `rc=-10/-11/-12` | missing `CAP_IPC_LOCK` / isolated core / `CAP_SYS_NICE` | install the klipper RT drop-in (Step 7); confirm the isolated core exists |
-| drive latches `ErC1.1` / `0x8700` / `al=0x001a`, "works once connected" | DC loop not truly `SCHED_FIFO` on an isolated core under cold-boot load | verify RT (Step 7); **power-cycle the drive** to clear the latch, then fix the RT cause |
+| drive latches `ErC1.1` / `0x8700` / `al_status=0x001a`, "works once connected" | DC loop not truly `SCHED_FIFO` on an isolated core under cold-boot load | verify RT (Step 7); **power-cycle the drive** to clear the latch, then fix the RT cause |
 | bringup `rc=-2` "no slaves responding" | drive powered off or cable | power the drive, check the cable, `FIRMWARE_RESTART` |
 
 ## See also

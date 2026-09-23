@@ -25,6 +25,15 @@ the whole recipe, and it is what this script implements:
      registration with stmmac_init()/stmmac_exit(), because the patched core
      no longer registers itself
   5. MODULE_DESCRIPTION marked EtherCAT-enabled
+  6. every EXPORT_SYMBOL deleted, as IgH deletes all six from its
+     stmmac_main copy: each ec_ module links its own copy of the core, and
+     the kernel refuses to load a module exporting a name that a loaded
+     module already exports -- the in-tree stmmac_platform is loaded on any
+     board whose NIC the stock driver claimed at boot
+  7. the platform driver's name prefixed ec_, as IgH does for its own
+     (intel-eth-pci becomes ec_intel-eth-pci): the kernel refuses to
+     register a second driver under a name already on the bus, and the
+     handover's driver_override names this one
 
 Every step is verified after generation; a failed check aborts rather than
 emitting a file that merely looks right.
@@ -39,6 +48,9 @@ import subprocess
 import sys
 
 KERNEL_FILES = ("stmmac_platform.c", "stmmac_platform.h", "dwmac-rk.c")
+DRIVER_NAME = "rk_gmac-dwmac"
+EC_DRIVER_NAME = "ec_" + DRIVER_NAME
+EXPORT = re.compile(r"^EXPORT_SYMBOL(?:_GPL)?\(\w+\);\n", re.M)
 UPSTREAM = (
     "https://raw.githubusercontent.com/torvalds/linux/v{tag}"
     "/drivers/net/ethernet/stmicro/stmmac/{name}"
@@ -135,6 +147,7 @@ def ethercat_variant(text: str, kv: str, is_driver: bool, renames: dict) -> str:
     text = text.replace("stmmac_dvr_probe(", "stmmac_ec_dvr_probe(")
     text = text.replace("stmmac_dvr_remove(", "stmmac_ec_dvr_remove(")
     text = apply_renames(text, renames)
+    text = EXPORT.sub("", text)
     text = re.sub(
         r'(MODULE_DESCRIPTION\("[^"]+)"',
         lambda m: m.group(1) + ' (EtherCAT-enabled)"',
@@ -151,6 +164,12 @@ def ethercat_variant(text: str, kv: str, is_driver: bool, renames: dict) -> str:
                 "module_platform_driver anchor not found exactly once"
             )
         text = text.replace(driver, MODULE_BRACKET, 1)
+        name = f'.name           = "{DRIVER_NAME}",'
+        if text.count(name) != 1:
+            raise PortError(
+                "platform driver .name anchor not found exactly once"
+            )
+        text = text.replace(name, f'.name           = "{EC_DRIVER_NAME}",', 1)
     return text
 
 
@@ -309,6 +328,15 @@ def verify(
             failures.append(f"dwmac-rk: missing {needed!r}")
     if "module_platform_driver(" in drv:
         failures.append("dwmac-rk: module_platform_driver() still present")
+    if f'"{EC_DRIVER_NAME}"' not in drv or f'"{DRIVER_NAME}"' in drv:
+        failures.append(
+            f"dwmac-rk: platform driver not renamed to {EC_DRIVER_NAME}"
+        )
+
+    # 5. Nothing exported: the in-tree stmmac_platform owns these names.
+    for path in sorted(out.glob("*-ethercat.*")):
+        for m in EXPORT.finditer(path.read_text(encoding="utf-8")):
+            failures.append(f"{path.name}: still exports {m.group(0).strip()}")
 
     if failures:
         for f in failures:

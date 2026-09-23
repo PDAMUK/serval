@@ -450,8 +450,8 @@ def test_the_tuning_stage_says_where_a_tuned_value_lives():
 
 def test_the_host_is_gated_on_a_cold_boot_before_the_config_stage():
     """The CB2 host page ends with "confirm the bus before trusting it", and a
-    cold boot is what confirms it: `ec_generic` and a PREEMPT-not-PREEMPT_RT
-    kernel both hold cadence on an idle bench and drop frames under boot load.
+    cold boot is what confirms it: the NIC handover runs at boot, so a service
+    that only works when started by hand passes a restart and fails a boot.
 
     The collation had that only in the closing done-criteria, hundreds of
     lines after the point where it decides whether to carry on — so a reader
@@ -464,10 +464,116 @@ def test_the_host_is_gated_on_a_cold_boot_before_the_config_stage():
         "Stage J does not gate on a cold boot, so nothing proves Stage B "
         "before printer.cfg is written"
     )
-    assert "A.70" in flat, "the gate does not say what a failure looks like"
-    assert "warm restart proves nothing" in flat
-    # And Stage B has to say it is not finished.
+    assert "ec_rk_gmac-dwmac" in flat, "J1 does not check the handover ran"
     stage_b = TEXT.split("# Stage B")[1].split("\n# Stage C")[0]
     assert "Stage J1" in stage_b, (
         "Stage B does not tell the reader the host is unproven until the gate"
     )
+
+
+def test_the_real_time_gate_is_where_the_loop_first_runs():
+    """J1 used to carry the real-time checks — no `A.70`, `SCHED_FIFO`, no
+    sync-loss lines in the journal — and runs before `printer.cfg` exists.
+    Nothing runs the loop then: klippy spawns the endpoint only when it claims
+    a node, and a drive sitting in `PREOP` has no SYNC0 to lose. Every one of
+    those checks passed with the real-time setup broken. They belong at the
+    first step with drives in `OP`, which is Stage L step 3."""
+    stage_j = TEXT.split("# Stage J")[1].split("\n# Stage K")[0]
+    j1_table = re.search(
+        r"\| \| Must hold after the cold boot \|\n(.*?)\n\n", stage_j, re.S
+    )[1]
+    for vacuous in ("A.70", "chrt", "al_status"):
+        assert vacuous not in j1_table, (
+            "J1 asks for %s, which cannot fail before the endpoint runs"
+            % vacuous
+        )
+    step3 = TEXT.split("### 3. Real endpoint, motors uncoupled")[1].split(
+        "### 4."
+    )[0]
+    flat = re.sub(r"\s+", " ", step3)
+    assert "cold boot" in flat
+    assert "warm restart proves nothing" in flat
+    for check in (
+        "SCHED_FIFO",
+        "Cpus_allowed_list",
+        "al_status=0x001a",
+        "A.70",
+    ):
+        assert check in flat, "Stage L step 3 does not check %s" % check
+    stage_b = TEXT.split("# Stage B")[1].split("\n# Stage C")[0]
+    assert "Stage L step 3" in re.sub(r"\s+", " ", stage_b.replace("> ", ""))
+
+
+AL_STATUS_DOCS = [
+    GUIDE,
+    ROOT / "docs" / "rewrite" / "ethercat-host-cb2-rk3566.md",
+    ROOT / "docs" / "rewrite" / "ethercat-bench-bringup.md",
+    ROOT / "docs" / "rewrite" / "ethercat-igh-macb-install.md",
+]
+
+
+@pytest.mark.parametrize("doc", AL_STATUS_DOCS, ids=lambda p: p.stem)
+def test_the_sync_loss_grep_matches_what_the_endpoint_prints(doc):
+    """Every host page checked for DC sync loss with `grep -c 'al=0x001a'`.
+    The endpoint prints `al_status=0x%04x` — `libecrt_igh.c`'s AL dump on a
+    working-counter halt — and IgH's own messages read `AL status message
+    0x001A`. Nothing prints `al=`, so the check read 0 on a machine latching
+    sync loss on every cycle."""
+    c_source = (
+        ROOT / "rust" / "ethercat-rt" / "csrc" / "libecrt_igh.c"
+    ).read_text(encoding="utf-8")
+    text = doc.read_text(encoding="utf-8")
+    patterns = re.findall(r"grep -c '([^']*0x001a[^']*)'", text)
+    assert patterns, "%s no longer checks for sync loss" % doc.name
+    for pattern in patterns:
+        assert pattern.replace("0x001a", "0x%04x") in c_source, pattern
+    assert not re.search(r"\bal=0x", text), "%s still names al=0x" % doc.name
+
+
+CB2_KERNEL_DOCS = [
+    GUIDE,
+    ROOT / "docs" / "rewrite" / "ethercat-host-cb2-rk3566.md",
+]
+
+
+@pytest.mark.parametrize("doc", CB2_KERNEL_DOCS, ids=lambda p: p.stem)
+def test_the_kernel_image_is_built_from_a_release_that_still_offers_6_12(doc):
+    """Both documents cloned Armbian's build system unpinned and said to pick
+    a branch landing on 6.12. On `main` the CB2 is offered only 6.18
+    (`current`) and 7.2 (`edge`); `v25.11.1` is the last release whose
+    rockchip64 `current` is 6.12, and IgH's stmmac set stops at 6.12, so the
+    unpinned clone had no branch the rest of Stage B could build against."""
+    text = doc.read_text(encoding="utf-8")
+    clone = re.search(r"^git clone .*armbian/build.*$", text, re.M)[0]
+    assert "--branch v25.11.1" in clone, clone
+    compile_cmd = re.search(r"\./compile\.sh[^\n]*", text)[0]
+    assert "BRANCH=current" in compile_cmd, compile_cmd
+    assert "check what the build offers" not in text
+
+
+@pytest.mark.parametrize("doc", CB2_KERNEL_DOCS, ids=lambda p: p.stem)
+def test_it_does_not_claim_the_cb2_device_tree_is_mainline_at_6_12(doc):
+    """`rk3566-bigtreetech-pi2.dts` reached mainline in 6.14. On 6.12 the
+    board boots because Armbian carries the file in its own patch set, which
+    is why the image has to come from Armbian and not a plain 6.12 tree."""
+    flat = re.sub(r"\s+", " ", doc.read_text(encoding="utf-8"))
+    assert "`rk3566-bigtreetech-pi2.dts` is in mainline" not in flat
+    assert "reached mainline Linux only in 6.14" in flat
+
+
+def test_the_belt_force_it_quotes_follows_from_the_config():
+    """The guide said "a 40 mm pulley", which reads as a diameter. Its force
+    figures only hold for 40 mm of belt per turn — `rotation_distance: 40`, a
+    20-tooth GT2 pulley — and a reader taking the diameter reading works out
+    a third of the force the belt really sees."""
+    import math
+
+    rotation_distance_mm = float(
+        re.search(r"^rotation_distance: (\d+)", TEXT, re.M)[1]
+    )
+    rated_nm = float(re.search(r"rated about ([\d.]+) N·m", FLAT)[1])
+    radius_m = rotation_distance_mm / 1000.0 / (2.0 * math.pi)
+    at_100 = rated_nm / radius_m
+    assert "40 mm pulley" not in FLAT
+    assert "about %d N" % round(at_100, -2) in FLAT
+    assert "%d N" % round(3 * at_100, -2) in FLAT

@@ -41,8 +41,10 @@ matters: no DMA, descriptor or NAPI logic is being authored here.
 IgH's bindings contain **no EtherCAT logic of their own** — verified by
 `grep -c ecdev` returning 0 for both `stmmac_pci-6.12-ethercat.c` and
 `dwmac-intel-6.12-ethercat.c`. Every hook lives in `stmmac_main`. Diffing
-`stmmac_pci-6.12-orig.c` against its `-ethercat` twin therefore yields the
-complete recipe, and `generate.py` implements exactly it:
+the `-orig`/`-ethercat` pairs IgH ships therefore yields the recipe — all of
+them, not one: `stmmac_pci` alone hides steps 6 and 7, because it takes its
+driver name from a header macro and exports nothing. `generate.py` implements
+the whole recipe:
 
 1. Local includes rewritten to their versioned `-ethercat` form.
 2. `stmmac_dvr_probe`/`stmmac_dvr_remove` → `stmmac_ec_dvr_probe`/
@@ -54,6 +56,17 @@ complete recipe, and `generate.py` implements exactly it:
    brackets registration with `stmmac_init()`/`stmmac_exit()`, because the
    patched core no longer registers itself.
 5. `MODULE_DESCRIPTION` marked EtherCAT-enabled.
+6. Every `EXPORT_SYMBOL` deleted, as IgH deletes all six from its
+   `stmmac_main` copy. Each `ec_` module links its own copy of the core, and
+   the kernel refuses to load a module that exports a name a loaded module
+   already exports (`exports duplicate symbol`). On a board whose NIC the stock
+   driver claimed at boot, the in-tree `stmmac_platform` is loaded and owns
+   all six names `stmmac_platform.c` exports.
+7. The platform driver's name prefixed `ec_` — `rk_gmac-dwmac` becomes
+   `ec_rk_gmac-dwmac` — as IgH does for its own (`intel-eth-pci` becomes
+   `ec_intel-eth-pci`). The kernel refuses to register a second driver under a
+   name already on the bus (`is already registered`), and the handover's
+   `driver_override` needs a name that is this driver's alone.
 
 ## Running it
 
@@ -74,12 +87,19 @@ cd ~/ethercat-igh
 make modules && sudo make modules_install
 ```
 
-Then load `ec_dwmac-rk` in place of `ec_generic`.
+Then hand the NIC over as the host page does: `driver_override` set to
+`ec_rk_gmac-dwmac`, the stock driver unbound, and IgH's init script left to
+load `ec_master` with `main_devices` before it swaps `dwmac-rk` for
+`ec_dwmac-rk`. Loading `ec_dwmac-rk` by hand first pulls `ec_master` in with no
+`main_devices`, and the master then owns no device.
 
 ## Build status
 
 **The module compiles and links.** Built here for arm64 against a prepared
-Linux 6.12 tree, from a clean `stable-1.6` clone wired by `--install`:
+Linux 6.12 tree, from a clean `stable-1.6` clone wired by `--install`, and
+rebuilt after steps 6 and 7 were added — against IgH 1.6.13 and a 6.12 tree
+configured `PREEMPT_RT`, with `DWMAC_ROCKCHIP` and `STMMAC_PLATFORM` as
+modules the way Stage B sets them:
 
 ```
 LD [M]  devices/stmmac/ec_dwmac-rk.ko     ELF 64-bit LSB relocatable, ARM aarch64
@@ -94,6 +114,9 @@ Symbol checks on the result:
 | Renamed core symbol | `ec_stmmac_bus_clks_config` defined in-module (`T`) |
 | Probe path | `stmmac_ec_dvr_probe` / `stmmac_ec_dvr_remove` defined in-module |
 | Undefined `stmmac_*` symbols | **none** — every rename landed |
+| Exported symbols (`__ksymtab_*`) | **none** — the in-tree `stmmac-platform.ko` owns all six names `stmmac_platform.c` exports |
+| Registered driver name | `ec_rk_gmac-dwmac`, where the in-tree `dwmac-rk.ko` holds `rk_gmac-dwmac` |
+| `vermagic` | `6.12.0 SMP preempt_rt mod_unload aarch64` |
 
 `modpost` reports unresolved *core kernel* symbols (`kfree`, `_printk`,
 `jiffies`) because `modules_prepare` does not produce the kernel's
@@ -135,6 +158,7 @@ Verified automatically, aborting on failure:
   `stmmac_platform` is generated at all.
 - No call still reaches the non-EtherCAT probe path.
 - The driver does not auto-bind and does bracket registration.
+- Nothing is exported, and the platform driver carries the `ec_` name.
 
 **Not verified: it has never been loaded or run on hardware.** It compiles and
 its symbols resolve; nothing here has touched a NIC, a bus, or a drive. Treat
@@ -161,9 +185,10 @@ handover, master build -- is
 
 Bring it up in this order, and stop at the first step that fails:
 
-1. **Module loads.** `modprobe ec_dwmac`, then confirm the master attaches the
-   NIC rather than falling back: `ethercat master` reports the device, and the
-   log shows the device being claimed.
+1. **Module loads.** Start the master through its init script, then confirm
+   the GMAC's driver is `ec_rk_gmac-dwmac`, `dmesg` shows neither
+   `exports duplicate symbol` nor `is already registered`, and `ethercat
+   master` reports the device rather than falling back.
 2. **Slaves enumerate.** `ethercat slaves` lists every drive at `PREOP`. Same
    count and order as under `ec_generic` — a different count means the binding
    is claiming the wrong device.
