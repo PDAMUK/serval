@@ -88,6 +88,14 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 71 | The setup guide sent the reader to "Step 8 of the host page" for why the endpoint cannot be cross-compiled. Finding 58 reordered the CB2 page kernel-first; the explanation moved to Step 11 and Step 8 became the NIC hand-over. A citation in plain prose has nothing to go stale against, so it is now a link and the anchor check catches the next renumber | `ee083fd` |
 | 72 | The setup guide says in Part 6 that the CN2 table is "an inference from elimination rather than a quotation", then closed by listing "the CN2 pinout" among the values read back out of the manual and found to match. The collated guide already listed it as unverified; the setup guide now does too, which makes six items — the count `.claude/CLAUDE.md` already gave | `ee083fd` |
 | 73 | The endpoint's two host-stall codes, `0xFE10` (frame late) and `0xFE11` (cycle skip), were bare literals in `ethercat_node.py` with no mirror check and no test of the messages they select. The torque-gate code beside them had both. Change either side alone and a CPU stall is reported as a drive alarm, which sends someone to the drive's alarm table | `ee083fd` |
+| 74 | `generate.py` kept all six `EXPORT_SYMBOL_GPL`s in its `stmmac_platform` copy. IgH deletes every export from its EtherCAT copies — six to none in `stmmac_main` — because each `ec_` module links its own core. The generator's recipe was read off `stmmac_pci` alone, which exports nothing, so the step was invisible. On the image Stage B builds, the stock driver claims the NIC at boot, the in-tree `stmmac-platform.ko` is loaded and owns those six names, and the kernel refuses a module exporting a name a loaded module owns (`exports duplicate symbol`, `-ENOEXEC`, `kernel/module/main.c` at v6.12). The CB2's native driver could not have loaded | `f85e2b9` |
+| 75 | The same port kept the in-tree driver name, `rk_gmac-dwmac`. IgH prefixes its own (`intel-eth-pci` becomes `ec_intel-eth-pci`; `stmmac_pci` gets `ec_stmmaceth` from its header, which is why the diff of that pair did not show it). With the in-tree `dwmac-rk.ko` loaded, `driver_register` refuses the duplicate (`-EBUSY`), and the handover's `driver_override=ec_dwmac-rk` named no driver at all — the module is `ec_dwmac-rk`, the driver inside it is not. It now registers as `ec_rk_gmac-dwmac`, `verify()` checks both steps, and the module was rebuilt for arm64 against 6.12 `PREEMPT_RT` and IgH 1.6.13: no `__ksymtab` entries, the `ec_` name, only `ecdev_*` undefined | `f85e2b9` |
+| 76 | The handover script ran `modprobe ec_dwmac-rk` and a manual `bind` before `init.d/ethercat start`. `modprobe` pulls `ec_master` in as a dependency with no `main_devices`, and the init script's own `modprobe ec_master main_devices=…` is then a no-op: a master with no device, which reads exactly like a wrong MAC. The exercised `ec_macb` handover never loaded a module itself; the CB2 one now has that shape, and the tool README's bench step named a module, `ec_dwmac`, that does not exist | `f85e2b9` |
+| 77 | Both CB2 documents cloned Armbian's build system unpinned and said to "pick a branch that lands on 6.12". On `main` the CB2 is offered 6.18 (`current`) and 7.2 (`edge`); IgH's stmmac set stops at 6.12. `v25.11.1` is the last Armbian release whose rockchip64 `current` is 6.12 — it also still offers the CB2 that branch and supports trixie — so the clone is pinned there with `BRANCH=current`. The same paragraph said the CB2's device tree is in mainline; it arrived in 6.14, and a 6.12 build gets it from Armbian's patch set | `f85e2b9` |
+| 78 | Every sync-loss check in four documents was `grep -c 'al=0x001a'`. The endpoint prints `al_status=0x%04x` (`libecrt_igh.c`'s AL dump on a working-counter halt) and IgH's kernel messages read `AL status message 0x001A`; nothing prints `al=`. The check read 0 on a machine latching sync loss every cycle — finding 51's question, *would this pass if the thing it checks were broken*, not yet asked of a `grep` | `f85e2b9` |
+| 79 | J1, "the gate on Stage B", asked for no `A.70`, `SCHED_FIFO` and that grep on a cold boot before a line of `printer.cfg` exists. Nothing runs the loop then: klippy spawns the endpoint only when it claims a node, and a drive sitting in `PREOP` has no SYNC0 to lose. Three of five rows could not fail. They now sit at Stage L step 3, where the loop first runs against drives in `OP`, on a cold boot; J1 checks what it can — that the handover ran, the link, the enumeration | `f85e2b9` |
+| 80 | B6 checked for `/lib/modules/$(uname -r)/extra/ec_dwmac-rk.ko`. IgH installs under `--with-module-dir`, default `ethercat`, keeping the source layout, so the module lands in `ethercat/devices/stmmac/` — confirmed by a `modules_install` of the rebuilt tree. The check failed on a correct install and the vermagic comparison after it, finding 49's, never ran | `f85e2b9` |
+| 81 | "A 40 mm pulley" reads as a diameter. The guide's 200 N and 600 N hold only for 40 mm of belt per turn — `rotation_distance: 40`, a 20-tooth pulley — and the diameter reading gives a third of the force the belt sees | `f85e2b9` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -310,6 +318,13 @@ Not defects. Recorded so the next pass does not spend the time again.
   verifies all three pairs, and wires `configure.ac`, `Kbuild.in` and
   `Makefile.am`. Whether the result *compiles* was not checked — that needs a
   6.12 kernel tree, which this container does not have.
+- **The CB2 kernel and Armbian, read at the source.** Linux 6.12's
+  `PREEMPT_RT` depends on `EXPERT && ARCH_SUPPORTS_RT`, which looks like a
+  menuconfig trap — the option is invisible without `EXPERT`. It is not one
+  here: arm64 selects `ARCH_SUPPORTS_RT` unconditionally, and Armbian's
+  `linux-rockchip64-current.config` at `v25.11.1` already sets
+  `CONFIG_EXPERT=y`. Armbian boots the CB2 from `rk3566-bigtreetech-pi2.dtb`,
+  as the guide says, and its 6.12 patch set carries that file.
 
 ### Every verification step in the two build guides, evaluated
 
@@ -549,6 +564,13 @@ in this repository — say so plainly rather than let the tally imply otherwise:
   `FAIL (1)` at the line that failed rather than `FAIL (125)` with docker's
   "invalid reference format" on top.
 
+Findings 74-81 came from walking the CB2 guide against IgH, the kernel and
+Armbian as they are now, and from building the one binary the CB2 route adds.
+The build itself had been recorded as sound: it compiled and its symbols
+resolved. It would not have loaded. "Compiles" answers a different question
+from "loads next to what is already running", and only the second matters on
+a board whose stock driver claims the NIC at boot.
+
 Findings 66-73 came from two questions not asked before. One was put to the Pi 5
 page, the route the guide recommends, which had been treated as the known-good
 oracle and never itself asked what the CB2 route had been asked. The other was
@@ -605,7 +627,7 @@ sudo apt install pkg-config libudev-dev   # if absent; the motion engine links l
 scripts/build-native.sh          # klippy/_*.so — klippy will not start without them
 cargo install cargo-nextest --locked   # if absent; the Rust suite needs it
 ./scripts/ci.sh quick            # expect 5 pass
-uv run pytest test/ -q           # expect 1297 passed, 8 skipped
+uv run pytest test/ -q           # expect 1318 passed, 8 skipped
 ```
 
 `test_ethercat_claim_stub.py` and `test_pdo_map.py` need artifacts the first
