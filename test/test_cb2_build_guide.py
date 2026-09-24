@@ -755,3 +755,61 @@ def test_the_fault_reference_explains_the_host_stall_shutdowns():
         assert phrase in reference
     quantum = int(re.search(r"^CYCLE_US_QUANTUM = (\d+)$", source, re.M)[1])
     assert "cycle_us: 500" in FLAT and 500 % quantum == 0
+
+
+READERS_VALUES = [
+    ("printer", "max_z_velocity"),
+    ("printer", "max_z_accel"),
+    ("motor motor_z", "rotation_distance"),
+    ("motor motor_z", "microsteps"),
+    ("motor motor_e0", "rotation_distance"),
+    ("motor motor_e1", "rotation_distance"),
+    ("extruder", "nozzle_diameter"),
+    ("extruder", "filament_diameter"),
+    ("extruder", "sensor_type"),
+    ("extruder", "max_temp"),
+    ("heater_bed", "sensor_type"),
+    ("heater_bed", "max_temp"),
+    ("axis x", "position_max"),
+    ("axis y", "position_max"),
+    ("axis z", "position_max"),
+    ("tmc2209 motor_z", "run_current"),
+    ("tmc2209 motor_e0", "run_current"),
+    ("tmc2209 motor_e1", "run_current"),
+]
+
+
+def option_lines(cfg):
+    section, lines = None, {}
+    for line in cfg.splitlines():
+        header = re.match(r"^\[([^\]]+)\]", line)
+        if header:
+            section = header[1]
+            continue
+        option = re.match(r"^(\w+):", line)
+        if option:
+            lines[(section, option[1])] = line
+    return lines
+
+
+def setup_guide_config():
+    setup = (ROOT / "docs/rewrite/estun-pronet-markforged-setup.md").read_text()
+    part = setup.split("## Part 11")[1].split("## Part 12")[0]
+    return re.findall(r"```ini\n(.*?)```", part, re.S)[0]
+
+
+@pytest.mark.parametrize(
+    "cfg", [guide_config(), setup_guide_config()], ids=["cb2", "setup"]
+)
+def test_values_the_repository_cannot_know_are_marked_as_the_readers(cfg):
+    """The Z drive, extruder, thermistors, heater ceilings, stepper currents
+    and axis travel were filled in so klippy would start, from the generic
+    values in `test/test_configs/`, and one comment presented a guess — that
+    `rotation_distance: 8` is a lead screw — as a fact about the machine.
+    Nothing here knows that hardware. A wrong thermistor type misreads the
+    hotend; a wrong run current cooks a motor. Each such value is marked for
+    the reader to replace."""
+    lines = option_lines(cfg)
+    for key in READERS_VALUES:
+        assert "<- yours" in lines[key], lines[key]
+    assert "lead screw" not in cfg

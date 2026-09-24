@@ -1268,15 +1268,21 @@ Apply it with `RESTART`, or `FIRMWARE_RESTART` after reflashing the Manta.
 incremental EMJ-04AFD22. Using the 131072 of a 17-bit absolute scales every move
 by 8.
 
+Lines marked `<- yours` are values klippy refuses to start without and this
+repository cannot know: your Z drive and extruder, your nozzle, filament and
+thermistors, your heaters' maximum temperatures, your stepper currents and your
+axes' travel. The numbers given only let klippy start; replace them from your
+own hardware before the first heat-up or move.
+
 ```ini
 [mcu]
 serial: /dev/serial/by-id/usb-Klipper_stm32h723xx_...   # from Part 3
 
 [printer]
-max_velocity: 300           # bring-up limits: raise after Part 13, not before
+max_velocity: 300           # bring-up limits, not measured: raise after Part 13
 max_accel: 3000
-max_z_velocity: 5           # rotation_distance 8 lead screw; the default is max_velocity
-max_z_accel: 100
+max_z_velocity: 5           # <- yours: set for your Z drive; unset, Z inherits max_velocity
+max_z_accel: 100            # <- yours
 
 [kinematics]
 type: markforged
@@ -1334,8 +1340,8 @@ drive: stepper
 step_pin: PB8
 dir_pin: !PB7
 enable_pin: !PE0
-rotation_distance: 8
-microsteps: 16
+rotation_distance: 8        # <- yours: your Z drive's travel per motor turn
+microsteps: 16              # <- yours
 
 # The extruder pair. Both motors sit on one follower axis, so they are
 # stepped from the same trajectory and cannot drift apart.
@@ -1344,7 +1350,7 @@ drive: stepper
 step_pin: PG13
 dir_pin: PG12
 enable_pin: !PG15
-rotation_distance: 33.5
+rotation_distance: 33.5     # <- yours: calibrate by measured extrusion
 microsteps: 16
 
 [motor motor_e1]                # Motor6
@@ -1352,7 +1358,7 @@ drive: stepper
 step_pin: PG9
 dir_pin: PD7
 enable_pin: !PG11
-rotation_distance: 33.5
+rotation_distance: 33.5     # <- yours: same as motor_e0
 microsteps: 16
 
 [axis e]
@@ -1361,13 +1367,13 @@ motors: motor_e0, motor_e1
 
 [extruder]
 axis: e
-nozzle_diameter: 0.4
-filament_diameter: 1.75
+nozzle_diameter: 0.4        # <- yours
+filament_diameter: 1.75     # <- yours
 heater_pin: PA0
 sensor_pin: PB0
-sensor_type: Generic 3950
+sensor_type: Generic 3950   # <- yours: your hotend's thermistor
 min_temp: 0
-max_temp: 250
+max_temp: 250               # <- yours: your hotend's rating, not this number
 control: pid
 pid_Kp: 22.2                # starting values: PID_CALIBRATE HEATER=extruder replaces them
 pid_Ki: 1.08
@@ -1376,39 +1382,39 @@ pid_Kd: 114
 [axis x]
 endstop_pin: ^PF4
 position_min: 0
-position_max: 300
+position_max: 300           # <- yours: your measured travel
 position_endstop: 0
 homing_speed: 50
 
 [axis y]
 endstop_pin: ^PF3
 position_min: 0
-position_max: 300
+position_max: 300           # <- yours: your measured travel
 position_endstop: 0
 homing_speed: 50
 
 [axis z]
 endstop_pin: ^PF2
-position_max: 250
+position_max: 250           # <- yours: your measured travel
 
 [tmc2209 motor_z]
 uart_pin: PB9
-run_current: 0.8
+run_current: 0.8            # <- yours: below your motor's rated current
 
 [tmc2209 motor_e0]
 uart_pin: PG14
-run_current: 0.6
+run_current: 0.6            # <- yours: below your motor's rated current
 
 [tmc2209 motor_e1]
 uart_pin: PG10
-run_current: 0.6
+run_current: 0.6            # <- yours: below your motor's rated current
 
 [heater_bed]
 heater_pin: PF5
 sensor_pin: PB1
-sensor_type: ATC Semitec 104GT-2
+sensor_type: ATC Semitec 104GT-2# <- yours: your bed's thermistor
 min_temp: 0
-max_temp: 110
+max_temp: 110               # <- yours: your bed's rating, not this number
 control: pid
 pid_Kp: 54.027              # starting values: PID_CALIBRATE HEATER=heater_bed replaces them
 pid_Ki: 0.770
