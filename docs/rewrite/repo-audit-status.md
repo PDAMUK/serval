@@ -109,6 +109,8 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 92 | B4 lets KIAUH install mainline Klipper and checks this fork out over it; `klippy/webhooks.py` imports `numpy` at startup and Klipper's virtualenv carries none | `96f9c0f` |
 | 93 | `--prefix=/opt/etherlab` installs the `ethercat` tool in `/opt/etherlab/bin`, on no default `PATH`, and every host page then ran `ethercat master` and `ethercat slaves` bare | `96f9c0f` |
 | 94 | Klippy's frame-timing and cycle-skip shutdowns — the likeliest first failure of a loop never run on the CB2's A55 cores — had no row in the fault reference, and nothing named `cycle_us: 500` as the next thing to try. B4 now says to install only what the printer needs, and Stage L step 3's real-time gate runs under the board's normal load rather than on an idle board | `96f9c0f` |
+| 95 | Both documents' `printer.cfg` presented guesses as facts about the machine. The Z drive, extruder, thermistors, heater ceilings, stepper currents and axis travel matched the generic values in `test/test_configs/`, not this printer, and one comment called `rotation_distance: 8` a lead screw. A wrong thermistor type misreads the hotend; a wrong run current cooks a motor. Each is now marked `<- yours`, with a note ahead of the block saying what the mark means | `d8f7c44` |
+| 96 | The stub endpoint sampled its rings whenever its unprivileged 1 ms sleep woke, while the runtime's start-in-past tolerance is one `EC_DC_PERIOD_NS` plus 200 µs. A wake about 150 µs late at a piece boundary faulted an on-time stream with `PieceStartInPast` — the CB2 guide's homing world test failed that way in about a third of runs (first deficit 1229 µs; the saturated deficits after it were the stub re-faulting every tick). It now plays every DC cycle up to now, as the real endpoint's cycle does; 24 of 24 homings passed afterwards, and a piece that really starts in the past still faults. `stub_dc_grid.rs` freezes the stub with `SIGSTOP` across a boundary and fails 5 of 5 on the old stub | `2278e5f` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -387,6 +389,16 @@ bench needs was built rather than asserted:
   step 1 proves.
 - **`ethercat-endpoint-hw`** cannot build without IgH, which is correct and is
   finding 54's subject.
+- **`ethercat-endpoint-hw` builds against IgH 1.6.13.** With IgH `stable-1.6`
+  built for x86-64 and its userspace library staged under a `DESTDIR` copy of
+  `/opt/etherlab`, the hardware endpoint compiles and links with no warnings.
+  Not built for arm64 against the CB2's own install, and not run: no bus.
+- **The handover script B7 writes parses.** Extracted from the guide,
+  `bash -n` passes.
+- **The stub cannot hold a stream across torque-off.** Pieces pushed while
+  torque is off fault the gate with `ERR_PIECES_WHILE_PARKED` (-313), so the
+  DC-grid catch-up of finding 96 never replays a window when torque was off;
+  its reset on torque-off only bounds the work of the first enabled tick.
 - **The Manta firmware builds.** With Debian's `gcc-arm-none-eabi` 13.2 and a
   `.config` holding only Stage C's four choices, `make` links `klipper.bin` at
   121 KB — 46% of the 256 KB application flash — with the Rust `c-api` for
@@ -659,7 +671,7 @@ sudo apt install pkg-config libudev-dev   # if absent; the motion engine links l
 scripts/build-native.sh          # klippy/_*.so — klippy will not start without them
 cargo install cargo-nextest --locked   # if absent; the Rust suite needs it
 ./scripts/ci.sh quick            # expect 5 pass
-uv run pytest test/ -q           # expect 1330 passed, 8 skipped
+uv run pytest test/ -q           # expect 1332 passed, 8 skipped
 ```
 
 `test_ethercat_claim_stub.py` and `test_pdo_map.py` need artifacts the first
