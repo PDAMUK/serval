@@ -395,6 +395,10 @@ bench needs was built rather than asserted:
   Not built for arm64 against the CB2's own install, and not run: no bus.
 - **The handover script B7 writes parses.** Extracted from the guide,
   `bash -n` passes.
+- **The guide's systemd units verify.** `ethercat-dwmac.service` and the
+  `klipper.service.d/10-ethercat-rt.conf` drop-in, extracted from the guide,
+  pass `systemd-analyze verify`; a mistyped `Type=` and a bogus
+  `LimitRTPRIO=` added as controls are each reported, so the drop-in was read.
 - **The stub cannot hold a stream across torque-off.** Pieces pushed while
   torque is off fault the gate with `ERR_PIECES_WHILE_PARKED` (-313), so the
   DC-grid catch-up of finding 96 never replays a window when torque was off;
