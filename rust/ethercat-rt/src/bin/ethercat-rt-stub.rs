@@ -11,7 +11,7 @@ use ethercat_rt::capture::{
 use ethercat_rt::claim::{parse_fail_bringup, single_slave_reply, wait_for_claim};
 use ethercat_rt::cli::parse_slaves;
 use ethercat_rt::clock::monotonic_ns;
-use ethercat_rt::curves::{AxisRing, AXIS_RING_CAPACITY, ENGINE_STATE_FAULT};
+use ethercat_rt::curves::{AxisRing, AXIS_RING_CAPACITY, EC_DC_PERIOD_NS, ENGINE_STATE_FAULT};
 use ethercat_rt::push_plan::plan_bundle;
 use ethercat_rt::sdo::{execute_sdo_read, execute_sdo_write, DictObject, DictSdoBus};
 use ethercat_rt::sensorless::{SensorlessBank, ERR_ARM_SENSORLESS_BAD_THRESHOLD};
@@ -110,6 +110,21 @@ fn all_empty(rings: &[AxisRing]) -> bool {
     rings.iter().all(AxisRing::is_empty)
 }
 
+fn sample_dc_cycles_through(
+    rings: &mut [AxisRing],
+    next_cycle_ns: &mut u64,
+    now: u64,
+) -> Option<(f32, f32, f32)> {
+    let mut last = None;
+    while *next_cycle_ns <= now {
+        let cycle = *next_cycle_ns;
+        let sampled: Vec<_> = rings.iter_mut().map(|r| r.sample(cycle)).collect();
+        last = sampled.into_iter().flatten().next();
+        *next_cycle_ns += u64::from(EC_DC_PERIOD_NS);
+    }
+    last
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let socket = arg_val(&args, "--socket").unwrap_or_else(|| "/tmp/kalico-ethercat.sock".into());
@@ -150,6 +165,7 @@ fn main() {
     let mut stream_halt = StreamHalt::default();
     let mut suppressed = false;
     let mut sim_torque: i16 = 0;
+    let mut next_dc_cycle_ns: u64 = 0;
 
     let mut server = FrameServer::bind(&socket).expect("bind socket");
     eprintln!("ec-rt-stub: socket {socket} (NO HARDWARE)");
@@ -606,14 +622,14 @@ fn main() {
         }
 
         let sampled_pos = if gate.state() == TorqueState::Enabled {
-            let sampled: Vec<_> = rings.iter_mut().map(|r| r.sample(now)).collect();
-            let s = sampled.into_iter().flatten().next();
+            let s = sample_dc_cycles_through(&mut rings, &mut next_dc_cycle_ns, now);
             if suppressed {
                 None
             } else {
                 s
             }
         } else {
+            next_dc_cycle_ns = now + u64::from(EC_DC_PERIOD_NS);
             None
         };
         let motion_active = gate.state() == TorqueState::Enabled && sampled_pos.is_some();
