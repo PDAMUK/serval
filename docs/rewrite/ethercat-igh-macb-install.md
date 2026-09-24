@@ -352,6 +352,16 @@ LimitMEMLOCK=infinity
 cap_sys_nice,cap_ipc_lock+ep` on the binary — but re-run it after **every**
 rebuild, since `cargo` writes a fresh inode and drops file-caps.)
 
+The endpoint also opens `/dev/cpu_dma_latency` and holds it at `0`, keeping
+every core out of deep idle states. The device is root-only and neither
+capability covers it, so add a second line to the udev rule file from step 6:
+
+```
+KERNEL=="cpu_dma_latency", MODE="0660", GROUP="<your-user>"
+```
+
+Without it the hardware endpoint fails its claim with `rc=-20`.
+
 ## Step 8 — Build the kalico endpoint
 
 From the checkout, on the Pi (the `hw` build compiles the IgH C shim and links

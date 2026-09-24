@@ -25,21 +25,12 @@ TEXT = GUIDE.read_text(encoding="utf-8")
 # otherwise every reflow breaks a test that is about meaning, not layout.
 FLAT = re.sub(r"\s+", " ", re.sub(r"^\s*>\s?", "", TEXT, flags=re.M))
 
-PRINTER_SECTION = """[printer]
-max_velocity: 300
-max_accel: 3000
-corner_deviation: 0.04
-max_z_velocity: 5
-max_z_accel: 100
-
-"""
-
 
 def guide_config():
     part = TEXT.split("# Stage K")[1].split("# Stage L")[0]
     blocks = re.findall(r"```ini\n(.*?)```", part, re.S)
     assert blocks, "no ini block in the guide's configuration stage"
-    return PRINTER_SECTION + blocks[0]
+    return blocks[0]
 
 
 def read_topology():
@@ -577,3 +568,137 @@ def test_the_belt_force_it_quotes_follows_from_the_config():
     assert "40 mm pulley" not in FLAT
     assert "about %d N" % round(at_100, -2) in FLAT
     assert "%d N" % round(3 * at_100, -2) in FLAT
+
+
+def realtime_failure_codes():
+    """Every code `go_realtime()` and what it calls can return, read from the
+    C source rather than from any document's list of them."""
+    csrc = ROOT / "rust" / "ethercat-rt" / "csrc"
+    source = (csrc / "libecrt_igh.c").read_text(encoding="utf-8")
+    header = (csrc / "libecrt.h").read_text(encoding="utf-8")
+    values = {
+        name: int(value)
+        for name, value in re.findall(
+            r"#define (EC_RT_ERR_\w+)\s+\((-\d+)\)", header
+        )
+    }
+    bodies = [
+        re.search(r"static int %s\(.*?\n\}\n" % fn, source, re.S)[0]
+        for fn in ("go_realtime", "hold_cpu_dma_latency")
+    ]
+    names = set(re.findall(r"return (EC_RT_ERR_\w+);", "".join(bodies)))
+    return {name: values[name] for name in names}
+
+
+def test_every_realtime_requirement_is_granted_and_explained():
+    """The endpoint holds `/dev/cpu_dma_latency` at 0 and fails its claim
+    with rc=-20 if it cannot open it. The device is root-only and neither
+    ambient capability reaches it; B8 granted the capabilities, listed three
+    requirements and never mentioned the fourth. The stub never goes
+    real-time, so the dry run passed and the first real claim would not."""
+    codes = realtime_failure_codes()
+    assert set(codes) >= {"EC_RT_ERR_RT_MLOCK", "EC_RT_ERR_RT_QOS"}
+    stage_b = TEXT.split("# Stage B")[1].split("\n# Stage C")[0]
+    reference = TEXT.split("# Fault quick reference")[1].split("\n# ")[0]
+    for name, value in codes.items():
+        assert "`rc=%d`" % value in stage_b, "Stage B never explains %s" % name
+        assert "`rc=%d`" % value in reference, "no fault row for %s" % name
+    assert 'KERNEL=="cpu_dma_latency", MODE="0660"' in stage_b
+
+
+def test_the_worked_config_carries_what_klippy_refuses_to_start_without():
+    """The guide says to replace printer.cfg with this block. It had no
+    [printer] section, no nozzle or filament diameter, and neither heater had
+    min_temp, max_temp or control — and this file's own parse check supplied
+    the [printer] section itself before reading, so the gap could not show.
+    Booted in the simulator, klippy refused each in turn before it reached
+    the servos; `tools/sim/tests/test_ethercat_world.py` now boots the block
+    as written."""
+    import configparser
+
+    cfg = configparser.ConfigParser(inline_comment_prefixes=("#",))
+    cfg.read_string(guide_config())
+    required = {
+        "printer": ["max_velocity", "max_accel"],
+        "extruder": [
+            "nozzle_diameter",
+            "filament_diameter",
+            "min_temp",
+            "max_temp",
+            "control",
+        ],
+        "heater_bed": ["min_temp", "max_temp", "control"],
+    }
+    for section, options in required.items():
+        assert cfg.has_section(section), "no [%s]" % section
+        for option in options:
+            assert cfg.has_option(section, option), "[%s] %s" % (
+                section,
+                option,
+            )
+
+
+def test_the_stub_path_it_gives_is_absolute_and_inside_the_checkout():
+    """The worked config's example was `/home/biqu/serval/...`, a user an
+    Armbian image built at B1 need not have and a directory B4 never makes —
+    B4 checks this fork out in `~/klipper`. Stage L step 1 then gave the path
+    relative, and `ethercat_node` passes the option through `abspath` without
+    `expanduser`, so a relative path resolves against klippy's working
+    directory and `~` is taken literally."""
+    import os
+
+    example = re.search(r"^#endpoint: (\S+)$", guide_config(), re.M)[1]
+    assert example.startswith("/home/<your-user>/klipper/rust/target/release/")
+    assert example.endswith("ethercat-rt-stub")
+    assert "cd ~/klipper" in TEXT
+    source = (ROOT / "klippy" / "extras" / "ethercat_node.py").read_text()
+    assert "os.path.abspath(" in source and "expanduser" not in source
+    step1 = TEXT.split("### 1. Stub endpoint, drives off")[1].split("### 2.")[0]
+    assert "absolute" in step1
+    assert not re.search(r"at `rust/target/release/ethercat-rt-stub`", step1)
+    assert os.path.isabs(example.replace("<your-user>", "u"))
+
+
+@pytest.mark.parametrize("doc", CB2_KERNEL_DOCS, ids=lambda p: p.stem)
+def test_the_host_is_built_to_stay_real_time_after_first_boot(doc):
+    """Five ways the CB2 host quietly stops being the host the guide built:
+
+    - `nohz_full=3 rcu_nocbs=3` need `CONFIG_NO_HZ_FULL`, which Armbian's
+      rockchip64 config leaves off; the kernel ignores both and the isolation
+      check still passes, because `isolcpus` works without it.
+    - `armbian-hardware-optimize` writes CPU 3 into the `eth0` interrupts'
+      affinity for this board family, at every boot, in the background.
+    - Armbian ships `ondemand`, and the RK3566's cores share one clock that it
+      drops to 408 MHz on a quiet board.
+    - The kernel package names are the repository's too, and its build of
+      them is 6.18 without RT; `apt upgrade` swaps the kernel unless held.
+    - B6 said to install headers "for the branch that was built", which from
+      the repository fetches the 6.18 ones."""
+    text = doc.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    compile_cmd = re.search(r"\./compile\.sh(?:[^\n]*\\\n)*[^\n]*", text)[0]
+    for option in (
+        "INSTALL_HEADERS=yes",
+        "BSPFREEZE=yes",
+        "KERNEL_CONFIGURE=yes",
+    ):
+        assert option in compile_cmd, option
+    assert "`CONFIG_NO_HZ_FULL`" in text
+    extraargs = re.search(r"^isolcpus=.*$", text, re.M)[0].split()
+    for arg in (
+        "isolcpus=domain,managed_irq,3",
+        "nohz_full=3",
+        "rcu_nocbs=3",
+        "irqaffinity=0-2",
+        "cpufreq.default_governor=performance",
+    ):
+        assert arg in extraargs, arg
+    assert "sudo systemctl mask armbian-hardware-optimize.service" in text
+    for check in (
+        "cat /sys/devices/system/cpu/nohz_full",
+        "grep -lx 3 /proc/irq/*/effective_affinity_list",
+        "apt-mark showhold | grep linux-image",
+    ):
+        assert check in text, check
+    assert "/path/to/serval" not in text
+    assert "ships them as `linux-headers-*`" not in flat

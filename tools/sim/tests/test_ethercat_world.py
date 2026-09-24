@@ -15,6 +15,7 @@ the world tests need the firmware ELF and the image, and run in CI.
 """
 
 import pathlib
+import re
 
 import pytest
 
@@ -133,3 +134,83 @@ def test_a_servo_axis_move_is_accepted(sim_world, tmp_path):
     assert world.toolhead_position()[:2] == pytest.approx(
         [135.0, 135.0], abs=0.01
     )
+
+
+@pytest.mark.sim_unit
+def test_the_guide_config_is_the_guide_with_only_the_machine_swapped():
+    """The world below boots the CB2 guide's Stage K block. What makes it
+    worth running is that nothing a reader copies is edited on the way in —
+    only pins, the serial path, the endpoint and the Stage J identity."""
+    from klippy import configfile
+
+    guide = configs.cb2_guide_stage_k(REPO)
+    sim = configs.cb2_guide_config(REPO, "/dev/pts/0", "/tmp/g", "/tmp/ec.sock")
+
+    def sections(text):
+        return set(re.findall(r"^\[([^\]]+)\]", text, re.M))
+
+    dropped = sections(guide) - sections(sim)
+    assert dropped == {s for s in sections(guide) if s.startswith("tmc2209 ")}
+    assert not re.search(r"\bP[A-G]\d{1,2}\b", sim)
+    kind, _lanes, _followers = configfile._config_doc.read_motion_settings(sim)[
+        2
+    ]
+    assert kind == "markforged"
+
+
+@pytest.mark.needs_elf
+def test_the_cb2_guide_config_reaches_ready_and_moves(sim_world, tmp_path):
+    """Stage L step 1 on the guide's own config: klippy must reach ready
+    against the stub. The config had no [printer] section, no nozzle or
+    filament diameter and no heater limits or control, and klippy refuses
+    each of those before it gets near the servos. Then X, Y and a diagonal:
+    Y is the second drive on the node, which the stub used to drop."""
+    socket_path = str(tmp_path / "ec.sock")
+    world = sim_world(
+        lambda w: configs.cb2_guide_config(
+            REPO, w.h7_pty, str(w.gcode_dir), socket_path
+        ),
+        dual_mcu=False,
+    )
+    world.gcode_ok("SET_KINEMATIC_POSITION X=150 Y=150 Z=100")
+    for move, expect in [
+        ("G1 X160 F3000", [160.0, 150.0]),
+        ("G1 Y160 F3000", [160.0, 160.0]),
+        ("G1 X150 Y150 F3000", [150.0, 150.0]),
+    ]:
+        world.gcode_ok(move)
+        world.gcode_ok("M400")
+        assert world.toolhead_position()[:2] == pytest.approx(expect, abs=0.01)
+
+
+@pytest.mark.needs_elf
+def test_the_cb2_guide_stop_halts_the_servos(sim_world, tmp_path):
+    """Stage L step 2: pressing the stop opens the NC contact, `^PF1` reads
+    high, klippy shuts down naming it, and ethercat_node sends Stop and a
+    torque disable to the endpoint."""
+    import time
+
+    socket_path = str(tmp_path / "ec.sock")
+    world = sim_world(
+        lambda w: configs.cb2_guide_config(
+            REPO, w.h7_pty, str(w.gcode_dir), socket_path
+        ),
+        dual_mcu=False,
+    )
+    control = world.sim_control()
+    control.set_gpio_input(0, configs.CB2_GUIDE_ESTOP_LINE, 0)
+    world.gcode_ok("SET_KINEMATIC_POSITION X=150 Y=150 Z=100")
+    world.gcode_ok("G1 X155 F600")
+    control.set_gpio_input(0, configs.CB2_GUIDE_ESTOP_LINE, 1)
+    assert world.wait_for_log_text(
+        "emergency stop 'estop' asserted", timeout=10
+    )
+    deadline = time.monotonic() + 10
+    stub = ""
+    while time.monotonic() < deadline:
+        stub = (world.log_dir / "klippy.stdout").read_text(errors="replace")
+        if "scheduled torque disable executed" in stub:
+            break
+        time.sleep(0.2)
+    assert "ec-rt-stub: Stop" in stub
+    assert "scheduled torque disable executed" in stub

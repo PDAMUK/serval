@@ -613,6 +613,7 @@ git clone --depth 1 --branch v25.11.1 https://github.com/armbian/build
 cd build
 ./compile.sh BOARD=bigtreetech-cb2 BRANCH=current RELEASE=trixie \
              BUILD_MINIMAL=yes BUILD_DESKTOP=no \
+             INSTALL_HEADERS=yes BSPFREEZE=yes \
              KERNEL_CONFIGURE=yes
 ```
 
@@ -621,6 +622,7 @@ cd build
 | Menu path | Option | Value |
 | --- | --- | --- |
 | General setup → Preemption Model | `CONFIG_PREEMPT_RT` | Fully Preemptible Kernel (Real-Time) |
+| General setup → Timers subsystem → Timer tick handling | `CONFIG_NO_HZ_FULL` | Full dynticks system (tickless) |
 | Device Drivers → Network device support → Ethernet → STMicro | `CONFIG_STMMAC_ETH` | M |
 | same | `CONFIG_STMMAC_PLATFORM` | M |
 | same | `CONFIG_DWMAC_ROCKCHIP` | M |
@@ -631,12 +633,24 @@ family moves with its releases, and `v25.11.1` is the last release where it is
 (`current`) and 7.2 (`edge`). IgH's stmmac set stops at 6.12, so an unpinned
 clone offers no branch this build can use. Flash the image and boot it.
 
+**Two more options on that line, and one in the table, are not optional.**
+`INSTALL_HEADERS=yes` puts this kernel's own headers on the image, which the
+IgH modules build against. `BSPFREEZE=yes` holds the kernel, headers, device
+tree and bootloader packages: Armbian's repository publishes newer builds under
+the same names — `linux-image-current-rockchip64` is 6.18 there, not RT — so
+without the hold the first `apt upgrade` replaces this kernel and the EtherCAT
+module no longer loads. And `CONFIG_NO_HZ_FULL` is what `nohz_full=3` and
+`rcu_nocbs=3` in the core-isolation step need; without it the kernel ignores
+both, and the isolation check still passes because `isolcpus` works regardless.
+
 **✅ Check — all three must hold:**
 
 ```sh
 uname -r                                  # 6.12.x
 uname -v | grep -i preempt_rt             # must mention PREEMPT_RT
 zgrep CONFIG_PREEMPT_RT /proc/config.gz   # =y  (if config.gz is present)
+apt-mark showhold | grep linux-image      # linux-image-current-rockchip64
+ls -d /lib/modules/$(uname -r)/build      # the headers B6 builds against
 ```
 
 A kernel reporting `PREEMPT` rather than `PREEMPT_RT` is the ordinary
@@ -683,7 +697,7 @@ What each is for, because a missing one fails somewhere that does not name it:
 | Needed by | Without it |
 | --- | --- |
 | `autoconf automake libtool` | IgH's `./bootstrap` (B6) has nothing to run |
-| kernel headers for the running kernel | `make modules` (B6) cannot build against it — Armbian ships them as `linux-headers-*` for the branch you built |
+| kernel headers for the running kernel | already on the image from B1's `INSTALL_HEADERS=yes`. **Do not** `apt install linux-headers-current-rockchip64`: the repository's package of that name is the 6.18 build, and `make modules` (B6) needs this kernel's |
 | `libudev-dev pkg-config` | the Rust build (B9) fails in the `serialport` crate, which links `libudev`. This one is easy to mistake for a Rust problem |
 | `python3-dev libffi-dev` | klippy's `chelper` cannot compile its C at first start |
 | `gcc-arm-none-eabi` and friends | the Manta firmware build stops at `arm-none-eabi-gcc: No such file or directory` |
@@ -739,10 +753,34 @@ The endpoint pins its cycle loop to one CPU and needs that CPU
 contention-free. On Armbian, add to `/boot/armbianEnv.txt` via `extraargs=`:
 
 ```
-isolcpus=domain,managed_irq,3 nohz_full=3 rcu_nocbs=3
+isolcpus=domain,managed_irq,3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2 cpufreq.default_governor=performance
 ```
 
-The RK3566 is quad-core, so CPU 3 is the last one. Reboot.
+The RK3566 is quad-core, so CPU 3 is the last one.
+
+**The last two keep the rest of the board off that core and its clock steady.**
+`irqaffinity=0-2` makes CPUs 0-2 the default home of every device interrupt;
+`managed_irq` covers only the drivers that ask for it. The governor matters
+because the RK3566's four cores share one clock: Armbian ships `ondemand`, which
+drops the whole cluster to 408 MHz whenever the board is quiet — and a board
+running only the DC loop is quiet — so the loop's own work per cycle can take
+four times as long as at 1.8 GHz, and every change reprograms the clock and
+voltage the loop is running on.
+
+**Then stop Armbian undoing the first one.** `armbian-hardware-optimize` runs at
+every boot and, for this board family, writes CPU 3 into the affinity of every
+`eth0` interrupt — the GMAC this build hands to EtherCAT, whose EtherCAT
+driver requests the same interrupt line — and sets `ondemand`. It does this in the background,
+racing the NIC handover, so no service ordering fixes it. Mask it:
+
+```sh
+sudo systemctl mask armbian-hardware-optimize.service
+```
+
+Its other work — the I/O scheduler, USB storage quirks — does not matter on
+this board, and its log-rotation edit was made on the first boot already.
+
+Reboot.
 
 **It must be CPU 3, not "a core".** The endpoint pins to CPU 3 and nothing
 reachable changes that: `--rt-cpu` exists on the binary, but klippy spawns the
@@ -758,18 +796,22 @@ a cold boot under load.
 
 ```sh
 cat /sys/devices/system/cpu/isolated     # 3
+cat /sys/devices/system/cpu/nohz_full    # 3 — absent or empty means CONFIG_NO_HZ_FULL is off
+cat /proc/irq/default_smp_affinity       # 7 — CPUs 0-2
+cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor   # performance
+grep -lx 3 /proc/irq/*/effective_affinity_list   # prints nothing
 ```
 
 ## B6 — Build the IgH master with `ec_dwmac-rk`
 
-Install kernel headers matching the running kernel first — Armbian ships them
-as `linux-headers-*` for the branch that was built.
+The headers are already on the image — B1's `INSTALL_HEADERS=yes` — and B1's
+check confirmed `/lib/modules/$(uname -r)/build`.
 
 ```sh
 git clone -b stable-1.6 https://gitlab.com/etherlab.org/ethercat.git ~/ethercat-igh
 
 # Generate the Rockchip binding and wire it into the tree.
-python3 /path/to/serval/tools/ethercat-dwmac-rk/generate.py \
+python3 ~/klipper/tools/ethercat-dwmac-rk/generate.py \
     --igh  ~/ethercat-igh/devices/stmmac \
     --work /tmp/ec-dwmac \
     --install ~/ethercat-igh
@@ -975,6 +1017,22 @@ LimitMEMLOCK=infinity
 Then `systemctl daemon-reload`. The spawned endpoint inherits the ambient caps
 from klippy.
 
+**One more thing the capabilities do not cover: `/dev/cpu_dma_latency`.** The
+endpoint opens it and writes `0` for as long as it runs, which holds every core
+out of deep idle states — on an idle board the exit latency from those is what
+makes the loop wake late. The device is `crw------- root root`, and neither
+capability grants a write to a root-only file. Add a second line to the udev
+rule file from B7, `/etc/udev/rules.d/99-ethercat.rules`:
+
+```
+KERNEL=="cpu_dma_latency", MODE="0660", GROUP="<your-user>"
+```
+
+`sudo udevadm control --reload-rules && sudo udevadm trigger`, then
+`ls -l /dev/cpu_dma_latency` shows the group. Without it the hardware endpoint
+fails its claim with `rc=-20`; the stub never goes real-time, so Stage L step 1
+passes regardless and step 3 is where it would stop.
+
 > **There is a second route, and it is the worse one.**
 > `make -f Makefile.rust setcap-ethercat` puts `cap_net_raw`, `cap_sys_nice`
 > and `cap_ipc_lock` on the binary as **file capabilities**. It works — but a
@@ -989,7 +1047,7 @@ from klippy.
 > `...cap_sys_nice=ep`. On the ambient route it reads back empty, correctly,
 > which is why it is not in the check as written.
 
-There is **no silent `SCHED_OTHER` fallback**. If any of the three requirements
+There is **no silent `SCHED_OTHER` fallback**. If any of the four requirements
 is missing, `go_realtime()` aborts the claim loudly and names which:
 
 | Code | Missing |
@@ -997,6 +1055,7 @@ is missing, `go_realtime()` aborts the claim loudly and names which:
 | `rc=-10` | `mlockall` / `CAP_IPC_LOCK` |
 | `rc=-11` | CPU pin (the isolated core) |
 | `rc=-12` | `SCHED_FIFO` / `CAP_SYS_NICE` |
+| `rc=-20` | write access to `/dev/cpu_dma_latency` — the udev line above |
 
 **✅ Check, once the endpoint is running** — sample the *steady-state* pid, not
 the first 200 ms, because `go_realtime()` runs just after `main()`:
@@ -1692,8 +1751,9 @@ NetworkManager, passes a restart and fails here.
 | `basename "$(readlink /sys/bus/platform/devices/<DEV>/driver)"` | `ec_rk_gmac-dwmac` — the handover ran |
 | `ethercat master` | reports the master up, with a link |
 | `ethercat slaves` | both drives, in wired order, reaching `PREOP` |
+| `grep -lx 3 /proc/irq/*/effective_affinity_list` | prints nothing — the GMAC's interrupt, now EtherCAT's, is off CPU 3 |
 
-If this fails, the fault is in B6 or B7 — the driver or the handover — and not
+If this fails, the fault is in B5, B6 or B7 — the driver or the handover — and not
 in anything since.
 
 **What J1 cannot prove is the real-time loop, because nothing runs it yet.**
@@ -1726,6 +1786,12 @@ serial: /dev/serial/by-id/usb-Klipper_stm32h723xx_...   # from Stage C
 [telemetry]
 enabled: False
 
+[printer]
+max_velocity: 300           # bring-up limits: raise after Stage M, not before
+max_accel: 3000
+max_z_velocity: 5           # rotation_distance 8 lead screw; the default is max_velocity
+max_z_accel: 100
+
 [kinematics]
 type: markforged
 axis_x: x
@@ -1752,10 +1818,10 @@ cycle_us: 250
 #pdo_following_error: True
 #   60F4h. `estun-pronet` drops it and derives the following error from
 #   607Ah - 6064h instead; set it True if your drive turns out to have it.
-#endpoint: /home/biqu/serval/rust/target/release/ethercat-rt
-#   Optional. Defaults to rust/target/release/ethercat-rt inside the
-#   repository. Stage L step 1 switches this to ethercat-rt-stub for the
-#   drive-off dry run, so uncomment it at that point.
+#endpoint: /home/<your-user>/klipper/rust/target/release/ethercat-rt-stub
+#   Optional. Unset, it is the hardware endpoint inside this checkout.
+#   Uncomment it for Stage L steps 1-2 only. Absolute: klippy does not
+#   expand ~ and resolves a relative path against its own working directory.
 
 [motor motor_x]
 drive: servo
@@ -1809,9 +1875,17 @@ motors: motor_e0, motor_e1
 
 [extruder]
 axis: e
+nozzle_diameter: 0.4
+filament_diameter: 1.75
 heater_pin: PA0
 sensor_pin: PB0
 sensor_type: Generic 3950
+min_temp: 0
+max_temp: 250
+control: pid
+pid_Kp: 22.2                # starting values: PID_CALIBRATE HEATER=extruder replaces them
+pid_Ki: 1.08
+pid_Kd: 114
 
 [axis x]
 endstop_pin: ^PF4
@@ -1847,6 +1921,12 @@ run_current: 0.6
 heater_pin: PF5
 sensor_pin: PB1
 sensor_type: ATC Semitec 104GT-2
+min_temp: 0
+max_temp: 110
+control: pid
+pid_Kp: 54.027              # starting values: PID_CALIBRATE HEATER=heater_bed replaces them
+pid_Ki: 0.770
+pid_Kd: 948.182
 
 [fan]
 pin: PF7
@@ -1961,7 +2041,10 @@ to skip.
 ### 1. Stub endpoint, drives off
 
 Build the stub if Stage B9 has not (`make -f Makefile.rust ethercat-stub`),
-point `endpoint:` at `rust/target/release/ethercat-rt-stub`, and start klippy.
+uncomment the `endpoint:` line in `[ethercat_node]` with your user name in it,
+and start klippy. The path must be absolute — klippy does not expand `~`, and
+resolves a relative path against its own working directory, which depends on
+how the service was installed.
 **It must reach `ready`.** This proves planner → bridge → transport with zero
 hardware risk.
 
@@ -1994,8 +2077,8 @@ drive is live.**
 
 ### 3. Real endpoint, motors uncoupled
 
-Switch `endpoint:` back to `rust/target/release/ethercat-rt`, built by Stage B9
-(`make -f Makefile.rust ethercat-endpoint-hw`). Expect `ready` and a log line
+Comment the `endpoint:` line out again: unset, it is the hardware endpoint in
+this checkout, built by Stage B9 (`make -f Makefile.rust ethercat-endpoint-hw`). Expect `ready` and a log line
 naming the profile and matched identity.
 
 If the drive is powered off, the master finds no slaves at all and klippy fails
@@ -2254,6 +2337,7 @@ broken build.
 | `rc=-10` | `mlockall` failed | `CAP_IPC_LOCK` — Stage B8 |
 | `rc=-11` | CPU pin failed | the isolated core — Stage B5 |
 | `rc=-12` | `SCHED_FIFO` failed | `CAP_SYS_NICE` — Stage B8 |
+| `rc=-20` | could not hold `/dev/cpu_dma_latency` at 0 | the udev line in Stage B8 — the device is root-only by default |
 | `rc=-21` | profile identity missing or zero | `vendor_id` **and** `product_code` both set, from Stage J |
 
 **`rc=-2` deserves emphasis:** a drive that is present but of a *different

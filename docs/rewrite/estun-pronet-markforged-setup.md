@@ -1272,6 +1272,12 @@ by 8.
 [mcu]
 serial: /dev/serial/by-id/usb-Klipper_stm32h723xx_...   # from Part 3
 
+[printer]
+max_velocity: 300           # bring-up limits: raise after Part 13, not before
+max_accel: 3000
+max_z_velocity: 5           # rotation_distance 8 lead screw; the default is max_velocity
+max_z_accel: 100
+
 [kinematics]
 type: markforged
 axis_x: x
@@ -1298,10 +1304,10 @@ cycle_us: 250
 #pdo_following_error: True
 #   60F4h. `estun-pronet` drops it and derives the following error from
 #   607Ah - 6064h instead; set it True if your drive turns out to have it.
-#endpoint: /home/biqu/serval/rust/target/release/ethercat-rt
-#   Optional. Defaults to rust/target/release/ethercat-rt inside the
-#   repository. Part 12 step 1 switches this to ethercat-rt-stub for the
-#   drive-off dry run, so uncomment it at that point.
+#endpoint: /home/<your-user>/klipper/rust/target/release/ethercat-rt-stub
+#   Optional. Unset, it is the hardware endpoint inside this checkout.
+#   Uncomment it for Part 12 steps 1-2 only. Absolute: klippy does not
+#   expand ~ and resolves a relative path against its own working directory.
 
 [motor motor_x]
 drive: servo
@@ -1355,9 +1361,17 @@ motors: motor_e0, motor_e1
 
 [extruder]
 axis: e
+nozzle_diameter: 0.4
+filament_diameter: 1.75
 heater_pin: PA0
 sensor_pin: PB0
 sensor_type: Generic 3950
+min_temp: 0
+max_temp: 250
+control: pid
+pid_Kp: 22.2                # starting values: PID_CALIBRATE HEATER=extruder replaces them
+pid_Ki: 1.08
+pid_Kd: 114
 
 [axis x]
 endstop_pin: ^PF4
@@ -1393,6 +1407,12 @@ run_current: 0.6
 heater_pin: PF5
 sensor_pin: PB1
 sensor_type: ATC Semitec 104GT-2
+min_temp: 0
+max_temp: 110
+control: pid
+pid_Kp: 54.027              # starting values: PID_CALIBRATE HEATER=heater_bed replaces them
+pid_Ki: 0.770
+pid_Kd: 948.182
 
 [fan]
 pin: PF7
@@ -1523,8 +1543,10 @@ and runs the test binaries of every crate in the workspace as well.
 Belts stay uncoupled until the final step.
 
 1. **Stub endpoint, drives off.** Build the stub if the host page has not
-   already (`make -f Makefile.rust ethercat-stub`), point `endpoint:` at
-   `rust/target/release/ethercat-rt-stub` and start klippy. It must reach
+   already (`make -f Makefile.rust ethercat-stub`), uncomment the `endpoint:`
+   line with your user name in it — an absolute path, because klippy does not
+   expand `~` and resolves a relative one against its own working directory —
+   and start klippy. It must reach
    `ready`. This proves planner -> bridge -> transport with zero hardware risk.
 
    This step now has an automated counterpart, so a failure here is more
@@ -1545,8 +1567,9 @@ Belts stay uncoupled until the final step.
 
    `clear` with the button held means the second contact is not on `PF1`.
    No shutdown at all means the contact is NO where the config expects NC.
-3. **Real endpoint, motors uncoupled.** Switch `endpoint:` back to
-   `rust/target/release/ethercat-rt`, built by the host page's endpoint step
+3. **Real endpoint, motors uncoupled.** Comment the `endpoint:` line out
+   again — unset, it is `rust/target/release/ethercat-rt` in this checkout, built
+   by the host page's endpoint step
    (`make -f Makefile.rust ethercat-endpoint-hw`). klippy spawns it itself at
    claim time; it is never launched by hand. Expect `ready` and a log line
    naming the profile and matched identity.

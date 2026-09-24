@@ -53,6 +53,7 @@ git clone --depth 1 --branch v25.11.1 https://github.com/armbian/build
 cd build
 ./compile.sh BOARD=bigtreetech-cb2 BRANCH=current RELEASE=trixie \
              BUILD_MINIMAL=yes BUILD_DESKTOP=no \
+             INSTALL_HEADERS=yes BSPFREEZE=yes \
              KERNEL_CONFIGURE=yes
 ```
 
@@ -61,6 +62,7 @@ cd build
 | Menu path | Option | Value |
 | --- | --- | --- |
 | General setup → Preemption Model | `CONFIG_PREEMPT_RT` | Fully Preemptible Kernel (Real-Time) |
+| General setup → Timers subsystem → Timer tick handling | `CONFIG_NO_HZ_FULL` | Full dynticks system (tickless) |
 | Device Drivers → Network device support → Ethernet → STMicro | `CONFIG_STMMAC_ETH` | M |
 | same | `CONFIG_STMMAC_PLATFORM` | M |
 | same | `CONFIG_DWMAC_ROCKCHIP` | M |
@@ -71,12 +73,24 @@ family moves with its releases, and `v25.11.1` is the last release where it is
 (`current`) and 7.2 (`edge`). IgH's stmmac set stops at 6.12, so an unpinned
 clone offers no branch this build can use. Flash the resulting image and boot it.
 
+**Two more options on that line, and one in the table, are not optional.**
+`INSTALL_HEADERS=yes` puts this kernel's own headers on the image, which the
+IgH modules build against. `BSPFREEZE=yes` holds the kernel, headers, device
+tree and bootloader packages: Armbian's repository publishes newer builds under
+the same names — `linux-image-current-rockchip64` is 6.18 there, not RT — so
+without the hold the first `apt upgrade` replaces this kernel and the EtherCAT
+module no longer loads. And `CONFIG_NO_HZ_FULL` is what `nohz_full=3` and
+`rcu_nocbs=3` in the core-isolation step need; without it the kernel ignores
+both, and the isolation check still passes because `isolcpus` works regardless.
+
 **Verify.** On the booted CB2, all three must hold:
 
 ```sh
 uname -r                      # 6.12.x
 uname -v | grep -i preempt_rt # must mention PREEMPT_RT
 zgrep CONFIG_PREEMPT_RT /proc/config.gz   # =y  (if config.gz is present)
+apt-mark showhold | grep linux-image      # linux-image-current-rockchip64
+ls -d /lib/modules/$(uname -r)/build      # the headers step 6 builds against
 ```
 
 A kernel that boots but reports `PREEMPT` rather than `PREEMPT_RT` is the
@@ -123,7 +137,7 @@ What each is for, because a missing one fails somewhere that does not name it:
 | Needed by | Without it |
 | --- | --- |
 | `autoconf automake libtool` | IgH's `./bootstrap` (step 6) has nothing to run |
-| kernel headers for the running kernel | `make modules` (step 6) cannot build against it — Armbian ships them as `linux-headers-*` for the branch you built |
+| kernel headers for the running kernel | already on the image from step 1's `INSTALL_HEADERS=yes`. **Do not** `apt install linux-headers-current-rockchip64`: the repository's package of that name is the 6.18 build, and `make modules` (step 6) needs this kernel's |
 | `libudev-dev pkg-config` | the Rust build (step 11) fails in the `serialport` crate, which links `libudev`. This one is easy to mistake for a Rust problem |
 | `python3-dev libffi-dev` | klippy's `chelper` cannot compile its C at first start |
 | `gcc-arm-none-eabi` and friends | the Manta firmware build stops at `arm-none-eabi-gcc: No such file or directory` |
@@ -166,10 +180,34 @@ Add to the kernel command line (on Armbian, `/boot/armbianEnv.txt`, via
 `extraargs=`):
 
 ```
-isolcpus=domain,managed_irq,3 nohz_full=3 rcu_nocbs=3
+isolcpus=domain,managed_irq,3 nohz_full=3 rcu_nocbs=3 irqaffinity=0-2 cpufreq.default_governor=performance
 ```
 
-The RK3566 is quad-core, so CPU 3 is the last one. Reboot.
+The RK3566 is quad-core, so CPU 3 is the last one.
+
+**The last two keep the rest of the board off that core and its clock steady.**
+`irqaffinity=0-2` makes CPUs 0-2 the default home of every device interrupt;
+`managed_irq` covers only the drivers that ask for it. The governor matters
+because the RK3566's four cores share one clock: Armbian ships `ondemand`, which
+drops the whole cluster to 408 MHz whenever the board is quiet — and a board
+running only the DC loop is quiet — so the loop's own work per cycle can take
+four times as long as at 1.8 GHz, and every change reprograms the clock and
+voltage the loop is running on.
+
+**Then stop Armbian undoing the first one.** `armbian-hardware-optimize` runs at
+every boot and, for this board family, writes CPU 3 into the affinity of every
+`eth0` interrupt — the GMAC this build hands to EtherCAT, whose EtherCAT
+driver requests the same interrupt line — and sets `ondemand`. It does this in the background,
+racing the NIC handover, so no service ordering fixes it. Mask it:
+
+```sh
+sudo systemctl mask armbian-hardware-optimize.service
+```
+
+Its other work — the I/O scheduler, USB storage quirks — does not matter on
+this board, and its log-rotation edit was made on the first boot already.
+
+Reboot.
 
 **It must be CPU 3, not "a core".** The endpoint pins to CPU 3 and nothing
 reachable changes that: `--rt-cpu` exists on the binary, but klippy spawns the
@@ -185,18 +223,22 @@ a cold boot under load.
 
 ```sh
 cat /sys/devices/system/cpu/isolated     # 3
+cat /sys/devices/system/cpu/nohz_full    # 3 — absent or empty means CONFIG_NO_HZ_FULL is off
+cat /proc/irq/default_smp_affinity       # 7 — CPUs 0-2
+cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor   # performance
+grep -lx 3 /proc/irq/*/effective_affinity_list   # prints nothing
 ```
 
 ## Step 6 — Build the IgH master with `ec_dwmac-rk`
 
-Kernel headers matching the running kernel must be installed first; Armbian
-ships them as `linux-headers-*` for the branch that was built.
+The headers are already on the image — step 1's `INSTALL_HEADERS=yes` — and
+step 1's check confirmed `/lib/modules/$(uname -r)/build`.
 
 ```sh
 git clone -b stable-1.6 https://gitlab.com/etherlab.org/ethercat.git ~/ethercat-igh
 
 # Generate the Rockchip binding and wire it into the tree.
-python3 /path/to/serval/tools/ethercat-dwmac-rk/generate.py \
+python3 ~/klipper/tools/ethercat-dwmac-rk/generate.py \
     --igh  ~/ethercat-igh/devices/stmmac \
     --work /tmp/ec-dwmac \
     --install ~/ethercat-igh
@@ -405,6 +447,17 @@ LimitMEMLOCK=infinity
 ```
 
 Then `systemctl daemon-reload`.
+
+The endpoint also opens `/dev/cpu_dma_latency` and holds it at `0`, keeping
+every core out of deep idle states. The device is root-only and neither
+capability covers it, so add a second line to the udev rule file from step 8,
+`/etc/udev/rules.d/99-ethercat.rules`:
+
+```
+KERNEL=="cpu_dma_latency", MODE="0660", GROUP="<your-user>"
+```
+
+Without it the hardware endpoint fails its claim with `rc=-20`.
 
 **Verify, once the endpoint is running** (sample the steady-state pid, not the
 first 200 ms):

@@ -98,6 +98,11 @@ pub(crate) fn message_for_claim_error(
                  (bringup rc=-{fault_code}) — grant CAP_SYS_NICE + CAP_IPC_LOCK to \
                  klipper.service and isolate a CPU core, then FIRMWARE_RESTART"
             ),
+            20 => format!(
+                "ethercat {label}: realtime endpoint could not hold /dev/cpu_dma_latency \
+                 at 0 (bringup rc=-{fault_code}) — the device is root-only by default; \
+                 give the klipper user write access with a udev rule, then FIRMWARE_RESTART"
+            ),
             0 => format!(
                 "ethercat {label}: drive (slave {slave_idx}) offline \
                  — check drive power, then FIRMWARE_RESTART"

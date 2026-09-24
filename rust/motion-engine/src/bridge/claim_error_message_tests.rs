@@ -101,3 +101,18 @@ fn drive_fault_unchanged() {
         "ethercat node_x: drive (slave 1) fault 0x0021 — check drive, then FIRMWARE_RESTART"
     );
 }
+
+#[test]
+fn cpu_dma_latency_denied_names_the_device_not_the_drive() {
+    let msg = message_for_claim_error(
+        "node_x",
+        "eth0",
+        &EndpointClaimError::DriveOffline {
+            slave_idx: 0,
+            fault_code: 20,
+        },
+    );
+    assert!(msg.contains("/dev/cpu_dma_latency"), "{msg}");
+    assert!(msg.contains("rc=-20"), "{msg}");
+    assert!(!msg.contains("drive power"), "{msg}");
+}

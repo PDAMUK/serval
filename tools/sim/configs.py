@@ -2348,3 +2348,72 @@ position_max: 250
 endstop_pin: ^gpiochip0/gpio12
 homing_speed: 5
 {_tail(gcode_dir)}"""
+
+
+CB2_GUIDE = "docs/rewrite/markforged-cb2-complete-build.md"
+
+# The Manta pins the CB2 guide's Stage K config names, and the sim line each
+# one becomes. Everything else in the config is taken as written.
+CB2_GUIDE_SIM_PINS = {
+    "PB8": "gpiochip0/gpio6",
+    "PB7": "gpiochip0/gpio7",
+    "PE0": "gpiochip0/gpio8",
+    "PG13": "gpiochip0/gpio20",
+    "PG12": "gpiochip0/gpio21",
+    "PG15": "gpiochip0/gpio22",
+    "PG9": "gpiochip0/gpio23",
+    "PD7": "gpiochip0/gpio24",
+    "PG11": "gpiochip0/gpio25",
+    "PF4": "gpiochip0/gpio10",
+    "PF3": "gpiochip0/gpio11",
+    "PF2": "gpiochip0/gpio12",
+    "PF1": "gpiochip0/gpio13",
+    "PA0": "gpiochip0/gpio30",
+    "PB0": "analog0",
+    "PF5": "gpiochip0/gpio34",
+    "PB1": "analog1",
+    "PF7": "gpiochip0/gpio31",
+}
+CB2_GUIDE_ESTOP_LINE = 13
+
+
+def cb2_guide_stage_k(repo_root) -> str:
+    import pathlib
+    import re
+
+    text = (pathlib.Path(repo_root) / CB2_GUIDE).read_text(encoding="utf-8")
+    part = text.split("# Stage K")[1].split("# Stage L")[0]
+    return re.findall(r"```ini\n(.*?)```", part, re.S)[0]
+
+
+def cb2_guide_config(
+    repo_root, h7_pty: str, gcode_dir: str, socket_path: str
+) -> str:
+    """The CB2 build guide's own printer.cfg, changed only where the sim
+    cannot be the machine: Manta pins become sim lines, the serial path
+    becomes the sim PTY, the endpoint is the stub, and the drive identity —
+    which the reader copies off the bus at Stage J — gets a non-zero
+    placeholder. The TMC2209 UART sections go, because the sim has no UART
+    on those lines; every section klippy has to accept is otherwise the
+    guide's text."""
+    import re
+
+    cfg = cb2_guide_stage_k(repo_root)
+    cfg = re.sub(r"^\[tmc2209 [^\]]+\]\n(?:[^\[\n].*\n)*", "", cfg, flags=re.M)
+    cfg = re.sub(
+        r"\b(P[A-G]\d{1,2})\b", lambda m: CB2_GUIDE_SIM_PINS[m.group(1)], cfg
+    )
+    cfg = re.sub(r"^serial: .*$", "serial: " + h7_pty, cfg, flags=re.M)
+    cfg = re.sub(
+        r"^socket: .*$",
+        "socket: %s\nendpoint: %s" % (socket_path, ETHERCAT_STUB_BINARY),
+        cfg,
+        flags=re.M,
+    )
+    cfg = re.sub(
+        r"^vendor_id: 0x0+\b", "vendor_id: 0x00000a0b", cfg, flags=re.M
+    )
+    cfg = re.sub(
+        r"^product_code: 0x0+\b", "product_code: 0x0000c0de", cfg, flags=re.M
+    )
+    return cfg + "\n[virtual_sdcard]\npath: %s\n" % gcode_dir

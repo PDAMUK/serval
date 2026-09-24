@@ -21,24 +21,15 @@ GUIDE = (
     / "estun-pronet-markforged-setup.md"
 )
 
+
 # The guide omits [printer] because it is not servo-specific, but the reader
 # needs cartesian limits before it will look at the topology.
-PRINTER_SECTION = """[printer]
-max_velocity: 300
-max_accel: 3000
-corner_deviation: 0.04
-max_z_velocity: 5
-max_z_accel: 100
-
-"""
-
-
 def guide_config():
     text = GUIDE.read_text(encoding="utf-8")
     part = text.split("## Part 11 — Configuration")[1].split("## Part 12")[0]
     blocks = re.findall(r"```ini\n(.*?)```", part, re.S)
     assert blocks, "no ini block found in the guide's configuration part"
-    return PRINTER_SECTION + blocks[0]
+    return blocks[0]
 
 
 def read_topology():

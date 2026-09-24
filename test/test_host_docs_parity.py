@@ -37,6 +37,9 @@ SHARED_STEPS = {
     "the pinned Rust toolchain": "sh.rustup.rs",
     "this fork, not the upstream it is built on": "PDAMUK/serval",
     "the klippy modules built from that checkout": "scripts/build-native.sh",
+    "write access to the idle-state QoS the endpoint holds": (
+        'KERNEL=="cpu_dma_latency", MODE="0660"'
+    ),
 }
 
 
