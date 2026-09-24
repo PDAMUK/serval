@@ -96,6 +96,19 @@ that need a drive on the bench to settle are **not** here; those live in the
 | 79 | J1, "the gate on Stage B", asked for no `A.70`, `SCHED_FIFO` and that grep on a cold boot before a line of `printer.cfg` exists. Nothing runs the loop then: klippy spawns the endpoint only when it claims a node, and a drive sitting in `PREOP` has no SYNC0 to lose. Three of five rows could not fail. They now sit at Stage L step 3, where the loop first runs against drives in `OP`, on a cold boot; J1 checks what it can — that the handover ran, the link, the enumeration | `f85e2b9` |
 | 80 | B6 checked for `/lib/modules/$(uname -r)/extra/ec_dwmac-rk.ko`. IgH installs under `--with-module-dir`, default `ethercat`, keeping the source layout, so the module lands in `ethercat/devices/stmmac/` — confirmed by a `modules_install` of the rebuilt tree. The check failed on a correct install and the vermagic comparison after it, finding 49's, never ran | `f85e2b9` |
 | 81 | "A 40 mm pulley" reads as a diameter. The guide's 200 N and 600 N hold only for 40 mm of belt per turn — `rotation_distance: 40`, a 20-tooth pulley — and the diameter reading gives a third of the force the belt sees | `f85e2b9` |
+| 82 | The CB2 guide's Stage K config — the file the reader is told to replace `printer.cfg` with — could not start klippy. Booted in the simulator with only pins, serial path, endpoint and Stage J identity swapped, klippy refused it in turn for `min_temp` on `[heater_bed]`, its `control`, `max_velocity` in a `[printer]` section that did not exist, and `min_temp` and `nozzle_diameter` on `[extruder]` — none of it near the servos. `test_cb2_build_guide.py` prepended its own `[printer]` section before parsing, so the one gap the parse check could have seen was supplied by the check. Both worked configs now carry them, the injection is gone from both tests, and the sim world boots the guide's block as written | `afcf4a4` |
+| 83 | The stub endpoint kept one ring and reported one retired count, which the host reads as slot 0's. On this machine's node Y is slot 1: a Y piece was retired, credited to X, and `M400` never returned — X alone completed in 0.5 s, Y alone hung. The dry run the guide leans on at Stage L steps 1-2 could not move Y, and the sim world's two `needs_elf` tests, recorded above as checked against the harness rather than run, had never passed. The stub now keeps a ring per slot and routes pushes through the endpoint's own `plan_bundle`; `stub_multi_slot.rs` fails on the old stub with `[1]` | `afcf4a4` |
+| 84 | The endpoint holds `/dev/cpu_dma_latency` at `0` and fails its claim with `rc=-20` if it cannot open it. The device is `crw------- root root`, and neither ambient capability B8 grants can write a root-only file. No document in the repository mentioned it; the stub never goes real-time, so the dry run passes and the first real claim would not; and klippy's catch-all reported `rc=-20` as "drive (slave 0) offline — check drive power". The host pages grant it with a udev line, klippy names the device, and the guide's `rc` tables are now derived from the C source's `go_realtime` returns | `afcf4a4` |
+| 85 | Stage L step 1 gave the stub's path relative, and the config's example was `/home/biqu/serval/...` — a user an image built at B1 need not have, in a directory B4 never makes. `ethercat_node` passes the option through `abspath` without `expanduser`, so a relative path resolves against klippy's working directory and `~` is literal | `afcf4a4` |
+| 86 | The image B1 builds installs `linux-image-current-rockchip64`, and Armbian's repository publishes 6.18 non-RT builds under that same name: the first `apt upgrade` replaced the RT kernel and `ec_dwmac-rk` no longer loaded. B6 said to install headers "for the branch that was built", which from the repository fetches the 6.18 ones. B1 now builds with `INSTALL_HEADERS=yes` and `BSPFREEZE=yes`, both read out of Armbian's own build code at `v25.11.1` | `afcf4a4` |
+| 87 | `nohz_full=3 rcu_nocbs=3` need `CONFIG_NO_HZ_FULL`, which Armbian's rockchip64 config leaves off; the kernel ignores both, and B5's check still passed because `isolcpus` works without it. It is in the menuconfig table now — selectable on arm64 at 6.12 with `PREEMPT_RT`, and it brings `RCU_NOCB_CPU` — and B5 reads `/sys/devices/system/cpu/nohz_full` | `afcf4a4` |
+| 88 | `armbian-hardware-optimize`, enabled by default, writes CPU 3 into the affinity of every `eth0` interrupt for the `rockchip64` family at each boot, in the background and racing the NIC handover; IgH's EtherCAT stmmac requests the same line. It also sets `ondemand`, which drops the RK3566's shared cluster clock to 408 MHz on a quiet board. The service is masked, and `irqaffinity=0-2` and `cpufreq.default_governor=performance` go on the command line — the performance governor is built in because `DEFAULT_GOV_ONDEMAND` selects it | `afcf4a4` |
+| 89 | `host-ec.jsonl` was opened append-only and never rotated. Measured with `render_line`, a per-slot telemetry line is 585 bytes and the stage-timing line 607; two drives at the default 250 µs cycle write about 1.8 kB every half second — some 300 MB a day for as long as the node is claimed, idle or not — onto an 8-16 GB eMMC, while the host's own logs are capped at 32 MB × 6. It now rotates at the same cap, checked against motion-services' constants. Reusing that writer would have pulled `motion-core` and the libudev-linked serial stack into the real-time binary | `96f9c0f` |
+| 90 | The CB2 build budget quoted the contributor gate's 19-25 GB for a build that leaves 1.1 GB in `rust/target`, and advised clearing `debug/incremental`, which a release-only build never creates. The number decides whether an eMMC will do | `96f9c0f` |
+| 91 | Stage L step 4 said both drives reach Operation Enabled and never said how. Servo rails register with `stepper_enable` under their section names, so the command is `SET_STEPPER_ENABLE STEPPER="axis x"` — quoted, enabling the node — and `STEPPER=x` is refused as an invalid stepper. The sim world runs the command out of step 4 | `96f9c0f` |
+| 92 | B4 lets KIAUH install mainline Klipper and checks this fork out over it; `klippy/webhooks.py` imports `numpy` at startup and Klipper's virtualenv carries none | `96f9c0f` |
+| 93 | `--prefix=/opt/etherlab` installs the `ethercat` tool in `/opt/etherlab/bin`, on no default `PATH`, and every host page then ran `ethercat master` and `ethercat slaves` bare | `96f9c0f` |
+| 94 | Klippy's frame-timing and cycle-skip shutdowns — the likeliest first failure of a loop never run on the CB2's A55 cores — had no row in the fault reference, and nothing named `cycle_us: 500` as the next thing to try. B4 now says to install only what the printer needs, and Stage L step 3's real-time gate runs under the board's normal load rather than on an idle board | `96f9c0f` |
 
 Earlier in the same branch: `74b9e7d` (`py-typecheck` pointed at three files
 that never existed), `e86ba4c` (c-api host tests could not link), `3215df9`
@@ -325,6 +338,14 @@ Not defects. Recorded so the next pass does not spend the time again.
   `linux-rockchip64-current.config` at `v25.11.1` already sets
   `CONFIG_EXPERT=y`. Armbian boots the CB2 from `rk3566-bigtreetech-pi2.dtb`,
   as the guide says, and its 6.12 patch set carries that file.
+- **The CB2's MAC is stable across boots**, which `MASTER0_DEVICE` depends on.
+  U-Boot v2024.10 on the RK3568 family implies `MISC_INIT_R` and `ROCKCHIP_OTP`,
+  so it derives the MAC from the SoC serial, and the device tree Armbian boots
+  the CB2 from has `ethernet0 = &gmac1`, so the kernel receives it. IgH's
+  `ethercatctl` swaps `dwmac-rk` for `ec_dwmac-rk` under the names B7 uses,
+  and its `/sbin` tool paths resolve on trixie's merged `/usr`. Armbian's
+  `linux-rockchip64-current.config` at `v25.11.1` sets `CONFIG_EXPERT=y`, so
+  6.12's `PREEMPT_RT` — which depends on it — is visible in menuconfig.
 
 ### Every verification step in the two build guides, evaluated
 
@@ -366,10 +387,11 @@ bench needs was built rather than asserted:
   step 1 proves.
 - **`ethercat-endpoint-hw`** cannot build without IgH, which is correct and is
   finding 54's subject.
-- **The Manta firmware does not build here** for want of `arm-none-eabi-gcc`.
-  The guide's four menuconfig settings do produce the intended `.config`
-  (`MACH_STM32H723`, `FLASH_START_20000`, `CLOCK_REF_25M`, `USBSERIAL` on
-  `PA11_PA12`), and the Rust half compiles for `thumbv7em-none-eabi`.
+- **The Manta firmware builds.** With Debian's `gcc-arm-none-eabi` 13.2 and a
+  `.config` holding only Stage C's four choices, `make` links `klipper.bin` at
+  121 KB — 46% of the 256 KB application flash — with the Rust `c-api` for
+  `thumbv7em-none-eabi` inside. The linker's `ram 100%` is the stack placed to
+  fill DTCM's top, not an overflow. Not flashed, and not repeated by any gate.
 - **No gate covers the C firmware.** `ci.sh rust-mcu-h7` builds `c-api` for
   `thumbv7em-none-eabi` and stops; no CI image carries an ARM toolchain, so
   nothing compiles the firmware or links `out/klipper.bin`. A green gate does
@@ -564,6 +586,15 @@ in this repository — say so plainly rather than let the tally imply otherwise:
   `FAIL (1)` at the line that failed rather than `FAIL (125)` with docker's
   "invalid reference format" on top.
 
+Findings 82-94 came from running the guide instead of reading it: its own
+Stage K config booted in the simulator, its firmware settings built, each
+command a step gives typed as written, and the host's first week imagined —
+what the kernel package, Armbian's boot services and the endpoint's log do
+after the day of the build. The config had been "parsed through the real
+reader" for many rounds; klippy refused it five times before reaching the
+servos, and the test that parsed it had supplied the first missing section
+itself.
+
 Findings 74-81 came from walking the CB2 guide against IgH, the kernel and
 Armbian as they are now, and from building the one binary the CB2 route adds.
 The build itself had been recorded as sound: it compiled and its symbols
@@ -603,11 +634,12 @@ job from auditing this branch.
 - `tools/sim` beyond its unit subset and the EtherCAT world added here. That
   world, plus `test_ethercat_claim_stub.py`, closes what used to be listed:
   the seam where klippy spawns the endpoint and completes the claim is no
-  longer exercised only by hand at Part 12 step 1. The world itself is only
-  half-run, though — its four `sim_unit` cases run in the ordinary suite, its
-  two `needs_elf` cases need the sim image, and Docker cannot build that image
-  in this container for want of the proxy's CA. Those two were checked against
-  the harness they call, not against a run.
+  longer exercised only by hand at Part 12 step 1. Its `needs_elf` cases run
+  without Docker: build `out-h7` from `tools/sim/configs/h7-sim.config`, copy
+  the ELF to `out/klipper-h7-sim.elf`, `make -C tools/sim/preload`, and point
+  `/kalico` at the checkout for the stub path. Run that way they failed at
+  first — finding 83 — and all twelve now pass, including the guide's own
+  config booting, moving, enabling torque, homing X and Y and stopping.
 - **The six items in the guide's "Still unverified on hardware".** A drive on
   the bench settles them and nothing else does: the ESTUN vendor ID and product
   code, the Markforged belt-coupling sign, `ec_dwmac-rk` actually loading on the
@@ -627,7 +659,7 @@ sudo apt install pkg-config libudev-dev   # if absent; the motion engine links l
 scripts/build-native.sh          # klippy/_*.so — klippy will not start without them
 cargo install cargo-nextest --locked   # if absent; the Rust suite needs it
 ./scripts/ci.sh quick            # expect 5 pass
-uv run pytest test/ -q           # expect 1318 passed, 8 skipped
+uv run pytest test/ -q           # expect 1330 passed, 8 skipped
 ```
 
 `test_ethercat_claim_stub.py` and `test_pdo_map.py` need artifacts the first

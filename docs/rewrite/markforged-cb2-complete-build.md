@@ -706,8 +706,11 @@ What each is for, because a missing one fails somewhere that does not name it:
 **The firmware build is the one no gate covers.** `ci.sh rust-mcu-h7` compiles
 the Rust half of the MCU for `thumbv7em-none-eabi`; nothing in CI compiles the
 C firmware or links `out/klipper.bin`, because no CI image carries an ARM
-toolchain. A green gate therefore does not mean the firmware builds — the
-first machine to find out is this one.
+toolchain. It has been built once, off the board: Debian's
+`gcc-arm-none-eabi` 13.2 with Stage C's four settings links `klipper.bin` at
+121 KB, 46% of the application flash, with the Rust `c-api` inside. Nothing
+repeats that, so a green gate still does not mean the firmware at your commit
+builds, and nothing has flashed it.
 
 ## B4 — Get this repository, and a klippy to run it
 
