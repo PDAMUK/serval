@@ -718,14 +718,27 @@ a drop-in for a `klipper.service` that does not exist yet.
 **Install Klipper or Kalico first**, by whatever route you normally would —
 [KIAUH](../Installation.md#installing-via-kiauh) is the usual one on an SBC.
 That is what creates `~/printer_data/`, the klippy virtualenv, and the
-`klipper.service` B8 extends. Then bring it onto this fork:
+`klipper.service` B8 extends.
+
+**Install only what the printer needs from it** — klippy, Moonraker and one web
+front end. Everything else on this board shares CPUs 0-2, the memory bus and
+the one CPU clock with the DC loop, and the real-time gate at Stage L step 3
+has to be passed with it running. A webcam streamer or KlipperScreen is load
+the loop then lives with; add it before that gate, so the gate covers it, or
+not at all.
+
+Then bring it onto this fork:
 
 ```sh
 cd ~/klipper                     # wherever your install put it
 git remote add serval https://github.com/PDAMUK/serval.git
 git fetch serval
 git checkout <the branch carrying this document>
+~/klippy-env/bin/pip install -r scripts/klippy-requirements.txt
 ```
+
+The last line matters if KIAUH installed mainline Klipper: this fork's klippy
+imports `numpy` at startup, and Klipper's own requirements do not carry it.
 
 **It must be this fork, not base Serval.** `docs/Quickstart.md` points at
 `dderg/kalico`, which is the upstream this one is built on and which carries
@@ -744,6 +757,7 @@ they differ for a CB2.
 ```sh
 cd ~/klipper && git log --oneline -1     # a commit from this fork
 ls docs/rewrite/markforged-cb2-complete-build.md   # this document
+~/klippy-env/bin/python -c "import numpy"          # no error
 systemctl status klipper                 # the unit B8 will extend
 ```
 
@@ -826,6 +840,7 @@ cd ~/ethercat-igh
 make && make modules
 sudo make install && sudo make modules_install
 sudo depmod -a
+sudo ln -sf /opt/etherlab/bin/ethercat /usr/local/bin/ethercat   # the tool every later check runs
 ```
 
 See [`tools/ethercat-dwmac-rk/README.md`](../../tools/ethercat-dwmac-rk/README.md)
@@ -1100,15 +1115,17 @@ scripts/build-native.sh --bench --ethercat stub   # Stage L step 1
 scripts/build-native.sh --bench --ethercat hw     # Stage L step 3 onwards
 ```
 
-> **Budget for this before starting it.** A cargo build of this workspace is
-> not a `make` on a Pi. `rust/target` reaches **19–25 GB**, and the CB2's eMMC
-> may be smaller than that in total. Its 2–4 GB of RAM is the other limit —
-> four parallel `rustc` processes linking the larger crates will run a 2 GB
-> board out of memory, so pass `-j2` or set `CARGO_BUILD_JOBS=2` rather than
-> discovering it as a killed compiler. A full disk surfaces as
-> `ld terminated with signal 7 [Bus error]`, which reads like a broken
-> toolchain and is not one; `rust/target/debug/incremental` is the largest
-> directory that regenerates freely.
+> **Budget for this before starting it.** What this build compiles — the
+> endpoint, the stub and the three klippy modules, all release — leaves about
+> 1.1 GB in `rust/target` (measured on x86_64; an arm64 build is the same order).
+> The 19-25 GB figure that goes with this workspace is the contributor gate's —
+> every crate's debug test binaries — which is the thing not to run here. RAM is
+> the tighter limit on a CB2: 2-4 GB, and four parallel `rustc` processes linking
+> the larger crates will run a 2 GB board out of memory, so pass `-j2` or set
+> `CARGO_BUILD_JOBS=2` rather than discovering it as a killed compiler. A full
+> disk surfaces as `ld terminated with signal 7 [Bus error]`, which reads like a
+> broken toolchain and is not one; all of `rust/target` regenerates, and
+> `cargo clean` in `rust/` frees it.
 
 > ### Do not run `./scripts/ci.sh` on this board
 >
@@ -2021,7 +2038,11 @@ diverge.
 **`cycle_us: 250` (4 kHz) is the fast end of ProNet's DC range.** ESTUN's
 manual prints that range twice and the two disagree — 250 µs to 8 ms in the
 specification table, 250 µs to 2 ms in object `0x1C32:02` — but both agree on
-the 250 µs floor, so this value is in spec either way.
+the 250 µs floor, so this value is in spec either way. It is also the
+setting that has run only on a Pi 5: nothing has yet run the loop on the CB2's
+Cortex-A55 cores. If Stage L step 3 fails on frame timing with B5 and B8
+confirmed, `cycle_us: 500` is the next thing to try — still inside both of
+ESTUN's ranges, and a multiple of the 250 µs quantum the node requires.
 
 **A Markforged Y move drives both motors while an X move drives only its own.**
 A plain `endstop_pin` works on both axes; only the **per-motor keyed** endstop
@@ -2054,9 +2075,12 @@ This step has an automated counterpart, so a failure here is more likely to be
 this machine than the software: `test/test_ethercat_claim_stub.py` spawns the
 same binary and completes the same handshake in the ordinary test suite (no
 master, no NIC, no MCU), and the simulator carries an EtherCAT world
-(`tools/sim/tests/test_ethercat_world.py`) that boots klippy against it with X
-and Y on servos and Z on a stepper. **If those are green and this step is not,
-suspect the config or the host, not the claim path.**
+(`tools/sim/tests/test_ethercat_world.py`) that boots **this guide's own Stage K
+config** against it — only the pins, the serial path, the endpoint and the
+Stage J identity swapped — then moves X, Y and a diagonal, enables torque with
+step 4's command, homes X and Y on their endstops and presses the stop. **If
+those are green and this step is not, suspect the host or the wiring, not the
+config or the claim path.**
 
 ### 2. Test the halt, still on the stub
 
@@ -2094,7 +2118,10 @@ If the drive **is** found but fails the SAFE-OP/OP/CiA402-enable walk
 **Then the real-time gate, on a cold boot.** This is the first point the loop
 runs against drives in `OP` with DC active, so it is the first point Stage B's
 real-time setup can fail. Power everything down, boot, let klippy claim, and
-leave it running for several minutes:
+leave it running for several minutes — with everything this board normally
+runs running too: Moonraker, the web front end open in a browser, and a webcam
+stream if the machine has one. The gate proves the loop under the load it will
+live with, not on an idle board:
 
 ```sh
 pid=$(pgrep -f release/ethercat-rt)
@@ -2119,8 +2146,20 @@ the endpoint really `SCHED_FIFO` on it?) before touching drive parameters.
 
 ### 4. Torque on, no motion
 
-Both drives reach **Operation Enabled** and hold position. `engine_state` stays
-running and never reaches `Fault (3)`.
+```
+SET_STEPPER_ENABLE STEPPER="axis x" ENABLE=1
+```
+
+Torque belongs to the node, so this enables **both** drives; `M18` disables it
+again. The quotes are needed — the servo rails are registered under their
+section names, `axis x` and `axis y`, and `STEPPER=x` is refused as an invalid
+stepper.
+
+Both drives reach **Operation Enabled** and hold position: with the belts off,
+each shaft pushes back when turned gently by hand, and turns freely again after
+`M18`. Do not force it — at `rotation_distance: 40` the 2 mm `following_error`
+is about 18° of shaft, and past it the drive faults, which is that limit doing
+its job. `engine_state` stays running and never reaches `Fault (3)`.
 
 **Before the first move:** the endpoint captures the rotor's current count as
 the origin at first sample, so the first commanded position maps to the actual
@@ -2320,6 +2359,7 @@ broken build.
 | Code | Meaning | First thing to check |
 | --- | --- | --- |
 | `A.70` | EtherCAT sync error / SYNC0 missed | RT scheduling: `SCHED_FIFO` on the isolated core |
+| klippy: `EtherCAT frame-timing fault` / `cycle-skip fault` | the host sent a frame late or missed a whole cycle — the host, not the drive | the Stage L step 3 gate: B5 and B8 first, then `cycle_us: 500` (K3) |
 | `A.71` | comms chip internal error | drive firmware or hardware |
 | `ERR` | EtherCAT init timeout | `Pn006.0 = 4`? cabling IN/OUT? |
 | `A.21` / `A.14` | main power off for more than one AC period | **expected after every emergency stop** — clear it (E8) |

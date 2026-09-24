@@ -165,7 +165,11 @@ cd ~/klipper
 git remote add serval https://github.com/PDAMUK/serval.git
 git fetch serval
 git checkout <the branch carrying this document>
+~/klippy-env/bin/pip install -r scripts/klippy-requirements.txt
 ```
+
+The last line matters if KIAUH installed mainline Klipper: this fork's klippy
+imports `numpy` at startup, and Klipper's own requirements do not carry it.
 
 **It must be this fork.** `docs/Quickstart.md` points at `dderg/kalico`, the
 upstream this is built on, which carries no markforged kinematics, no
@@ -253,6 +257,7 @@ cd ~/ethercat-igh
 make && make modules
 sudo make install && sudo make modules_install
 sudo depmod -a
+sudo ln -sf /opt/etherlab/bin/ethercat /usr/local/bin/ethercat   # the tool every later check runs
 ```
 
 See [`tools/ethercat-dwmac-rk/README.md`](../../tools/ethercat-dwmac-rk/README.md)
@@ -507,15 +512,17 @@ make -f Makefile.rust ethercat-endpoint-hw     # -> rust/target/release/ethercat
 > headers the build now stops and says so, naming the file it wanted, rather
 > than failing inside the C compiler.
 
-**Budget for this before starting it.** A cargo build of this workspace is not
-a `make` on a Pi: `rust/target` reaches 19-25 GB, and the CB2's eMMC may be
-smaller than that in total. Its 2-4 GB of RAM is the other limit — four parallel
-`rustc` processes linking the larger crates will run a 2 GB board out of memory,
-so pass `-j2` or set `CARGO_BUILD_JOBS=2` rather than discovering it as a
-killed compiler. A full disk surfaces as `ld terminated with signal 7 [Bus
-error]`, which reads like a broken toolchain and is not one;
-`rust/target/debug/incremental` is the largest directory that regenerates
-freely.
+**Budget for this before starting it.** What this build compiles — the
+endpoint, the stub and the three klippy modules, all release — leaves about
+1.1 GB in `rust/target` (measured on x86_64; an arm64 build is the same order).
+The 19-25 GB figure that goes with this workspace is the contributor gate's —
+every crate's debug test binaries — which is the thing not to run here. RAM is
+the tighter limit on a CB2: 2-4 GB, and four parallel `rustc` processes linking
+the larger crates will run a 2 GB board out of memory, so pass `-j2` or set
+`CARGO_BUILD_JOBS=2` rather than discovering it as a killed compiler. A full
+disk surfaces as `ld terminated with signal 7 [Bus error]`, which reads like a
+broken toolchain and is not one; all of `rust/target` regenerates, and
+`cargo clean` in `rust/` frees it.
 
 Build only what the printer runs. The endpoint and the klippy modules below are
 the whole list. **Do not run `./scripts/ci.sh` on this board** — it compiles and

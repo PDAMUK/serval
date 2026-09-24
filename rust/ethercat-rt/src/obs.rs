@@ -3,7 +3,7 @@
 //! The endpoint is a separate process from the klippy-hosted bridge, so it has
 //! no subscriber of its own — without this its `tracing` events vanish. This
 //! installs a JSON-lines subscriber that appends to `<events_dir>/host-ec.jsonl`
-//! with `source = "host-ec"`. Vector's `events/*.jsonl` glob ships the file to
+//! with `source = "host-ec"`, rotating it at the host logs' 32 MB × 5. Vector's `events/*.jsonl` glob ships the file to
 //! VictoriaLogs, so endpoint events are queryable alongside the bridge's
 //! (`source:=host-ec`).
 //!
@@ -16,8 +16,9 @@
 //! counter growth into an `obs_log_lines_dropped` warn from a periodic
 //! non-RT-critical caller.
 
-use std::io::Write;
-use std::path::Path;
+use std::fs::{File, OpenOptions};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
@@ -209,15 +210,83 @@ impl<S: Subscriber> Layer<S> for JsonlLayer {
     }
 }
 
-fn spawn_writer(file: std::fs::File) -> Sender<LogRecord> {
+/// The same cap and naming as the host's `RotatingJsonlWriter` in
+/// motion-services, so `host-ec.jsonl` is bounded like its neighbours rather
+/// than growing for as long as the node is claimed.
+pub(crate) const MAX_BYTES: u64 = 32 * 1024 * 1024;
+pub(crate) const BACKUP_COUNT: u32 = 5;
+
+pub(crate) struct RotatingLog {
+    path: PathBuf,
+    file: File,
+    written: u64,
+    max_bytes: u64,
+    backup_count: u32,
+}
+
+impl RotatingLog {
+    pub(crate) fn open(path: &Path, max_bytes: u64, backup_count: u32) -> io::Result<Self> {
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
+        let written = file.metadata()?.len();
+        Ok(Self {
+            path: path.to_path_buf(),
+            file,
+            written,
+            max_bytes,
+            backup_count,
+        })
+    }
+
+    fn rotated_path(&self, n: u32) -> PathBuf {
+        let mut s = self.path.as_os_str().to_os_string();
+        s.push(format!(".{n}"));
+        PathBuf::from(s)
+    }
+
+    fn rotate(&mut self) -> io::Result<()> {
+        let oldest = self.rotated_path(self.backup_count);
+        if oldest.exists() {
+            std::fs::remove_file(&oldest)?;
+        }
+        for n in (1..self.backup_count).rev() {
+            let src = self.rotated_path(n);
+            if src.exists() {
+                std::fs::rename(&src, self.rotated_path(n + 1))?;
+            }
+        }
+        std::fs::rename(&self.path, self.rotated_path(1))?;
+        self.file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        self.written = 0;
+        Ok(())
+    }
+
+    pub(crate) fn write_line(&mut self, line: &[u8]) -> io::Result<()> {
+        if self.written > 0 && self.written + line.len() as u64 > self.max_bytes {
+            self.rotate()?;
+        }
+        self.file.write_all(line)?;
+        self.written += line.len() as u64;
+        Ok(())
+    }
+}
+
+fn spawn_writer(mut log: RotatingLog) -> Sender<LogRecord> {
     let (sender, receiver) = bounded::<LogRecord>(CHANNEL_CAPACITY);
     std::thread::Builder::new()
         .name("obs-writer".into())
         .spawn(move || {
-            let mut file = file;
+            let mut reported = false;
             while let Ok(record) = receiver.recv() {
                 let line = render_line(record);
-                let _ = file.write_all(line.as_bytes());
+                if let Err(e) = log.write_line(line.as_bytes()) {
+                    if !reported {
+                        eprintln!("ec-rt: obs: writing {}: {e}", log.path.display());
+                        reported = true;
+                    }
+                }
             }
         })
         .expect("spawn obs-writer thread");
@@ -230,18 +299,14 @@ fn spawn_writer(file: std::fs::File) -> Sender<LogRecord> {
 pub fn init(events_dir: &Path, session: String) {
     let _ = SESSION.set(session);
     let path = events_dir.join("host-ec.jsonl");
-    let file = match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
-        Ok(f) => f,
+    let log = match RotatingLog::open(&path, MAX_BYTES, BACKUP_COUNT) {
+        Ok(log) => log,
         Err(e) => {
             eprintln!("ec-rt: obs: cannot open {}: {e}", path.display());
             return;
         }
     };
-    let sender = spawn_writer(file);
+    let sender = spawn_writer(log);
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let subscriber = tracing_subscriber::registry()
         .with(filter)

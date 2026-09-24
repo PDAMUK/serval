@@ -258,3 +258,26 @@ def test_a_step_cited_on_another_page_is_a_link():
         flat = re.sub(r"\s+", " ", text)
         bare = re.findall(r"(?<!\[)\b[Ss]tep \d+ of the [\w -]*?page\b", flat)
         assert not bare, "%s cites %s as prose" % (path.name, bare)
+
+
+def test_the_ethercat_tool_is_on_the_path_before_a_step_runs_it():
+    """`--prefix=/opt/etherlab` installs the `ethercat` tool as
+    /opt/etherlab/bin/ethercat, which is on no default PATH, and every page
+    then runs `ethercat master` and `ethercat slaves` bare. The first check
+    after the NIC handover would have answered "command not found"."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for rel in [
+        "docs/rewrite/ethercat-igh-macb-install.md",
+        "docs/rewrite/ethercat-host-cb2-rk3566.md",
+        "docs/rewrite/markforged-cb2-complete-build.md",
+    ]:
+        text = (root / rel).read_text(encoding="utf-8")
+        link = text.find(
+            "ln -sf /opt/etherlab/bin/ethercat /usr/local/bin/ethercat"
+        )
+        assert link >= 0, rel
+        first_use = re.search(r"^ethercat (master|slaves)", text, re.M)
+        assert first_use and link < first_use.start(), rel

@@ -702,3 +702,56 @@ def test_the_host_is_built_to_stay_real_time_after_first_boot(doc):
         assert check in text, check
     assert "/path/to/serval" not in text
     assert "ships them as `linux-headers-*`" not in flat
+
+
+def test_the_host_stays_lean_and_the_gate_runs_under_its_real_load():
+    """The loop shares CPUs 0-2, the memory bus and the one CPU clock with
+    everything else on the CB2. A real-time gate passed on an idle board says
+    nothing about the board with a web front end and a webcam streaming, and
+    the build budget quoted the contributor gate's 19-25 GB for a build that
+    leaves about 1 GB — the one number that decides whether an eMMC will do."""
+    stage_b = re.sub(
+        r"\s+", " ", TEXT.split("# Stage B")[1].split("\n# Stage C")[0]
+    )
+    assert "Install only what the printer needs" in stage_b
+    step3 = re.sub(
+        r"\s+",
+        " ",
+        TEXT.split("### 3. Real endpoint, motors uncoupled")[1].split("### 4.")[
+            0
+        ],
+    )
+    assert "not on an idle board" in step3
+    budget = stage_b.split("Budget for this before starting it.")[1][:600]
+    assert "1.1 GB" in budget
+    assert "debug/incremental" not in budget
+
+
+@pytest.mark.parametrize("doc", CB2_KERNEL_DOCS, ids=lambda p: p.stem)
+def test_the_fork_checkout_installs_the_forks_python_requirements(doc):
+    """B4 lets KIAUH install mainline Klipper and then checks this fork out
+    over it. klippy/webhooks.py imports numpy at startup, which Klipper's
+    virtualenv never installed, so klippy would not start."""
+    webhooks = (ROOT / "klippy" / "webhooks.py").read_text(encoding="utf-8")
+    assert re.search(r"^import numpy$", webhooks, re.M)
+    requirements = (ROOT / "scripts" / "klippy-requirements.txt").read_text()
+    assert re.search(r"^numpy==", requirements, re.M)
+    text = doc.read_text(encoding="utf-8")
+    assert (
+        "~/klippy-env/bin/pip install -r scripts/klippy-requirements.txt"
+        in text
+    )
+
+
+def test_the_fault_reference_explains_the_host_stall_shutdowns():
+    """On a host that has never run the loop, a frame-timing or cycle-skip
+    shutdown is the likeliest first failure at Stage L step 3, and the table
+    listed neither. It has to use klippy's own wording so a reader can find
+    the row from the message."""
+    source = (ROOT / "klippy" / "extras" / "ethercat_node.py").read_text()
+    reference = TEXT.split("# Fault quick reference")[1].split("\n# ")[0]
+    for phrase in ("EtherCAT frame-timing fault", "cycle-skip fault"):
+        assert phrase in source
+        assert phrase in reference
+    quantum = int(re.search(r"^CYCLE_US_QUANTUM = (\d+)$", source, re.M)[1])
+    assert "cycle_us: 500" in FLAT and 500 % quantum == 0

@@ -214,3 +214,75 @@ def test_the_cb2_guide_stop_halts_the_servos(sim_world, tmp_path):
         time.sleep(0.2)
     assert "ec-rt-stub: Stop" in stub
     assert "scheduled torque disable executed" in stub
+
+
+@pytest.mark.needs_elf
+def test_the_torque_command_the_guide_gives_enables_the_node(
+    sim_world, tmp_path
+):
+    """Stage L step 4 said the drives reach Operation Enabled and never said
+    how. The servo rails register with stepper_enable under their section
+    names, so the command is `SET_STEPPER_ENABLE STEPPER="axis x"`; the bare
+    axis letter is refused as an invalid stepper."""
+    import time
+
+    socket_path = str(tmp_path / "ec.sock")
+    world = sim_world(
+        lambda w: configs.cb2_guide_config(
+            REPO, w.h7_pty, str(w.gcode_dir), socket_path
+        ),
+        dual_mcu=False,
+    )
+    guide = (REPO / configs.CB2_GUIDE).read_text(encoding="utf-8")
+    step4 = guide.split("### 4. Torque on, no motion")[1].split("### 5.")[0]
+    command = re.search(r"```\n(SET_STEPPER_ENABLE [^\n]+)\n```", step4)[1]
+    world.gcode_ok(command)
+    deadline = time.monotonic() + 5
+    stub = ""
+    while time.monotonic() < deadline:
+        stub = (world.log_dir / "klippy.stdout").read_text(errors="replace")
+        if "torque enabled" in stub:
+            break
+        time.sleep(0.1)
+    assert "ec-rt-stub: torque enabled" in stub
+    world.gcode_ok("M18")
+    assert world.wait_for_log_text("has been manually enabled", timeout=5)
+
+
+@pytest.mark.needs_elf
+@pytest.mark.parametrize("axis,line", [("X", 10), ("Y", 11)])
+def test_the_cb2_guide_homes_each_servo_axis_on_its_manta_endstop(
+    sim_world, tmp_path, axis, line
+):
+    """Stage L step 8: a servo axis homes against a GPIO endstop on the Manta,
+    which is a lane the MCU does not step. Y is the Markforged axis that moves
+    both motors, and the second slot on the node."""
+    import threading
+    import time
+
+    socket_path = str(tmp_path / "ec.sock")
+    world = sim_world(
+        lambda w: configs.cb2_guide_config(
+            REPO, w.h7_pty, str(w.gcode_dir), socket_path
+        ),
+        dual_mcu=False,
+    )
+    control = world.sim_control()
+    control.set_gpio_input(0, line, 0)
+    outcome = {}
+
+    def home():
+        try:
+            outcome["result"] = world.gcode_ok("G28 %s" % axis, timeout=60)
+        except Exception as e:
+            outcome["error"] = e
+
+    homing = threading.Thread(target=home)
+    homing.start()
+    time.sleep(2.0)
+    control.set_gpio_input(0, line, 1)
+    time.sleep(0.3)
+    control.set_gpio_input(0, line, 0)
+    homing.join(70)
+    assert "error" not in outcome, outcome
+    assert "result" in outcome, "G28 %s never returned" % axis

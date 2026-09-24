@@ -1573,8 +1573,14 @@ Belts stay uncoupled until the final step.
    (`make -f Makefile.rust ethercat-endpoint-hw`). klippy spawns it itself at
    claim time; it is never launched by hand. Expect `ready` and a log line
    naming the profile and matched identity.
-4. **Torque on, no motion.** Both drives reach Operation Enabled and hold
-   position. `engine_state` stays running and never reaches `Fault (3)`.
+4. **Torque on, no motion.** `SET_STEPPER_ENABLE STEPPER="axis x" ENABLE=1`
+   enables torque on the node — both drives — and `M18` disables it; the
+   quotes are needed, because the rails are registered as `axis x` and
+   `axis y`. Both drives reach Operation Enabled and hold position: with the
+   belts off each shaft pushes back when turned gently by hand. Do not force
+   it — past the 2 mm `following_error`, about 18° of shaft at
+   `rotation_distance: 40`, the drive faults. `engine_state` stays running and
+   never reaches `Fault (3)`.
 5. **Small supervised jog.** `SET_KINEMATIC_POSITION`, then short `G1 X…` and
    `G1 Y…` moves. An X move turns **one** motor; a Y move turns **both**. Seeing
    that is the cheapest confirmation the kinematics matches the mechanics.

@@ -88,3 +88,54 @@ fn a_full_channel_drops_instead_of_blocking() {
         Err(crossbeam_channel::TrySendError::Disconnected(_))
     ));
 }
+
+use super::{RotatingLog, BACKUP_COUNT, MAX_BYTES};
+
+/// `host-ec.jsonl` was opened append-only and never rotated. With two drives
+/// at the default 250 us cycle the endpoint writes two per-slot telemetry
+/// lines and a stage-timing line every half second — about 1.8 kB a beat as
+/// `render_line` formats them, some 300 MB a day for as long as the node is
+/// claimed — onto a CB2's 8-16 GB eMMC. The host's own files are capped.
+#[test]
+fn the_endpoint_log_rotates_and_keeps_a_bounded_number_of_backups() {
+    let dir = std::env::temp_dir().join(format!("obs-rotate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("host-ec.jsonl");
+    let line = vec![b'x'; 99];
+    let mut log = RotatingLog::open(&path, 1000, 3).unwrap();
+    for _ in 0..100 {
+        log.write_line(&line).unwrap();
+    }
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "host-ec.jsonl",
+            "host-ec.jsonl.1",
+            "host-ec.jsonl.2",
+            "host-ec.jsonl.3"
+        ]
+    );
+    for name in &names {
+        assert!(std::fs::metadata(dir.join(name)).unwrap().len() <= 1000);
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_endpoint_log_is_capped_like_the_host_logs() {
+    let host_writer = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../motion-services/src/logging/writer.rs"
+    ))
+    .unwrap();
+    assert!(host_writer.contains("pub const DEFAULT_MAX_BYTES: u64 = 32 * 1024 * 1024;"));
+    assert!(host_writer.contains("pub const DEFAULT_BACKUP_COUNT: u32 = 5;"));
+    assert_eq!(MAX_BYTES, 32 * 1024 * 1024);
+    assert_eq!(BACKUP_COUNT, 5);
+}

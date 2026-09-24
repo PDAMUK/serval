@@ -220,6 +220,7 @@ make -j"$(nproc)"           # userspace: libethercat, the ethercat tool, init.d
 make modules -j"$(nproc)"   # kernel modules: ec_master, ec_generic, ec_macb (Kbuild)
 sudo make modules_install install
 sudo depmod -a
+sudo ln -sf /opt/etherlab/bin/ethercat /usr/local/bin/ethercat   # the tool every later check runs
 
 # Put libethercat on the dynamic linker's search path, or the endpoint fails at
 # runtime with "libethercat.so.1: cannot open shared object file".
